@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ассистент — Пожарная безопасность</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🔥 Ассистент</div>
+    <div class="status" id="health">Проверка соединения…</div>
+  </header>
+
+  <main class="hero">
+    <h1>Внутренний ассистент компании</h1>
+    <p class="subtitle">Работает локально, без интернета. Выберите задачу.</p>
+
+    <div class="cards">
+      <a class="card" href="/spellcheck.html">
+        <div class="card-icon">📝</div>
+        <h2>Проверка документа</h2>
+        <p>Орфография, пунктуация, деловой стиль. DOCX, PDF, скан или текст.</p>
+      </a>
+
+      <a class="card" href="/legal.html">
+        <div class="card-icon">⚖️</div>
+        <h2>Анализ договора</h2>
+        <p>Подводные камни, ссылки на ФЗ и СП, плюсы и минусы, предложения правок.</p>
+      </a>
+
+      <a class="card" href="/letter.html">
+        <div class="card-icon">✉️</div>
+        <h2>Официальное письмо</h2>
+        <p>Превратить набросок в письмо на фирменном бланке по ГОСТ Р 7.0.97-2016.</p>
+      </a>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>updateHealth();</script>
+</body>
+</html>

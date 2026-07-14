@@ -1,0 +1,50 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+
+# --- Коммерческая тайна: не публиковать ни при каких условиях ---
+# Корпус нормативных актов (может содержать внутренние правки/выжимки).
+# Публичные ФЗ остаются публичными, но в этом репо мы их не выкладываем.
+packages/rag/corpus/**
+!packages/rag/corpus/.gitkeep
+
+# Фирменные бланки писем компании (реквизиты, ИНН, подписанты).
+apps/backend/src/fire_safety_backend/resources/templates/**
+!apps/backend/src/fire_safety_backend/resources/templates/.gitkeep
+
+# Мини-БД от тестировщика и любые её распаковки
+Сжать.zip
+tester_db/
+/tmp/tester_db/
+
+# Runtime данные
+data/chroma/
+data/uploads/
+data/outputs/
+
+# Сборки
+build/**/*.app/
+build/screenshot*
+dist/
+
+# Логи
+*.log
+bootstrap.log
+
+# Секреты
+.env
+
+# IDE
+.vscode/
+.idea/
+.claude/
+
+# Промежуточные артефакты сборки иконок (готовые .icns / .ico остаются)
+build/icons/AppIcon.iconset/

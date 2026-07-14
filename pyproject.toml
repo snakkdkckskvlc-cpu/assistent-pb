@@ -1,0 +1,34 @@
+[project]
+name = "fire-safety-assistant"
+version = "0.2.0"
+description = "Локальный ИИ-ассистент для компании в сфере пожарной безопасности"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = { text = "MIT" }
+authors = [{ name = "Fire Safety Assistant Team" }]
+
+# Все пользовательские зависимости объявлены в apps/*/pyproject.toml
+# и packages/*/pyproject.toml. Здесь только dev-инструменты.
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "ruff==0.9.2",
+    "mypy==1.14.1",
+    "pytest==8.3.4",
+    "pytest-asyncio==0.25.2",
+    "httpx==0.28.1",
+]
+
+[tool.uv.workspace]
+members = ["apps/*", "packages/*"]
+
+[tool.uv.sources]
+fire-safety-backend = { workspace = true }
+fire-safety-desktop = { workspace = true }
+fire-safety-rag = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["apps/backend/tests", "packages/rag/tests"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers"

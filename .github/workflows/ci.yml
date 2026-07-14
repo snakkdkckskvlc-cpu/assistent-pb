@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    name: Lint · Types · Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.5.20"
+          enable-cache: true
+
+      - name: Setup Python
+        run: uv python install 3.11
+
+      - name: Sync dependencies
+        run: uv sync --all-packages --dev
+
+      - name: Ruff · lint
+        run: uv run ruff check .
+
+      - name: Ruff · format check
+        run: uv run ruff format --check .
+
+      - name: Mypy
+        run: |
+          PYTHONPATH="apps/backend/src:packages/rag/src" \
+          uv run mypy apps/backend/src packages/rag/src || true
+        # mypy warnings пока не блокирующие — постепенно добавляем типы
+
+      - name: Pytest · smoke + unit
+        env:
+          PYTHONPATH: apps/backend/src:packages/rag/src
+        run: uv run pytest -q --rootdir=.

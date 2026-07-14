@@ -1,0 +1,44 @@
+"""Настройки backend'а. Значения переопределяются через переменные окружения."""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+# fire_safety_backend/ (пакет)
+BASE_DIR = Path(__file__).resolve().parent
+
+# Корень проекта: fire_safety_backend/ → src → backend → apps → корень
+PROJECT_DIR = BASE_DIR.parent.parent.parent.parent
+
+# Ресурсы упакованы внутрь пакета
+RESOURCES_DIR = BASE_DIR / "resources"
+PROMPTS_DIR = RESOURCES_DIR / "prompts"
+LETTERHEAD_TEMPLATE = RESOURCES_DIR / "templates" / "letterhead.docx"
+
+# Frontend теперь в apps/desktop/frontend
+FRONTEND_DIR = PROJECT_DIR / "apps" / "desktop" / "frontend"
+
+# Runtime-данные общие на весь проект
+DATA_DIR = PROJECT_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
+UPLOAD_DIR = DATA_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR = DATA_DIR / "outputs"
+OUTPUT_DIR.mkdir(exist_ok=True)
+
+# --- LLM (Ollama) ---
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen2.5:14b-instruct-q4_K_M")
+LLM_TIMEOUT_SEC = int(os.environ.get("LLM_TIMEOUT_SEC", "900"))
+LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.2"))
+LLM_NUM_CTX = int(os.environ.get("LLM_NUM_CTX", "4096"))
+LLM_NUM_PREDICT_SPELLCHECK = 1500
+LLM_NUM_PREDICT_LEGAL = 3500
+LLM_NUM_PREDICT_LETTER = 1500
+
+# --- OCR ---
+TESSERACT_CMD = os.environ.get("TESSERACT_CMD")  # None → авто из PATH
+TESSERACT_LANG = "rus+eng"
+
+# --- Chunking для длинных текстов при spellcheck ---
+SPELLCHECK_CHUNK_WORDS = 300

@@ -1,0 +1,28 @@
+line-length = 100
+target-version = "py311"
+
+extend-exclude = ["venv", "build", "data", ".venv"]
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "TCH", # flake8-type-checking
+]
+ignore = [
+    "E501",   # длина строки — контролируется formatter'ом
+    "B008",   # FastAPI использует Depends() как default
+]
+
+[lint.per-file-ignores]
+"apps/backend/tests/**" = ["S101"]  # assert разрешён в тестах
+"packages/rag/tests/**" = ["S101"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Проверка документа — Ассистент</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><a href="/">🔥 Ассистент</a></div>
+    <div class="status" id="health"></div>
+  </header>
+
+  <main class="page">
+    <a class="back" href="/">← На главную</a>
+    <div class="section">
+      <h2>📝 Проверка документа</h2>
+      <p class="hint">Проверка орфографии, пунктуации и делового стиля. DOCX, PDF, сканы или вставленный текст.</p>
+
+      <div class="field">
+        <span class="field-label">Загрузить файл (DOCX / PDF / скан)</span>
+        <div class="file-picker">
+          <label class="btn btn-secondary" for="file">📎 Выбрать файл</label>
+          <input type="file" id="file" class="visually-hidden" accept=".docx,.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.txt">
+          <span class="file-name" id="file-name">Файл не выбран</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>… или вставить текст</label>
+        <textarea id="text" placeholder="Вставьте текст для проверки…"></textarea>
+      </div>
+
+      <div class="actions">
+        <button class="btn" id="submit">Проверить</button>
+        <span class="hint">На CPU ≈ 30–60 сек на страницу.</span>
+      </div>
+
+      <div id="progress" class="progress" style="display:none"></div>
+      <div id="error" class="error-box" style="display:none"></div>
+      <div id="result" class="result"></div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    updateHealth();
+
+    function renderSpellcheckResult(result, container) {
+      const stats = result.stats || {};
+      const errors = result.errors || [];
+      const byType = stats.by_type || {};
+      const parts = [];
+
+      parts.push(`<h3>Сводка</h3>`);
+      parts.push(`<p>Найдено ошибок: <b>${stats.total_errors ?? errors.length}</b>`);
+      if (Object.keys(byType).length) {
+        const chips = Object.entries(byType).map(([t, n]) => ` · ${escapeHtml(t)}: ${n}`).join("");
+        parts.push(chips);
+      }
+      parts.push(`</p>`);
+
+      if (errors.length) {
+        parts.push(`<h3>Ошибки</h3>`);
+        parts.push(`<table><thead><tr><th>Тип</th><th>Было</th><th>Стало</th><th>Пояснение</th></tr></thead><tbody>`);
+        for (const e of errors) {
+          const cls = (e.type || "").toLowerCase().includes("орф") ? "orph"
+            : (e.type || "").toLowerCase().includes("пункт") ? "punct" : "style";
+          parts.push(`<tr>
+            <td><span class="chip ${cls}">${escapeHtml(e.type || "")}</span></td>
+            <td>${escapeHtml(e.before || "")}</td>
+            <td>${escapeHtml(e.after || "")}</td>
+            <td>${escapeHtml(e.reason || "")}</td>
+          </tr>`);
+        }
+        parts.push(`</tbody></table>`);
+      } else {
+        parts.push(`<p style="color:var(--green)"><b>✓ Ошибок не найдено.</b></p>`);
+      }
+
+      if (result.corrected_text) {
+        parts.push(`<h3>Исправленный текст</h3>`);
+        parts.push(`<div class="corrected-text">${escapeHtml(result.corrected_text)}</div>`);
+      }
+
+      container.innerHTML = parts.join("");
+    }
+
+    const fileInput = document.getElementById("file");
+    const fileNameEl = document.getElementById("file-name");
+    fileInput.addEventListener("change", () => {
+      fileNameEl.textContent = fileInput.files[0] ? fileInput.files[0].name : "Файл не выбран";
+      fileNameEl.classList.toggle("has-file", !!fileInput.files[0]);
+    });
+
+    document.getElementById("submit").addEventListener("click", () => {
+      const file = fileInput.files[0];
+      const text = document.getElementById("text").value;
+      submitForm({
+        endpoint: "/api/spellcheck",
+        buildRequest: () => {
+          const fd = new FormData();
+          if (file) fd.append("file", file);
+          if (text.trim()) fd.append("text", text);
+          return { url: "/api/spellcheck", body: fd };
+        },
+        resultContainer: document.getElementById("result"),
+        progressContainer: document.getElementById("progress"),
+        renderResult: renderSpellcheckResult,
+      });
+    });
+  </script>
+</body>
+</html>
