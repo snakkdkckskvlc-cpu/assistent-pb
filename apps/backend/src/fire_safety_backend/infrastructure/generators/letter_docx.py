@@ -4,10 +4,15 @@
   {{date}}, {{recipient}}, {{subject}}, {{greeting}}, {{body}},
   {{signoff}}, {{sender_position}}, {{sender_name}}
 
+Многострочные значения ({{recipient}} = «Директору …\\nИванову А.А.»,
+многоабзацное {{body}}) корректно разбиваются на параграфы с сохранением
+формата исходного плейсхолдер-параграфа.
+
 Если шаблона нет — генерирует чистый DOCX без бланка.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date
 from pathlib import Path
 
@@ -19,15 +24,36 @@ from ... import config
 def _replace_in_paragraph(paragraph, mapping: dict[str, str]) -> None:
     for key, value in mapping.items():
         placeholder = f"{{{{{key}}}}}"
-        if placeholder in paragraph.text:
-            # Пересобираем runs, чтобы не портить форматирование сильно
-            full = paragraph.text.replace(placeholder, value)
-            for run in paragraph.runs:
-                run.text = ""
-            if paragraph.runs:
-                paragraph.runs[0].text = full
+        if placeholder not in paragraph.text:
+            continue
+
+        lines = str(value).split("\n") if value else [""]
+        first_line = paragraph.text.replace(placeholder, lines[0])
+
+        # Пересобираем runs так, чтобы сохранить формат первого run
+        for run in paragraph.runs:
+            run.text = ""
+        if paragraph.runs:
+            paragraph.runs[0].text = first_line
+        else:
+            paragraph.add_run(first_line)
+
+        # Остальные строки — как отдельные параграфы сразу после текущего,
+        # с копией формата (стили, выравнивание, шрифт).
+        prev_p = paragraph
+        for line in lines[1:]:
+            new_p_xml = deepcopy(paragraph._p)
+            prev_p._p.addnext(new_p_xml)
+            # Нужен объект Paragraph, а не только XML — получим через parent
+            from docx.text.paragraph import Paragraph as _P
+            new_p = _P(new_p_xml, paragraph._parent)
+            for r in new_p.runs:
+                r.text = ""
+            if new_p.runs:
+                new_p.runs[0].text = line
             else:
-                paragraph.add_run(full)
+                new_p.add_run(line)
+            prev_p = new_p
 
 
 def _apply_mapping(doc: Document, mapping: dict[str, str]) -> None:
