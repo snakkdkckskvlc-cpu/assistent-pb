@@ -49,11 +49,16 @@
 
     function renderLetterResult(result, container) {
       const parts = [];
-      parts.push(`<h3>Готовое письмо</h3>`);
+
+      // === 1. Официальное письмо ===
+      parts.push(`<h3>📄 Официальное письмо (для печати на бланке)</h3>`);
       if (result._warning) {
         parts.push(`<div class="verdict">⚠ ${escapeHtml(result._warning)}</div>`);
       }
       parts.push(`<div class="letter-preview">`);
+      if (result["получатель"]) {
+        parts.push(`<div class="letter-recipient">${escapeHtml(result["получатель"]).replace(/\n/g, "<br>")}</div><br>`);
+      }
       if (result["тема"]) {
         parts.push(`<div class="letter-subject">Касательно: ${escapeHtml(result["тема"])}</div>`);
       }
@@ -66,17 +71,53 @@
       if (result["формула_вежливости"]) {
         parts.push(`<div>${escapeHtml(result["формула_вежливости"])}</div>`);
       }
-      parts.push(`<div style="color:var(--muted)">${escapeHtml(result["должность_отправителя_placeholder"] || "")}</div>`);
-      parts.push(`<div style="color:var(--muted)">${escapeHtml(result["фио_отправителя_placeholder"] || "")}</div>`);
+      const pos = result["должность_отправителя_placeholder"] || "Директор";
+      const name = result["фио_отправителя_placeholder"] || "О.Н. Сляднев";
+      parts.push(`<div style="color:var(--muted);margin-top:10px">${escapeHtml(pos)} — ${escapeHtml(name)}</div>`);
       parts.push(`</div>`);
 
       if (result._docx_path) {
         parts.push(`<div class="actions" style="margin-top:16px">
-          <a class="btn" href="/api/download/${encodeURIComponent(result._docx_path)}">📄 Скачать DOCX</a>
+          <a class="btn" href="/api/download/${encodeURIComponent(result._docx_path)}" download>📄 Скачать DOCX (на бланке ПожСервис)</a>
+        </div>`);
+      }
+
+      // === 2. Сопроводительное e-mail ===
+      const email = result.email || {};
+      if (email["тело"] || email["тема"]) {
+        parts.push(`<h3 style="margin-top:32px">📧 Сопроводительное e-mail</h3>`);
+        parts.push(`<div class="email-preview">`);
+        parts.push(`<div class="email-header"><span class="email-label">Кому:</span> <span id="email-to">${escapeHtml(email["кому"] || "(не указано)")}</span></div>`);
+        parts.push(`<div class="email-header"><span class="email-label">Тема:</span> <span id="email-subj">${escapeHtml(email["тема"] || "")}</span></div>`);
+        parts.push(`<div class="email-body" id="email-body">${escapeHtml(email["тело"] || "").replace(/\n/g, "<br>")}</div>`);
+        parts.push(`</div>`);
+        parts.push(`<div class="actions" style="margin-top:12px">
+          <button class="btn btn-secondary" id="copy-email">📋 Скопировать e-mail</button>
+          <span class="hint" id="copy-status"></span>
         </div>`);
       }
 
       container.innerHTML = parts.join("");
+
+      // Обработчик копирования e-mail в буфер
+      const copyBtn = document.getElementById("copy-email");
+      if (copyBtn) {
+        copyBtn.addEventListener("click", async () => {
+          const text = [
+            "Кому: " + (email["кому"] || ""),
+            "Тема: " + (email["тема"] || ""),
+            "",
+            email["тело"] || "",
+          ].join("\n");
+          try {
+            await navigator.clipboard.writeText(text);
+            document.getElementById("copy-status").textContent = "✓ Скопировано";
+            setTimeout(() => (document.getElementById("copy-status").textContent = ""), 2500);
+          } catch (e) {
+            document.getElementById("copy-status").textContent = "Не удалось скопировать: " + e.message;
+          }
+        });
+      }
     }
 
     document.getElementById("submit").addEventListener("click", () => {

@@ -293,6 +293,43 @@ th { color: var(--muted); font-weight: 500; font-size: 13px; text-transform: upp
 }
 .letter-preview .letter-subject { font-weight: 600; margin-bottom: 12px; }
 .letter-preview .letter-greeting { font-weight: 500; }
+.letter-preview .letter-recipient {
+  text-align: right;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Сопроводительное e-mail */
+.email-preview {
+  background: #fafbfc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  font-family: -apple-system, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.email-header {
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border);
+  margin-bottom: 4px;
+}
+.email-header:last-of-type {
+  margin-bottom: 12px;
+}
+.email-label {
+  display: inline-block;
+  min-width: 60px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.email-body {
+  white-space: pre-wrap;
+  margin-top: 12px;
+}
 
 @media (max-width: 780px) {
   .cards { grid-template-columns: 1fr; }

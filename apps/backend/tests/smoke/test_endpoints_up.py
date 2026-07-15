@@ -28,6 +28,11 @@ def _mock_pipeline_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path) -> No
             "формула_вежливости": "С уважением,",
             "должность_отправителя_placeholder": "[должность]",
             "фио_отправителя_placeholder": "[Фамилия И.О.]",
+            "email": {
+                "кому": "test@example.com",
+                "тема": "test",
+                "тело": "Тестовое сопроводительное письмо.",
+            },
         }
 
     from fire_safety_backend.infrastructure import llm
@@ -86,7 +91,13 @@ def test_letter_accepts_draft(client: TestClient) -> None:
     task_id = r.json()["task_id"]
     result = _wait_task_done(client, task_id)
     assert result["status"] == "done", result
-    assert "тема" in result["result"]
+    payload = result["result"]
+    assert "тема" in payload
+    # Проверяем что появилось сопроводительное e-mail
+    assert "email" in payload
+    assert "тело" in payload["email"]
+    # DOCX сгенерирован
+    assert payload.get("_docx_path"), "Должен быть путь к DOCX для скачивания"
 
 
 def test_reject_empty_input(client: TestClient) -> None:
