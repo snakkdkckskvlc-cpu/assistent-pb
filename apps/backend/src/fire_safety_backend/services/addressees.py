@@ -1,8 +1,9 @@
-"""CRUD-сервис справочника адресатов писем.
+"""Сервис справочника адресатов писем: список/создание/удаление.
 
 Хранение — SQLite (infrastructure/db.py). Никакой бизнес-логики LLM здесь нет:
 сервис работает только с БД.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -10,12 +11,33 @@ import sqlite3
 from ..infrastructure.db import connect
 from ..models import Addressee, AddresseeCreate
 
+# Дефолтные адресаты, заливаются при первом запуске (init_db → seed_defaults).
+# «ПАО НЛМК» — реальный основной заказчик компании, оставлен как пример.
+_DEFAULT_ADDRESSEES = [
+    ("заказчик", "уважительно и по-деловому"),
+    ("партнёр", "уважительно и по-деловому"),
+    ("подрядчик", "по-деловому конкретно"),
+    ("МЧС", "строго формально, со ссылкой на нормативку"),
+    ("госорган", "строго формально, со ссылкой на нормативку"),
+    ("ПАО НЛМК", "максимально формально, официальный тон"),
+]
+
+
+def seed_defaults() -> None:
+    """Заливает дефолтных адресатов, если их ещё нет (идемпотентно)."""
+    with connect() as conn:
+        for name, tone in _DEFAULT_ADDRESSEES:
+            conn.execute(
+                "INSERT OR IGNORE INTO addressees (name, tone_hint, is_default) VALUES (?, ?, 1)",
+                (name, tone),
+            )
+
 
 def list_all() -> list[Addressee]:
     with connect() as conn:
         rows = conn.execute(
             "SELECT id, name, tone_hint, is_default, created_at "
-            "FROM addressees ORDER BY is_default DESC, name COLLATE NOCASE"
+            "FROM addressees ORDER BY is_default DESC, name COLLATE NOCASE_UNICODE"
         ).fetchall()
     return [_row_to_model(r) for r in rows]
 
@@ -25,7 +47,7 @@ def create(payload: AddresseeCreate) -> Addressee:
         try:
             cur = conn.execute(
                 "INSERT INTO addressees (name, tone_hint, is_default) VALUES (?, ?, 0)",
-                (payload.name.strip(), payload.tone_hint.strip()),
+                (payload.name, payload.tone_hint),
             )
         except sqlite3.IntegrityError as e:
             raise ValueError(f"Адресат «{payload.name}» уже существует") from e
@@ -53,11 +75,14 @@ def delete(addressee_id: int) -> None:
 def get_tone_hint(name: str) -> str:
     """Возвращает подсказку тона для адресата (используется в промпте письма).
 
+    Сравнение регистронезависимое и без учёта краевых пробелов — совпадает
+    с сортировкой в list_all() и с уникальностью в схеме БД.
     Если адресат неизвестен — возвращает пустую строку (модель сама решит).
     """
     with connect() as conn:
         row = conn.execute(
-            "SELECT tone_hint FROM addressees WHERE name = ?", (name,)
+            "SELECT tone_hint FROM addressees WHERE name = ? COLLATE NOCASE_UNICODE",
+            (name.strip(),),
         ).fetchone()
     return row["tone_hint"] if row else ""
 

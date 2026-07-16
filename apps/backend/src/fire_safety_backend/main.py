@@ -2,6 +2,7 @@
 
 App factory собирает все роутеры из views/ и монтирует статику фронтенда.
 """
+
 from __future__ import annotations
 
 import logging
@@ -11,8 +12,10 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from . import config
+from .infrastructure import llm
 from .infrastructure.db import init_db
 from .infrastructure.queue import queue
+from .services import addressees as addressee_service
 from .views import (
     addressees,
     downloads,
@@ -34,6 +37,8 @@ log = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    addressee_service.seed_defaults()
+    llm.startup()
     queue.start()
     log.info(
         "Backend started. Ollama: %s, model: %s",
@@ -42,6 +47,7 @@ async def lifespan(app: FastAPI):
     )
     yield
     await queue.stop()
+    await llm.shutdown()
 
 
 def create_app() -> FastAPI:

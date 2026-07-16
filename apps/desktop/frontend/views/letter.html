@@ -18,14 +18,14 @@
       <p class="hint">Опишите суть в свободной форме — ассистент составит письмо по ГОСТ Р 7.0.97-2016 на фирменном бланке.</p>
 
       <div class="field">
-        <label>Тип адресата</label>
-        <select id="addressee">
-          <option value="заказчик">Заказчик</option>
-          <option value="партнёр">Партнёр</option>
-          <option value="подрядчик">Подрядчик</option>
-          <option value="МЧС">МЧС</option>
-          <option value="госорган">Госорган</option>
-        </select>
+        <label for="addressee">Тип адресата</label>
+        <div class="actions" style="align-items:center">
+          <input type="text" list="addressee-options" id="addressee" placeholder="Например: заказчик" style="flex:1 1 auto">
+          <datalist id="addressee-options"></datalist>
+          <button type="button" class="btn btn-secondary" id="save-addressee">＋ Сохранить в справочник</button>
+          <span class="hint" id="addressee-status"></span>
+        </div>
+        <div id="addressee-list" class="hint" style="margin-top:6px"></div>
       </div>
       <div class="field">
         <label>Набросок письма</label>
@@ -46,6 +46,72 @@
   <script src="/static/app.js"></script>
   <script>
     updateHealth();
+    loadAddressees();
+
+    async function loadAddressees() {
+      const list = document.getElementById("addressee-list");
+      const options = document.getElementById("addressee-options");
+      try {
+        const r = await fetch("/api/addressees");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const addressees = await r.json();
+
+        options.innerHTML = addressees
+          .map(a => `<option value="${escapeHtml(a.name)}"></option>`)
+          .join("");
+
+        const custom = addressees.filter(a => !a.is_default);
+        if (custom.length === 0) {
+          list.textContent = "";
+          return;
+        }
+        list.innerHTML = "Добавленные: " + custom.map(a =>
+          `<span style="margin-right:10px">${escapeHtml(a.name)} ` +
+          `<a href="#" data-id="${a.id}" class="delete-addressee" title="Удалить">✕</a></span>`
+        ).join("");
+        list.querySelectorAll(".delete-addressee").forEach(link => {
+          link.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            const id = ev.target.getAttribute("data-id");
+            try {
+              const r = await fetch(`/api/addressees/${id}`, { method: "DELETE" });
+              if (!r.ok && r.status !== 204) throw new Error("HTTP " + r.status);
+              await loadAddressees();
+            } catch (e) {
+              document.getElementById("addressee-status").textContent = "Не удалось удалить: " + e.message;
+            }
+          });
+        });
+      } catch (e) {
+        list.textContent = "";
+      }
+    }
+
+    document.getElementById("save-addressee").addEventListener("click", async () => {
+      const status = document.getElementById("addressee-status");
+      const name = document.getElementById("addressee").value.trim();
+      if (!name) {
+        status.textContent = "Введите название адресата";
+        return;
+      }
+      try {
+        const r = await fetch("/api/addressees", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        if (r.status === 409) {
+          status.textContent = "Такой адресат уже есть в справочнике";
+          return;
+        }
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        status.textContent = "✓ Сохранено";
+        setTimeout(() => (status.textContent = ""), 2500);
+        await loadAddressees();
+      } catch (e) {
+        status.textContent = "Не удалось сохранить: " + e.message;
+      }
+    });
 
     function renderLetterResult(result, container) {
       const parts = [];

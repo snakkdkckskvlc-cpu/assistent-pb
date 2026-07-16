@@ -28,6 +28,7 @@ tester_db/
 data/chroma/
 data/uploads/
 data/outputs/
+data/app.db
 
 # Сборки
 build/**/*.app/

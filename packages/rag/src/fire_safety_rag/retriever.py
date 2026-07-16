@@ -4,6 +4,7 @@
 `is_ready()` возвращает False, `search()` возвращает []. Это позволяет запускать
 backend без тяжёлых RAG-зависимостей на dev-машине.
 """
+
 from __future__ import annotations
 
 import logging
@@ -34,7 +35,9 @@ class Retriever:
                 embedding_function=embed_fn,
             )
         except Exception as e:
-            log.warning("RAG-коллекция ещё не создана: %s. Юр. анализ будет без ссылок на нормы.", e)
+            log.warning(
+                "RAG-коллекция ещё не создана: %s. Юр. анализ будет без ссылок на нормы.", e
+            )
             self._collection = None
 
     def is_ready(self) -> bool:
@@ -50,8 +53,27 @@ class Retriever:
         distances = res.get("distances", [[]])[0]
         return [
             {"text": d, "source": m.get("source", "?"), "score": 1 - dist}
-            for d, m, dist in zip(docs, metas, distances)
+            for d, m, dist in zip(docs, metas, distances, strict=True)
         ]
+
+    def search_many(self, queries: list[str], top_k: int | None = None) -> list[list[dict]]:
+        """Батч-версия search(): один round-trip в ChromaDB на несколько запросов."""
+        if not self.is_ready() or not queries:
+            return [[] for _ in queries]
+        k = top_k or config.TOP_K
+        res = self._collection.query(query_texts=queries, n_results=k)
+        docs_lists = res.get("documents", [])
+        metas_lists = res.get("metadatas", [])
+        dist_lists = res.get("distances", [])
+        out: list[list[dict]] = []
+        for docs, metas, distances in zip(docs_lists, metas_lists, dist_lists, strict=True):
+            out.append(
+                [
+                    {"text": d, "source": m.get("source", "?"), "score": 1 - dist}
+                    for d, m, dist in zip(docs, metas, distances, strict=True)
+                ]
+            )
+        return out
 
 
 @lru_cache(maxsize=1)
@@ -61,3 +83,12 @@ def _default_retriever() -> Retriever:
 
 def retrieve(query: str, top_k: int | None = None) -> list[dict]:
     return _default_retriever().search(query, top_k=top_k)
+
+
+def retrieve_many(queries: list[str], top_k: int | None = None) -> list[list[dict]]:
+    return _default_retriever().search_many(queries, top_k=top_k)
+
+
+def is_ready() -> bool:
+    """Готовность RAG без пересоздания ретривера (для /api/health)."""
+    return _default_retriever().is_ready()

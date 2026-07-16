@@ -2,6 +2,7 @@
 
 LLM, RAG и генератор DOCX замоканы — реальные вызовы Ollama/ChromaDB не делаются.
 """
+
 from __future__ import annotations
 
 import time
@@ -36,11 +37,15 @@ def _mock_pipeline_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path) -> No
         }
 
     from fire_safety_backend.infrastructure import llm
+
     monkeypatch.setattr(llm, "chat_json", fake_chat_json)
 
     # RAG: пусто, без обращения к ChromaDB
     from fire_safety_backend.pipelines import legacy as pipelines_legacy
-    monkeypatch.setattr(pipelines_legacy, "retrieve", lambda *a, **kw: [])
+
+    monkeypatch.setattr(
+        pipelines_legacy, "retrieve_many", lambda queries, top_k=None: [[] for _ in queries]
+    )
 
     # Генератор DOCX: просто создаём файл-заглушку
     def fake_build_letter_docx(letter: dict, output_path):
@@ -49,7 +54,13 @@ def _mock_pipeline_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path) -> No
         return output_path
 
     from fire_safety_backend.infrastructure.generators import letter_docx
+
     monkeypatch.setattr(letter_docx, "build_letter_docx", fake_build_letter_docx)
+
+    # Пишем в tmp_path, а не в реальный data/outputs/.
+    from fire_safety_backend import config
+
+    monkeypatch.setattr(config, "OUTPUT_DIR", tmp_path)
 
 
 def _wait_task_done(client: TestClient, task_id: str, timeout_s: float = 5) -> dict:
