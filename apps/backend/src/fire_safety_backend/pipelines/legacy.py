@@ -132,8 +132,19 @@ async def run_legal_analysis(text: str, task: Task | None = None) -> dict:
 
 async def run_letter(draft: str, addressee_type: str = "заказчик", task: Task | None = None) -> dict:
     prompt = _load_prompt("letter")
+
+    # Подтягиваем подсказку тона из БД (справочник адресатов).
+    # Если БД недоступна или адресат не найден — идём без подсказки.
+    tone_hint = ""
+    try:
+        from ..services import addressees as addressee_service
+        tone_hint = addressee_service.get_tone_hint(addressee_type)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Не удалось получить tone_hint для '%s': %s", addressee_type, e)
+
+    tone_line = f" (тон: {tone_hint})" if tone_hint else ""
     user_msg = (
-        f"ТИП АДРЕСАТА: {addressee_type}\n\n"
+        f"ТИП АДРЕСАТА: {addressee_type}{tone_line}\n\n"
         f"НАБРОСОК ПОЛЬЗОВАТЕЛЯ:\n---\n{draft}\n---\n\n"
         f"Составь официальное письмо."
     )

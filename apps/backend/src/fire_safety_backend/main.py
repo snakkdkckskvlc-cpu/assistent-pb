@@ -11,8 +11,18 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from . import config
+from .infrastructure.db import init_db
 from .infrastructure.queue import queue
-from .views import downloads, health, legal, letter, spellcheck, static_pages, tasks
+from .views import (
+    addressees,
+    downloads,
+    health,
+    legal,
+    letter,
+    spellcheck,
+    static_pages,
+    tasks,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,6 +33,7 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_db()
     queue.start()
     log.info(
         "Backend started. Ollama: %s, model: %s",
@@ -42,6 +53,7 @@ def create_app() -> FastAPI:
     app.include_router(letter.router)
     app.include_router(tasks.router)
     app.include_router(downloads.router)
+    app.include_router(addressees.router)
 
     # Frontend (статика + HTML-страницы) — только если каталог существует
     if config.FRONTEND_DIR.exists():
