@@ -37,3 +37,6 @@
 - [Установка на Windows](07-ops/install-windows.md)
 - [Установка на macOS/Linux (dev)](07-ops/install-macos.md)
 - [Диагностика проблем](07-ops/troubleshooting.md)
+
+## 08 · Референсы
+- [Пять open-source проектов, изучаемых в контексте нашего](08-references.md)
