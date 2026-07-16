@@ -65,11 +65,14 @@
         for (const e of errors) {
           const cls = (e.type || "").toLowerCase().includes("орф") ? "orph"
             : (e.type || "").toLowerCase().includes("пункт") ? "punct" : "style";
+          const srcTag = e.source === "languagetool"
+            ? ` <span class="hint" title="Найдено детерминированным правилом LanguageTool, не LLM">· LanguageTool</span>`
+            : "";
           parts.push(`<tr>
             <td><span class="chip ${cls}">${escapeHtml(e.type || "")}</span></td>
             <td>${escapeHtml(e.before || "")}</td>
             <td>${escapeHtml(e.after || "")}</td>
-            <td>${escapeHtml(e.reason || "")}</td>
+            <td>${escapeHtml(e.reason || "")}${srcTag}</td>
           </tr>`);
         }
         parts.push(`</tbody></table>`);

@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from ..infrastructure.queue import queue
 from ..models import LetterRequest
-from ..pipelines import legacy as pipelines
+from ..pipelines import letter as pipelines
 
 router = APIRouter(prefix="/api", tags=["letter"])
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from ..infrastructure.queue import queue
-from ..pipelines import legacy as pipelines
+from ..pipelines import legal as pipelines
 from ..services import text_from_input
 
 router = APIRouter(prefix="/api", tags=["legal"])

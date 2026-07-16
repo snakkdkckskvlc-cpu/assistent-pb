@@ -7,7 +7,9 @@ async function updateHealth() {
     const r = await fetch("/api/health");
     const data = await r.json();
     if (data.ok) {
-      el.textContent = `● ${data.ollama.model} готова${data.rag_ready ? " · нормативная база подключена" : " · нормативная база не подключена"}`;
+      const rag = data.rag_ready ? " · нормативная база подключена" : " · нормативная база не подключена";
+      const lt = data.languagetool_ready ? " · LanguageTool подключен" : "";
+      el.textContent = `● ${data.ollama.model} готова${rag}${lt}`;
       el.className = "status ok";
     } else {
       el.textContent = "⚠ " + (data.ollama.warning || "Ollama недоступна");

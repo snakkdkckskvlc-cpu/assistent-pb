@@ -54,3 +54,9 @@ build/icons/AppIcon.iconset/
 # в приватный репо — тяжёлые и с чужими лицензиями). Описание — в
 # docs/08-references.md.
 references/
+
+# Вендоренный JDK + LanguageTool сервер (~430 МБ, скачиваются
+# tools/languagetool/{start.sh не трогает, но JDK/jar — бинарники}).
+# Словарь dict/spelling_global.txt — НЕ игнорировать, это наш контент.
+tools/languagetool/jdk-*/
+tools/languagetool/LanguageTool-*/

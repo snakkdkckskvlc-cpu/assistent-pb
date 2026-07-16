@@ -1,4 +1,5 @@
 """Настройки backend'а. Значения переопределяются через переменные окружения."""
+
 from __future__ import annotations
 
 import os
@@ -39,6 +40,13 @@ LLM_NUM_PREDICT_LETTER = 1500
 # --- OCR ---
 TESSERACT_CMD = os.environ.get("TESSERACT_CMD")  # None → авто из PATH
 TESSERACT_LANG = "rus+eng"
+
+# --- LanguageTool (офлайн-проверка грамматики/пунктуации, доп. к LLM) ---
+# Отдельный локальный процесс (tools/languagetool/start.sh), не часть backend'а —
+# так же, как Ollama. Недоступен — просто идём только на LLM (см.
+# infrastructure/languagetool.py::check).
+LANGUAGETOOL_HOST = os.environ.get("LANGUAGETOOL_HOST", "http://127.0.0.1:8081")
+LANGUAGETOOL_TIMEOUT_SEC = float(os.environ.get("LANGUAGETOOL_TIMEOUT_SEC", "20"))
 
 # --- Chunking для длинных текстов при spellcheck ---
 SPELLCHECK_CHUNK_WORDS = 300

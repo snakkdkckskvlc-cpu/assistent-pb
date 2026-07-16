@@ -7,7 +7,7 @@ import logging
 
 from fastapi import APIRouter
 
-from ..infrastructure import llm
+from ..infrastructure import languagetool, llm
 
 log = logging.getLogger(__name__)
 
@@ -26,4 +26,13 @@ async def health() -> dict:
         rag_ready = await asyncio.to_thread(fire_safety_rag.is_ready)
     except Exception as e:
         log.warning("RAG probe failed: %s", e)
-    return {"ok": ollama["ok"], "ollama": ollama, "rag_ready": rag_ready}
+
+    # Необязательный сервис — недоступен, спелл-чек просто идёт только на LLM.
+    lt = await languagetool.healthcheck()
+
+    return {
+        "ok": ollama["ok"],
+        "ollama": ollama,
+        "rag_ready": rag_ready,
+        "languagetool_ready": lt["ok"],
+    }

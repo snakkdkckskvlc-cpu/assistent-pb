@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import config
+from .chunking import chunk_sentences
 
 log = logging.getLogger(__name__)
 
@@ -31,17 +32,6 @@ def _default_text_reader(path: Path) -> str:
         f"Файл {path.name}: расширение {path.suffix} не поддерживается стандартным "
         f"reader. Передайте `text_reader` явно (например, парсеры backend)."
     )
-
-
-def _chunk_text(text: str, chunk_words: int, overlap: int) -> list[str]:
-    words = text.split()
-    chunks: list[str] = []
-    i = 0
-    while i < len(words):
-        chunk = " ".join(words[i : i + chunk_words])
-        chunks.append(chunk)
-        i += chunk_words - overlap
-    return [c for c in chunks if c.strip()]
 
 
 def _file_hash(path: Path) -> str:
@@ -108,7 +98,7 @@ def build_index(
                 stats["skipped"] += 1
                 continue
 
-            chunks = _chunk_text(text, config.CHUNK_TOKENS, config.CHUNK_OVERLAP)
+            chunks = chunk_sentences(text, config.CHUNK_TOKENS, config.CHUNK_OVERLAP)
             ids = [f"{fh}_{i}" for i in range(len(chunks))]
             metadatas = [
                 {"source": path.name, "chunk_idx": i, "file_hash": fh}

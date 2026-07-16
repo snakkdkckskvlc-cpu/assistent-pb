@@ -29,6 +29,15 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
 
     monkeypatch.setattr(llm, "healthcheck", fake_healthcheck)
 
+    # Аналогично для LanguageTool — тест не должен зависеть от того, поднят
+    # ли sidecar на машине разработчика в момент прогона тестов.
+    async def fake_lt_healthcheck() -> dict:
+        return {"ok": False}
+
+    from fire_safety_backend.infrastructure import languagetool
+
+    monkeypatch.setattr(languagetool, "healthcheck", fake_lt_healthcheck)
+
     # Изолируем тесты от реальной data/app.db — иначе прогон тестов сеет
     # и трогает боевую базу справочника адресатов.
     import tempfile

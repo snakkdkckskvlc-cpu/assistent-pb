@@ -73,12 +73,17 @@
 
       for (const f of findings) {
         const cls = critClass(f["критичность"]);
+        const quoteWarn = f["_цитата_найдена"] === false
+          ? `<span class="quote-warn">⚠ точная цитата не найдена в тексте документа — возможно, перефразирована моделью</span>`
+          : "";
+        const normCls = f["_источник_подтверждён"] ? "norm grounded" : "norm";
+        const normBadge = f["_источник_подтверждён"] ? "✓ " : "📖 ";
         parts.push(`<div class="finding ${cls}">
           <div class="crit-label">${critLabel(f["критичность"])}</div>
-          <blockquote>${escapeHtml(f["цитата_из_договора"] || "")}</blockquote>
+          <blockquote>${escapeHtml(f["цитата_из_договора"] || "")}${quoteWarn}</blockquote>
           <div><b>Риск:</b> ${escapeHtml(f["в_чём_риск"] || "")}</div>
           <div class="redline"><b>Правка:</b> ${escapeHtml(f["предложение_правки"] || "")}</div>
-          <div class="norm">📖 ${escapeHtml(f["ссылка_на_норму"] || "требует проверки юристом")}</div>
+          <div class="${normCls}">${normBadge}${escapeHtml(f["ссылка_на_норму"] || "требует проверки юристом")}</div>
         </div>`);
       }
 

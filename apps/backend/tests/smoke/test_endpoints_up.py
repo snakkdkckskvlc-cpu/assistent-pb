@@ -41,10 +41,10 @@ def _mock_pipeline_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path) -> No
     monkeypatch.setattr(llm, "chat_json", fake_chat_json)
 
     # RAG: пусто, без обращения к ChromaDB
-    from fire_safety_backend.pipelines import legacy as pipelines_legacy
+    from fire_safety_backend.pipelines import legal as pipelines_legal
 
     monkeypatch.setattr(
-        pipelines_legacy, "retrieve_many", lambda queries, top_k=None: [[] for _ in queries]
+        pipelines_legal, "retrieve_many", lambda queries, top_k=None: [[] for _ in queries]
     )
 
     # Генератор DOCX: просто создаём файл-заглушку
@@ -61,6 +61,16 @@ def _mock_pipeline_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path) -> No
     from fire_safety_backend import config
 
     monkeypatch.setattr(config, "OUTPUT_DIR", tmp_path)
+
+    # LanguageTool — отдельный процесс, в тестах не поднят. Пустой список
+    # соответствует реальному поведению клиента, когда сервер недоступен
+    # (см. infrastructure/languagetool.py::check).
+    from fire_safety_backend.infrastructure import languagetool
+
+    async def fake_lt_check(text: str, language: str = "ru-RU") -> list[dict]:
+        return []
+
+    monkeypatch.setattr(languagetool, "check", fake_lt_check)
 
 
 def _wait_task_done(client: TestClient, task_id: str, timeout_s: float = 5) -> dict:
@@ -114,3 +124,63 @@ def test_letter_accepts_draft(client: TestClient) -> None:
 def test_reject_empty_input(client: TestClient) -> None:
     r = client.post("/api/spellcheck", data={"text": "   "})
     assert r.status_code in (400, 422)
+
+
+def test_legal_grounds_citations_against_retrieved_chunks(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Находка со ссылкой на реально отданный чанк — подтверждена; на
+    выдуманный ID — нет. Цитата, реально входящая в текст, — найдена;
+    выдуманная — нет."""
+    from fire_safety_backend.infrastructure import llm
+    from fire_safety_backend.pipelines import legal as pipelines_legal
+
+    contract_text = "Договор №1. Штраф за просрочку составляет 0.5% в день."
+
+    def fake_retrieve_many(queries: list[str], top_k=None) -> list[list[dict]]:
+        return [[{"text": "норма про штрафы", "source": "123-ФЗ.txt", "score": 0.9}]] + [
+            [] for _ in queries[1:]
+        ]
+
+    monkeypatch.setattr(pipelines_legal, "retrieve_many", fake_retrieve_many)
+
+    async def fake_chat_json(system: str, user: str, **kwargs) -> dict:
+        # Реальный ID реально отданного чанка виден в user-сообщении как [XXXX].
+        import re
+
+        real_id = re.search(r"\[([A-Z0-9]{4})\]", user).group(1)
+        return {
+            "находки": [
+                {
+                    "критичность": "жёлтый",
+                    "цитата_из_договора": "Штраф за просрочку составляет 0.5% в день.",
+                    "в_чём_риск": "тест",
+                    "ссылка_на_норму": "ст. 1 123-ФЗ",
+                    "источник_фрагмента": real_id,
+                    "предложение_правки": "тест",
+                },
+                {
+                    "критичность": "красный",
+                    "цитата_из_договора": "Текста, которого нет в договоре, тут быть не может",
+                    "в_чём_риск": "тест",
+                    "ссылка_на_норму": "выдуманная статья",
+                    "источник_фрагмента": "ZZZZ",
+                    "предложение_правки": "тест",
+                },
+            ],
+            "сводка": {"плюсы_для_компании": [], "минусы_для_компании": [], "общий_вывод": "OK"},
+        }
+
+    monkeypatch.setattr(llm, "chat_json", fake_chat_json)
+
+    r = client.post("/api/legal", data={"text": contract_text})
+    task_id = r.json()["task_id"]
+    result = _wait_task_done(client, task_id)
+    findings = result["result"]["находки"]
+
+    assert findings[0]["_источник_подтверждён"] is True
+    assert findings[0]["_источник_файл"] == "123-ФЗ.txt"
+    assert findings[0]["_цитата_найдена"] is True
+
+    assert findings[1]["_источник_подтверждён"] is False
+    assert findings[1]["_цитата_найдена"] is False

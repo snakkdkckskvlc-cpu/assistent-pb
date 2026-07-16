@@ -6,6 +6,7 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
     "chromadb==0.5.23",
     "sentence-transformers==3.3.1",
+    "nltk==3.10.0",
 ]
 
 [build-system]
