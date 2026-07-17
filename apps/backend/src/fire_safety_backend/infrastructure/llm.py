@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from .. import config
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 log = logging.getLogger(__name__)
 
@@ -51,8 +54,17 @@ async def chat(
     temperature: float | None = None,
     num_ctx: int | None = None,
     num_predict: int | None = None,
+    on_delta: Callable[[str], None] | None = None,
 ) -> str:
-    """Синхронный вызов чата. Возвращает строку с ответом модели."""
+    """Вызов чата. Возвращает строку с полным ответом модели.
+
+    on_delta, если передан, включает потоковый режим у Ollama (stream: true)
+    — колбэк вызывается на каждый полученный текстовый фрагмент. Используется
+    только как индикатор прогресса (растущий счётчик токенов в UI, см.
+    infrastructure/queue.py::Task.tokens) — полноценный посимвольный рендер
+    в UI осознанно не делаем: все три пайплайна возвращают структурный JSON
+    (json_mode=True), а частичный JSON нельзя осмысленно показать до
+    завершения генерации. Итоговый текст возвращается целиком в обоих режимах."""
     options: dict[str, Any] = {
         "temperature": temperature if temperature is not None else config.LLM_TEMPERATURE,
         "num_ctx": num_ctx if num_ctx is not None else config.LLM_NUM_CTX,
@@ -61,7 +73,7 @@ async def chat(
         options["num_predict"] = num_predict
     payload: dict[str, Any] = {
         "model": config.LLM_MODEL,
-        "stream": False,
+        "stream": on_delta is not None,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -72,17 +84,44 @@ async def chat(
         payload["format"] = "json"
 
     url = f"{config.OLLAMA_HOST}/api/chat"
-    log.info("LLM chat → %s (json=%s, chars=%d)", config.LLM_MODEL, json_mode, len(user))
+    log.info(
+        "LLM chat → %s (json=%s, stream=%s, chars=%d)",
+        config.LLM_MODEL,
+        json_mode,
+        on_delta is not None,
+        len(user),
+    )
+
+    if on_delta is None:
+        try:
+            r = await _get_client().post(url, json=payload)
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise LLMError(f"Ollama request failed: {e}") from e
+        data = r.json()
+        content = data.get("message", {}).get("content", "")
+        if not content:
+            raise LLMError(f"Empty response from Ollama: {data}")
+        return content
+
+    content_parts: list[str] = []
     try:
-        r = await _get_client().post(url, json=payload)
-        r.raise_for_status()
+        async with _get_client().stream("POST", url, json=payload) as r:
+            r.raise_for_status()
+            async for line in r.aiter_lines():
+                if not line.strip():
+                    continue
+                chunk = json.loads(line)
+                delta = chunk.get("message", {}).get("content", "")
+                if delta:
+                    content_parts.append(delta)
+                    on_delta(delta)
     except httpx.HTTPError as e:
         raise LLMError(f"Ollama request failed: {e}") from e
 
-    data = r.json()
-    content = data.get("message", {}).get("content", "")
+    content = "".join(content_parts)
     if not content:
-        raise LLMError(f"Empty response from Ollama: {data}")
+        raise LLMError("Empty streamed response from Ollama")
     return content
 
 

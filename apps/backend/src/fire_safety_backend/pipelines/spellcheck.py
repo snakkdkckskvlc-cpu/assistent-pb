@@ -10,7 +10,7 @@ from fire_safety_rag import chunk_sentences
 
 from .. import config
 from ..infrastructure import languagetool, llm
-from ._prompts import load_prompt
+from ._prompts import load_prompt, make_token_counter
 
 if TYPE_CHECKING:
     from ..infrastructure.queue import Task
@@ -91,6 +91,7 @@ async def run_spellcheck(text: str, task: Task | None = None) -> dict:
             system=prompt,
             user=chunk,
             num_predict=config.LLM_NUM_PREDICT_SPELLCHECK,
+            on_delta=make_token_counter(task),
         )
         errors = result.get("errors", []) or []
         # Модель иногда отступает от схемы (например, список строк вместо

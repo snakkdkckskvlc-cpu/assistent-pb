@@ -64,7 +64,8 @@ async function submitForm({ endpoint, buildRequest, resultContainer, progressCon
 
     const result = await pollTask(task_id, (t) => {
       const label = t.status === "queued" ? "В очереди" : (t.progress || "Обработка");
-      progressContainer.innerHTML = `<span class="spinner"></span> ${escapeHtml(label)}`;
+      const tokenSuffix = t.tokens > 0 ? ` (…${t.tokens} токенов)` : "";
+      progressContainer.innerHTML = `<span class="spinner"></span> ${escapeHtml(label)}${tokenSuffix}`;
     });
 
     progressContainer.style.display = "none";

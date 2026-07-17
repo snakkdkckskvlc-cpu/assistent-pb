@@ -13,7 +13,7 @@ from fire_safety_rag import retrieve_many
 
 from .. import config
 from ..infrastructure import llm
-from ._prompts import load_prompt
+from ._prompts import load_prompt, make_token_counter
 
 if TYPE_CHECKING:
     from ..infrastructure.queue import Task
@@ -157,6 +157,7 @@ async def run_legal_analysis(text: str, task: Task | None = None) -> dict:
         user=user_msg,
         num_ctx=8192,
         num_predict=config.LLM_NUM_PREDICT_LEGAL,
+        on_delta=make_token_counter(task),
     )
     if not isinstance(result, dict):
         # Модель отступила от схемы и вернула не-объект (например, массив).

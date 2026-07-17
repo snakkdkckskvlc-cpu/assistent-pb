@@ -1,4 +1,5 @@
 """Роутер: статус и список фоновых задач."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
@@ -18,6 +19,7 @@ async def api_task(task_id: str) -> dict:
         "kind": task.kind,
         "status": task.status,
         "progress": task.progress,
+        "tokens": task.tokens,
         "result": task.result,
         "error": task.error,
         "created_at": task.created_at,

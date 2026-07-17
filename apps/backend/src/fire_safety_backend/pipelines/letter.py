@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from .. import config
 from ..infrastructure import llm
-from ._prompts import load_prompt
+from ._prompts import load_prompt, make_token_counter
 
 if TYPE_CHECKING:
     from ..infrastructure.queue import Task
@@ -45,6 +45,7 @@ async def run_letter(
         system=prompt,
         user=user_msg,
         num_predict=config.LLM_NUM_PREDICT_LETTER,
+        on_delta=make_token_counter(task),
     )
 
     # Генерируем DOCX на основе фирменного бланка (python-docx — блокирующий

@@ -92,6 +92,9 @@ def test_spellcheck_accepts_text(client: TestClient) -> None:
     result = _wait_task_done(client, task_id)
     assert result["status"] == "done", result
     assert "errors" in result["result"]
+    # Счётчик токенов для UI-индикатора (см. infrastructure/queue.py::Task.tokens)
+    # должен быть в ответе даже когда LLM замокан и стриминг не шёл (0).
+    assert result["tokens"] == 0
 
 
 def test_legal_accepts_text(client: TestClient) -> None:
