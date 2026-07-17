@@ -20,7 +20,8 @@
 4. Poppler (для OCR PDF).
 5. `venv` + Python-зависимости из `apps/backend/pyproject.toml`, `apps/desktop/pyproject.toml`, `packages/rag/pyproject.toml`.
 6. Индексация корпуса `packages/rag/corpus/`.
-7. Ярлык «Ассистент ПБ» на рабочем столе с иконкой.
+7. LanguageTool — офлайн-проверка орфографии в дополнение к LLM (опционально, портативный JDK + сервер, ничего не ставится в систему; см. `tools/languagetool/`). Если шаг не пройдёт (нет сети) — установка не останавливается, просто эта функция будет недоступна.
+8. Ярлык «Ассистент ПБ» на рабочем столе с иконкой.
 
 Полная инструкция для тестировщика — [`docs/07-ops/install-windows.md`](../docs/07-ops/install-windows.md).
 
@@ -40,20 +41,25 @@
    $env:PYTHONPATH = "apps\backend\src;packages\rag\src"
    .\venv\Scripts\python -m fire_safety_rag.indexer
    ```
-7. **Фирменный бланк** — положить `letterhead.docx` в
+7. **LanguageTool** (опционально — офлайн-проверка орфографии в дополнение к LLM):
+   ```powershell
+   .\tools\languagetool\setup.ps1   # один раз, скачивает JDK + LanguageTool, ~430 МБ
+   .\tools\languagetool\start.ps1   # держать запущенным рядом с Ollama
+   ```
+8. **Фирменный бланк** — положить `letterhead.docx` в
    `apps\backend\src\fire_safety_backend\resources\templates\`. Плейсхолдеры:
    `{{date}}`, `{{recipient}}`, `{{subject}}`, `{{greeting}}`, `{{body}}`,
    `{{signoff}}`, `{{sender_position}}`, `{{sender_name}}`.
-8. **Запуск**:
+9. **Запуск**:
    ```powershell
    $env:PYTHONPATH = "apps\backend\src;packages\rag\src;apps\desktop\src"
    .\venv\Scripts\python -m fire_safety_desktop.main
    ```
-9. **Сборка `.exe` с иконкой** (опционально):
-   ```powershell
-   .\scripts\build_windows_app.ps1
-   ```
-   Результат: `dist\АссистентПБ\АссистентПБ.exe`.
+10. **Сборка `.exe` с иконкой** (опционально):
+    ```powershell
+    .\scripts\build_windows_app.ps1
+    ```
+    Результат: `dist\АссистентПБ\АссистентПБ.exe`.
 
 ## macOS / Linux
 

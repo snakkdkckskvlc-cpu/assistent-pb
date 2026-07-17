@@ -5,6 +5,28 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект следует [семантическому версионированию](https://semver.org/lang/ru/).
 
+## [0.5.1] — 2026-07-17 · LanguageTool на Windows
+
+LanguageTool-интеграция из 0.5.0 была собрана и проверена только на
+macOS (bash-скрипты) — на реальном Windows-сервере компании не имела
+пути включения вообще. Добавлен полный Windows-путь.
+
+### Добавлено
+- `tools/languagetool/setup.ps1` — Windows-аналог `setup.sh`: скачивает
+  портативный JDK 17 (Temurin, windows x64) и релиз LanguageTool в тот
+  же каталог, ничего не ставит в систему.
+- `tools/languagetool/start.ps1` — Windows-аналог `start.sh`: поднимает
+  сервер на 127.0.0.1:8081 с тем же словарём `dict/spelling_global.txt`.
+- `bootstrap.ps1`: новый необязательный шаг «7/8 · LanguageTool» —
+  вызывает `setup.ps1`; при неудаче (нет сети и т.п.) установка **не
+  прерывается**, просто предупреждение — LanguageTool и раньше был
+  спроектирован как graceful-degradation фича (`languagetool_ready` в
+  `/api/health`). Сгенерированный `start.bat` теперь заодно тихо
+  поднимает LanguageTool перед запуском приложения, если шаг прошёл
+  успешно.
+- Обновлены `docs/07-ops/install-windows.md` и `install/README.md`
+  (шаги теперь 1/8…8/8 вместо 1/7…7/7).
+
 ## [0.5.0] — 2026-07-16 · Референс-ревью: чанкинг, grounding, LanguageTool
 
 Изучены 5 референс-проектов (`docs/08-references.md`), реализованы

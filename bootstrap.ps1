@@ -73,7 +73,7 @@ Write-Host "Начало: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 Write-Host "PowerShell: $($PSVersionTable.PSVersion) · Windows: $([Environment]::OSVersion.VersionString)"
 
 # ---------------------------------------------------------------
-Section "1/7 · Python 3.13"
+Section "1/8 · Python 3.13"
 
 Refresh-Path
 $pythonOk = $false
@@ -114,7 +114,7 @@ if (-not $pythonOk) {
 }
 
 # ---------------------------------------------------------------
-Section "2/7 · Ollama + языковая модель"
+Section "2/8 · Ollama + языковая модель"
 
 $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
 if (-not $ollamaCmd) {
@@ -152,7 +152,7 @@ if ($installedModels -match [regex]::Escape($model)) {
 }
 
 # ---------------------------------------------------------------
-Section "3/7 · Tesseract OCR + русский язык"
+Section "3/8 · Tesseract OCR + русский язык"
 
 if (Test-Command "tesseract") {
     Ok "Tesseract уже установлен: $((Get-Command tesseract).Source)"
@@ -188,7 +188,7 @@ if ($langs -match "\brus\b") {
 }
 
 # ---------------------------------------------------------------
-Section "4/7 · Poppler (для OCR PDF-сканов)"
+Section "4/8 · Poppler (для OCR PDF-сканов)"
 
 $popplerDir = Join-Path $root "poppler"
 if (Test-Path (Join-Path $popplerDir "Library\bin\pdftoppm.exe")) {
@@ -211,7 +211,7 @@ $popplerBin = Join-Path $popplerDir "Library\bin"
 if ($env:Path -notlike "*$popplerBin*") { $env:Path += ";$popplerBin" }
 
 # ---------------------------------------------------------------
-Section "5/7 · Python venv + зависимости"
+Section "5/8 · Python venv + зависимости"
 
 $venv = Join-Path $root "venv"
 $venvPython = Join-Path $venv "Scripts\python.exe"
@@ -232,7 +232,7 @@ if ($LASTEXITCODE -ne 0) { Fail "Ошибка установки зависим�
 Ok "Python-зависимости установлены"
 
 # ---------------------------------------------------------------
-Section "6/7 · Индексация нормативной базы"
+Section "6/8 · Индексация нормативной базы"
 
 $chromaDir = Join-Path $root "data\chroma"
 if ((Test-Path $chromaDir) -and (Get-ChildItem $chromaDir -File -Recurse | Measure-Object).Count -gt 0) {
@@ -251,9 +251,41 @@ if ((Test-Path $chromaDir) -and (Get-ChildItem $chromaDir -File -Recurse | Measu
 }
 
 # ---------------------------------------------------------------
-Section "7/7 · Ярлык на рабочем столе"
+Section "7/8 · LanguageTool (офлайн-проверка орфографии, опционально)"
 
-# start.bat — запускает приложение, прописывает PYTHONPATH и PATH
+# Необязательный шаг: усиливает проверку орфографии детерминированными
+# правилами в дополнение к LLM. Если что-то пойдёт не так (нет сети,
+# Adoptium/languagetool.org недоступны и т.п.) — НЕ прерываем всю
+# установку, просто предупреждаем и едем дальше без LanguageTool
+# (приложение и так рассчитано работать без него, см. languagetool_ready
+# в /api/health).
+$ltReady = $false
+$ltSetup = Join-Path $root "tools\languagetool\setup.ps1"
+if (Test-Path $ltSetup) {
+    Push-Location $root
+    try {
+        & $ltSetup
+        $ltReady = $true
+        Ok "LanguageTool готов"
+    } catch {
+        Warn "Не удалось установить LanguageTool: $($_.Exception.Message) — приложение будет работать без него"
+    } finally {
+        Pop-Location
+    }
+} else {
+    Warn "tools\languagetool\setup.ps1 не найден — пропускаю"
+}
+
+# ---------------------------------------------------------------
+Section "8/8 · Ярлык на рабочем столе"
+
+# start.bat — запускает приложение, прописывает PYTHONPATH и PATH.
+# Если LanguageTool установлен — заодно тихо стартует его сервер.
+$ltLaunchLine = ""
+if ($ltReady) {
+    $ltLaunchLine = 'start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0tools\languagetool\start.ps1"'
+}
+
 $startBat = Join-Path $root "start.bat"
 @"
 @echo off
@@ -262,6 +294,7 @@ cd /d "%~dp0"
 set "PATH=%~dp0poppler\Library\bin;%PATH%"
 set "PYTHONPATH=%~dp0apps\backend\src;%~dp0packages\rag\src;%~dp0apps\desktop\src"
 if "%LLM_MODEL%"=="" set "LLM_MODEL=$model"
+$ltLaunchLine
 start "" "%~dp0venv\Scripts\pythonw.exe" -m fire_safety_desktop.main
 endlocal
 "@ | Set-Content -Path $startBat -Encoding ASCII
