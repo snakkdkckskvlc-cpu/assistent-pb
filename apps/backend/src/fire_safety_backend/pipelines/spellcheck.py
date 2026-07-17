@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -16,9 +17,50 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+_GLOSSARY_PATH = config.PROJECT_DIR / "tools" / "languagetool" / "dict" / "spelling_global.txt"
+
+
+def _load_glossary_terms() -> list[str]:
+    """Единый источник фирменных терминов — тот же файл, что LanguageTool
+    подключает через classpath (tools/languagetool/start.sh). Раньше список
+    дублировался прозой прямо в resources/prompts/spellcheck.txt и молча
+    расходился со словарём LT."""
+    if not _GLOSSARY_PATH.exists():
+        return []
+    terms = []
+    for line in _GLOSSARY_PATH.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        terms.append(line)
+    return terms
+
+
+def _normalize_before(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _dedup_errors(errors: list[dict]) -> list[dict]:
+    """LT и LLM иногда репортят одну и ту же ошибку — LT детерминирован,
+    при конфликте оставляем его и отбрасываем совпавший LLM-дубликат."""
+    lt_errors = [e for e in errors if e.get("source") == "languagetool"]
+    other_errors = [e for e in errors if e.get("source") != "languagetool"]
+    lt_normalized = [n for n in (_normalize_before(e.get("before", "")) for e in lt_errors) if n]
+
+    deduped = list(lt_errors)
+    for e in other_errors:
+        norm = _normalize_before(e.get("before", ""))
+        is_dup = bool(norm) and any(norm in lt_n or lt_n in norm for lt_n in lt_normalized)
+        if not is_dup:
+            deduped.append(e)
+    return deduped
+
 
 async def run_spellcheck(text: str, task: Task | None = None) -> dict:
     prompt = load_prompt("spellcheck")
+    glossary_terms = _load_glossary_terms()
+    if glossary_terms:
+        prompt = f"{prompt}\nТермины компании (не считать ошибками): {', '.join(glossary_terms)}."
 
     # Первый проход — LanguageTool (детерминированный, без LLM): грамматика,
     # пунктуация, орфография по словарю (+ наш глоссарий терминов ПБ).
@@ -34,7 +76,10 @@ async def run_spellcheck(text: str, task: Task | None = None) -> dict:
 
     # Sentence-aware чанкинг (см. packages/rag/src/fire_safety_rag/chunking.py) —
     # без overlap: правки не должны дублироваться между соседними чанками.
-    chunks = chunk_sentences(text, config.SPELLCHECK_CHUNK_WORDS, overlap_words=0)
+    # NLTK-токенизация всего документа — CPU-bound, не блокируем event loop.
+    chunks = await asyncio.to_thread(
+        chunk_sentences, text, config.SPELLCHECK_CHUNK_WORDS, overlap_words=0
+    )
     all_errors: list[dict] = list(lt_errors)
     corrected_parts: list[str] = []
 
@@ -59,6 +104,8 @@ async def run_spellcheck(text: str, task: Task | None = None) -> dict:
                 e["source"] = "llm"
         all_errors.extend(e for e in errors if isinstance(e, dict))
         corrected_parts.append(result.get("corrected_text", chunk))
+
+    all_errors = _dedup_errors(all_errors)
 
     return {
         "errors": all_errors,

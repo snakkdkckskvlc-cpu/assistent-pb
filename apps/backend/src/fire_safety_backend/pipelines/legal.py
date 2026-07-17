@@ -53,7 +53,14 @@ def _resolve_chunk_id(source_id: str, chunk_ids: dict[str, dict]) -> dict | None
 
 
 def _verify_quote(quote: str, source_text: str) -> tuple[bool, int | None]:
-    """Проверяет, что «цитата_из_договора» — реальная подстрока договора.
+    """Проверяет, что «цитата_из_договора» — реальная подстрока договора, и
+    возвращает offset в ОРИГИНАЛЬНОМ тексте договора (не в схлопнутой по
+    пробелам копии — там offset бесполезен для подсветки в реальном
+    документе). Ищет гибким по пробелам regex, потому что модель иногда
+    схлопывает/расставляет пробелы и переносы строк иначе при цитировании;
+    re.escape на каждое слово по отдельности — цитаты из договоров обычно
+    содержат точки и скобки («п. 4.2 (в редакции...)»), которые иначе сломали
+    бы паттерн.
 
     Идея — grounding-паттерн OpenContracts (is_grounding_source, см.
     references/OpenContracts-main/README_reference.md): просить точную
@@ -61,12 +68,32 @@ def _verify_quote(quote: str, source_text: str) -> tuple[bool, int | None]:
     доверять модели на слово. У OpenContracts это отдельная модель/таблица;
     здесь — минимальная проверка без новых таблиц (см. также docs/08-references.md).
     """
-    if not quote or not quote.strip():
+    words = quote.split()
+    if not words:
         return False, None
-    normalized_quote = " ".join(quote.split())
-    normalized_source = " ".join(source_text.split())
-    offset = normalized_source.find(normalized_quote)
-    return offset != -1, (offset if offset != -1 else None)
+    pattern = r"\s+".join(re.escape(w) for w in words)
+    match = re.search(pattern, source_text)
+    return (match is not None), (match.start() if match else None)
+
+
+def _assign_chunk_ids(chunks: list[dict]) -> dict[str, dict]:
+    """Короткий ID на чанк для grounded-цитирования (см. generate_short_id).
+
+    Раньше строился одной dict comprehension — при коллизии ID (два разных
+    чанка получили одинаковый короткий ID, редко, но возможно на 36^4
+    комбинациях) более ранний чанк молча пропадал из dict и, соответственно,
+    из контекста, отданного модели. Здесь при коллизии детерминированно
+    пере-сеиваем до уникальности — ни один чанк не теряется."""
+    chunk_ids: dict[str, dict] = {}
+    for i, h in enumerate(chunks):
+        seed = f"{h['source']}|{i}"
+        cid = generate_short_id(seed)
+        suffix = 0
+        while cid in chunk_ids:
+            suffix += 1
+            cid = generate_short_id(f"{seed}|{suffix}")
+        chunk_ids[cid] = h
+    return chunk_ids
 
 
 async def run_legal_analysis(text: str, task: Task | None = None) -> dict:
@@ -105,7 +132,7 @@ async def run_legal_analysis(text: str, task: Task | None = None) -> dict:
     # а мы после ответа проверяем, что ID реально был среди отданных в
     # контекст, а не выдуман (grounded-цитирование, см. docstring
     # generate_short_id выше).
-    chunk_ids = {generate_short_id(f"{h['source']}|{i}"): h for i, h in enumerate(top_chunks)}
+    chunk_ids = _assign_chunk_ids(top_chunks)
     context_block = "\n\n".join(
         f"[{cid}] {h['source']}\n{h['text']}" for cid, h in chunk_ids.items()
     )

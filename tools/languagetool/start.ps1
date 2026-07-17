@@ -15,9 +15,9 @@ if ($PSScriptRoot) { $root = $PSScriptRoot } else { $root = Split-Path -Parent $
 Set-Location $root
 
 $jdkDir = Get-ChildItem -Path $root -Directory -Filter "jdk-*" -ErrorAction SilentlyContinue | Select-Object -First 1
-$ltDir = Join-Path $root "LanguageTool-6.6"
+$ltDir = Get-ChildItem -Path $root -Directory -Filter "LanguageTool-*" -ErrorAction SilentlyContinue | Select-Object -First 1
 
-if (-not $jdkDir -or -not (Test-Path $ltDir)) {
+if (-not $jdkDir -or -not $ltDir) {
     Write-Host "JDK/LanguageTool не найдены — сначала запустите .\tools\languagetool\setup.ps1" -ForegroundColor Red
     exit 1
 }
@@ -29,7 +29,7 @@ if (-not (Test-Path $javaBin)) {
 }
 
 $port = if ($env:LT_PORT) { $env:LT_PORT } else { "8081" }
-$classpath = "$ltDir\languagetool-server.jar;$root\dict"
+$classpath = "$($ltDir.FullName)\languagetool-server.jar;$root\dict"
 
 Write-Host "LanguageTool сервер: http://127.0.0.1:$port (словарь: dict\spelling_global.txt)"
 & $javaBin -cp $classpath org.languagetool.server.HTTPServer --port $port

@@ -135,6 +135,11 @@ def test_legal_grounds_citations_against_retrieved_chunks(
     from fire_safety_backend.infrastructure import llm
     from fire_safety_backend.pipelines import legal as pipelines_legal
 
+    # Фиксируем короткий ID вместо того, чтобы выковыривать его из
+    # отрендеренного промпта регэкспом — тест не должен зависеть от формата
+    # промпта (code-review, находка №14).
+    monkeypatch.setattr(pipelines_legal, "generate_short_id", lambda seed, length=4: "GGVR")
+
     contract_text = "Договор №1. Штраф за просрочку составляет 0.5% в день."
 
     def fake_retrieve_many(queries: list[str], top_k=None) -> list[list[dict]]:
@@ -145,10 +150,6 @@ def test_legal_grounds_citations_against_retrieved_chunks(
     monkeypatch.setattr(pipelines_legal, "retrieve_many", fake_retrieve_many)
 
     async def fake_chat_json(system: str, user: str, **kwargs) -> dict:
-        # Реальный ID реально отданного чанка виден в user-сообщении как [XXXX].
-        import re
-
-        real_id = re.search(r"\[([A-Z0-9]{4})\]", user).group(1)
         return {
             "находки": [
                 {
@@ -156,7 +157,7 @@ def test_legal_grounds_citations_against_retrieved_chunks(
                     "цитата_из_договора": "Штраф за просрочку составляет 0.5% в день.",
                     "в_чём_риск": "тест",
                     "ссылка_на_норму": "ст. 1 123-ФЗ",
-                    "источник_фрагмента": real_id,
+                    "источник_фрагмента": "GGVR",
                     "предложение_правки": "тест",
                 },
                 {

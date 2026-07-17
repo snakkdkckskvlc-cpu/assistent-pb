@@ -11,7 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 JDK_DIR_GLOB="jdk-*"
-LT_DIR="LanguageTool-6.6"
+LT_DIR_GLOB="LanguageTool-*"
 
 if compgen -G "$JDK_DIR_GLOB" > /dev/null; then
   echo "JDK уже есть: $(compgen -G "$JDK_DIR_GLOB")"
@@ -30,14 +30,14 @@ else
   echo "Готово: $(compgen -G "$JDK_DIR_GLOB")"
 fi
 
-if [ -d "$LT_DIR" ]; then
-  echo "LanguageTool уже есть: $LT_DIR"
+if compgen -G "$LT_DIR_GLOB" > /dev/null; then
+  echo "LanguageTool уже есть: $(compgen -G "$LT_DIR_GLOB")"
 else
   echo "Скачиваю LanguageTool (~240 МБ)…"
   curl -L -o lt.zip "https://languagetool.org/download/LanguageTool-stable.zip"
   unzip -q lt.zip
   rm lt.zip
-  echo "Готово: $LT_DIR"
+  echo "Готово: $(compgen -G "$LT_DIR_GLOB")"
 fi
 
 echo ""

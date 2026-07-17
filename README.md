@@ -35,7 +35,7 @@ tests/samples/      Демо-документы для ручного тести
 
 ```bash
 python3.13 -m venv venv
-venv/bin/pip install -r requirements.txt  # или: uv sync --all-packages --dev
+venv/bin/pip install -e apps/backend -e apps/desktop -e packages/rag  # или: uv sync --all-packages --dev
 
 # Индексация корпуса законов (первый раз тянет эмбед-модель ~1.3 ГБ)
 PYTHONPATH=packages/rag/src venv/bin/python -m fire_safety_rag.indexer

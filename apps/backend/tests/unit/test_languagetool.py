@@ -6,7 +6,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+import httpx
 from fire_safety_backend.infrastructure import languagetool
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_match_to_error_maps_typo_category() -> None:
@@ -46,9 +52,33 @@ def test_match_to_error_unknown_category_falls_back_to_style() -> None:
     assert error["type"] == "стиль"
 
 
-async def test_check_returns_empty_list_when_server_unreachable() -> None:
-    # На порту 8081 (или что в LANGUAGETOOL_HOST) в тестах ничего не поднято —
-    # клиент должен деградировать тихо, а не бросать исключение.
+def test_match_to_error_empty_context_slice_yields_empty_before() -> None:
+    # Раньше пустой срез схлопывался в фолбэк `or ctx_text`, подставляя
+    # весь контекст-сниппет вместо честной пустой строки.
+    match = {
+        "message": "тест",
+        "rule": {"category": {"id": "STYLE"}},
+        "context": {"text": "какой-то контекст целиком", "offset": 0, "length": 0},
+    }
+    error = languagetool._match_to_error(match)
+    assert error["before"] == ""
+
+
+class _FailingClient:
+    async def post(self, *args, **kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    async def get(self, *args, **kwargs):
+        raise httpx.ConnectError("connection refused")
+
+
+async def test_check_returns_empty_list_when_server_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Мокаем HTTP-слой напрямую — раньше тест реально стучался на
+    # LANGUAGETOOL_HOST (тот же порт, что и настоящий sidecar) и мог
+    # зависать на реальном таймауте, если sidecar был запущен вручную.
+    monkeypatch.setattr(languagetool, "_get_client", lambda: _FailingClient())
     errors = await languagetool.check("Тестовый текст с ошибкой.")
     assert errors == []
 
@@ -56,3 +86,51 @@ async def test_check_returns_empty_list_when_server_unreachable() -> None:
 async def test_check_empty_text_short_circuits() -> None:
     errors = await languagetool.check("   ")
     assert errors == []
+
+
+async def test_healthcheck_returns_false_when_server_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(languagetool, "_get_client", lambda: _FailingClient())
+    result = await languagetool.healthcheck()
+    assert result == {"ok": False}
+
+
+def test_check_filters_capitalized_typo_mid_sentence() -> None:
+    # "ООО Монтажсвязьстрой" — незнакомая Morfologik'у фамилия/организация
+    # с заглавной буквы не в начале предложения — не должна флажиться.
+    match = {
+        "message": "Возможно, опечатка",
+        "rule": {"category": {"id": "TYPOS"}},
+        "context": {"text": "ООО Монтажсвязьстрой предоставляет услуги", "offset": 4, "length": 16},
+    }
+    assert languagetool._is_proper_noun_false_positive(match) is True
+
+
+def test_check_keeps_capitalized_typo_at_sentence_start() -> None:
+    match = {
+        "message": "Возможно, опечатка",
+        "rule": {"category": {"id": "TYPOS"}},
+        "context": {"text": "Неправльно написано слово.", "offset": 0, "length": 10},
+    }
+    assert languagetool._is_proper_noun_false_positive(match) is False
+
+
+def test_check_keeps_lowercase_typo_mid_sentence() -> None:
+    match = {
+        "message": "Возможно, опечатка",
+        "rule": {"category": {"id": "TYPOS"}},
+        "context": {"text": "Эта неправльно написано.", "offset": 4, "length": 10},
+    }
+    assert languagetool._is_proper_noun_false_positive(match) is False
+
+
+def test_check_does_not_filter_non_typos_category() -> None:
+    # Фильтр должен применяться только к TYPOS — стилистическая находка на
+    # заглавном слове в середине предложения не про орфографию.
+    match = {
+        "message": "тест",
+        "rule": {"category": {"id": "STYLE"}},
+        "context": {"text": "ООО Монтажсвязьстрой предоставляет услуги", "offset": 4, "length": 16},
+    }
+    assert languagetool._is_proper_noun_false_positive(match) is False

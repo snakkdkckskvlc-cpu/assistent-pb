@@ -49,3 +49,28 @@ def test_chunk_force_splits_oversized_single_sentence() -> None:
     assert len(chunks) == 3
     assert chunks[0].split()[:3] == ["0", "1", "2"]
     assert chunks[1].split()[0] == "10"
+
+
+def test_chunk_overlap_never_exceeds_max_words_on_forced_split() -> None:
+    # Регресс код-ревью (находка №2): carry-цикл раньше безусловно переносил
+    # последнее предложение куска независимо от overlap_words. На тексте без
+    # знаков препинания (принудительный word-split, кусок = max_words слов)
+    # это утаскивало ВЕСЬ предыдущий чанк в overlap, раздувая следующий
+    # чанк далеко за max_words.
+    text = " ".join(str(i) for i in range(1500))
+    chunks = chunk_sentences(text, max_words=500, overlap_words=50)
+    assert len(chunks) > 1
+    for chunk in chunks:
+        assert len(chunk.split()) <= 500
+
+
+def test_chunk_overlap_carries_at_most_budget_words() -> None:
+    # Слова уникальны по всему тексту — пересечение множеств слов соседних
+    # чанков равно ровно перенесённому overlap, не больше бюджета.
+    sentences = [f"с{3 * i} с{3 * i + 1} с{3 * i + 2}." for i in range(8)]
+    text = " ".join(sentences)
+    chunks = chunk_sentences(text, max_words=9, overlap_words=4)
+    assert len(chunks) > 1
+    for i in range(len(chunks) - 1):
+        shared = set(chunks[i].split()) & set(chunks[i + 1].split())
+        assert len(shared) <= 4

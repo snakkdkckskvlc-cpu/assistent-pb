@@ -14,21 +14,29 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["health"])
 
 
-@router.get("/health")
-async def health() -> dict:
-    ollama = await llm.healthcheck()
-    rag_ready = False
+async def _rag_ready_probe() -> bool:
     try:
         import fire_safety_rag
 
         # Использует закешированный singleton-ретривер (lru_cache) —
         # без этого каждый health-чек заново грузил бы embedding-модель.
-        rag_ready = await asyncio.to_thread(fire_safety_rag.is_ready)
+        return await asyncio.to_thread(fire_safety_rag.is_ready)
     except Exception as e:
         log.warning("RAG probe failed: %s", e)
+        return False
 
-    # Необязательный сервис — недоступен, спелл-чек просто идёт только на LLM.
-    lt = await languagetool.healthcheck()
+
+@router.get("/health")
+async def health() -> dict:
+    # Три независимые пробы — параллельно, а не суммируя их латентности.
+    # ollama/languagetool.healthcheck() уже сами перехватывают httpx.HTTPError
+    # и возвращают {"ok": False, ...}; RAG-проба ловит исключения сама
+    # (_rag_ready_probe) — ни одна не может провалить gather целиком.
+    ollama, rag_ready, lt = await asyncio.gather(
+        llm.healthcheck(),
+        _rag_ready_probe(),
+        languagetool.healthcheck(),
+    )
 
     return {
         "ok": ollama["ok"],

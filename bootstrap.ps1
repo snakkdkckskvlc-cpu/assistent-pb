@@ -225,9 +225,12 @@ if (Test-Path $venvPython) {
     Ok "venv создан"
 }
 
-Write-Host "  Устанавливаю зависимости из requirements.txt (это займёт 3–10 минут; тянет torch, ~200 МБ)..."
+Write-Host "  Устанавливаю зависимости (editable-пакеты apps/backend, apps/desktop, packages/rag; это займёт 3–10 минут; тянет torch, ~200 МБ)..."
 & $venvPython -m pip install --upgrade pip --quiet
-& $venvPython -m pip install --quiet -r (Join-Path $root "requirements.txt")
+& $venvPython -m pip install --quiet `
+    -e (Join-Path $root "apps\backend") `
+    -e (Join-Path $root "apps\desktop") `
+    -e (Join-Path $root "packages\rag")
 if ($LASTEXITCODE -ne 0) { Fail "Ошибка установки зависимостей — смотрите $log" }
 Ok "Python-зависимости установлены"
 

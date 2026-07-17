@@ -50,6 +50,11 @@ def chunk_sentences(text: str, max_words: int, overlap_words: int = 0) -> list[s
     if not text.strip():
         return []
 
+    # Перенос не может быть больше половины лимита чанка — иначе почти
+    # весь предыдущий чанк переезжает в следующий и толку от накопления
+    # нового контента почти нет.
+    overlap_words = min(overlap_words, max_words // 2)
+
     sentences: list[str] = []
     for sent in _split_sentences(text):
         n_words = len(sent.split())
@@ -69,18 +74,21 @@ def chunk_sentences(text: str, max_words: int, overlap_words: int = 0) -> list[s
         sent_words = len(sent.split())
         if current and current_words + sent_words > max_words:
             chunks.append(" ".join(current))
-            if overlap_words > 0:
-                carry: list[str] = []
-                carry_words = 0
-                for s in reversed(current):
-                    w = len(s.split())
-                    if carry and carry_words + w > overlap_words:
-                        break
-                    carry.insert(0, s)
-                    carry_words += w
-                current, current_words = carry, carry_words
-            else:
-                current, current_words = [], 0
+            # Строгий бюджет: предложение переносится, только если ЦЕЛИКОМ
+            # укладывается в оставшийся overlap_words — раньше первая (с
+            # конца) фраза переносилась безусловно, из-за чего единственное
+            # предложение крупнее бюджета (например, кусок принудительного
+            # word-split'а) утаскивало в overlap весь предыдущий чанк целиком.
+            carry_count = 0
+            carry_words = 0
+            for s in reversed(current):
+                w = len(s.split())
+                if carry_words + w > overlap_words:
+                    break
+                carry_count += 1
+                carry_words += w
+            current = current[-carry_count:] if carry_count else []
+            current_words = carry_words
         current.append(sent)
         current_words += sent_words
 

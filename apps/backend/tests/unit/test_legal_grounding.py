@@ -6,11 +6,18 @@ docs/08-references.md (идеи из private-gpt и OpenContracts).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from fire_safety_backend.pipelines import legal as legal_module
 from fire_safety_backend.pipelines.legal import (
+    _assign_chunk_ids,
     _resolve_chunk_id,
     _verify_quote,
     generate_short_id,
 )
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_generate_short_id_deterministic() -> None:
@@ -52,6 +59,26 @@ def test_verify_quote_empty_is_not_found() -> None:
     assert offset is None
 
 
+def test_verify_quote_offset_is_in_original_text() -> None:
+    # Регресс код-ревью (находка №10): offset раньше считался в схлопнутой
+    # по пробелам копии текста — на реальном договоре с двойными пробелами/
+    # переносами строк это давало offset, указывающий не туда в оригинале.
+    source = "Преамбула.\n\nПункт   1.2: оплата производится в срок."
+    found, offset = _verify_quote("Пункт 1.2: оплата производится", source)
+    assert found is True
+    assert offset is not None
+    assert source[offset : offset + len("Пункт")] == "Пункт"
+
+
+def test_verify_quote_handles_regex_metacharacters() -> None:
+    # Цитаты из договоров часто содержат точки/скобки — не должны ломать
+    # внутренний regex-поиск (re.escape по каждому слову).
+    source = "См. п. 4.2 (в редакции доп. соглашения №1) договора."
+    found, offset = _verify_quote("п. 4.2 (в редакции", source)
+    assert found is True
+    assert offset is not None
+
+
 def test_resolve_chunk_id_exact_match() -> None:
     chunk = {"source": "123-ФЗ.txt", "text": "..."}
     chunk_ids = {"GGVR": chunk}
@@ -75,3 +102,31 @@ def test_resolve_chunk_id_no_match_returns_none() -> None:
 def test_resolve_chunk_id_empty_string_returns_none() -> None:
     chunk_ids = {"GGVR": {"source": "x", "text": "..."}}
     assert _resolve_chunk_id("", chunk_ids) is None
+
+
+def test_assign_chunk_ids_no_collision_uses_first_id() -> None:
+    chunks = [{"source": "a.txt", "text": "1"}, {"source": "b.txt", "text": "2"}]
+    result = _assign_chunk_ids(chunks)
+    assert len(result) == 2
+    assert chunks[0] in result.values()
+    assert chunks[1] in result.values()
+
+
+def test_assign_chunk_ids_handles_collision(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Регресс код-ревью (находка №15): раньше построение через dict
+    # comprehension молча теряло чанк при коллизии коротких ID.
+    calls = {"n": 0}
+
+    def colliding_short_id(seed: str, length: int = 4) -> str:
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            return "SAME"
+        return f"UNIQ{calls['n']}"
+
+    monkeypatch.setattr(legal_module, "generate_short_id", colliding_short_id)
+    chunks = [{"source": "a.txt", "text": "1"}, {"source": "b.txt", "text": "2"}]
+    result = _assign_chunk_ids(chunks)
+
+    assert len(result) == 2, "оба чанка должны попасть в результат, ни один не потерян"
+    assert chunks[0] in result.values()
+    assert chunks[1] in result.values()

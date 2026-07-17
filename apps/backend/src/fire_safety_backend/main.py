@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from . import config
-from .infrastructure import llm
+from .infrastructure import languagetool, llm
 from .infrastructure.db import init_db
 from .infrastructure.queue import queue
 from .services import addressees as addressee_service
@@ -39,6 +39,7 @@ async def lifespan(app: FastAPI):
     init_db()
     addressee_service.seed_defaults()
     llm.startup()
+    languagetool.startup()
     queue.start()
     log.info(
         "Backend started. Ollama: %s, model: %s",
@@ -48,6 +49,7 @@ async def lifespan(app: FastAPI):
     yield
     await queue.stop()
     await llm.shutdown()
+    await languagetool.shutdown()
 
 
 def create_app() -> FastAPI:

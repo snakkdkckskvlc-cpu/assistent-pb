@@ -48,9 +48,11 @@ if ($jdkDir) {
 }
 
 # --- LanguageTool (релиз, содержит languagetool-server.jar) ---
-$ltDir = Join-Path $root "LanguageTool-6.6"
-if (Test-Path $ltDir) {
-    Ok "LanguageTool уже есть: LanguageTool-6.6"
+# Папка определяется глобом "LanguageTool-*", а не жёстко зашитой версией —
+# апстрим периодически бампает версию в имени папки распакованного zip.
+$ltDir = Get-ChildItem -Path $root -Directory -Filter "LanguageTool-*" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($ltDir) {
+    Ok "LanguageTool уже есть: $($ltDir.Name)"
 } else {
     Info "Скачиваю LanguageTool (~240 МБ)..."
     $ltZip = Join-Path $root "lt.zip"
@@ -58,16 +60,9 @@ if (Test-Path $ltDir) {
     Info "Распаковываю LanguageTool..."
     Expand-Archive -Path $ltZip -DestinationPath $root -Force
     Remove-Item $ltZip -Force
-    if (-not (Test-Path $ltDir)) {
-        # Если апстрим сменил версию — найдём фактическую папку и подскажем,
-        # что start.ps1 и bootstrap.ps1 ссылаются на конкретную "LanguageTool-6.6".
-        $actual = Get-ChildItem -Path $root -Directory -Filter "LanguageTool-*" -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($actual) {
-            throw "Распаковалась папка '$($actual.Name)', а не 'LanguageTool-6.6' — обновите версию в tools\languagetool\setup.ps1 и start.ps1"
-        }
-        throw "LanguageTool распаковался, но папка LanguageTool-6.6 не найдена"
-    }
-    Ok "Готово: LanguageTool-6.6"
+    $ltDir = Get-ChildItem -Path $root -Directory -Filter "LanguageTool-*" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $ltDir) { throw "LanguageTool распаковался, но папка LanguageTool-* не найдена" }
+    Ok "Готово: $($ltDir.Name)"
 }
 
 Write-Host ""
