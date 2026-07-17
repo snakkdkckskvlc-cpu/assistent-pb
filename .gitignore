@@ -29,6 +29,8 @@ data/chroma/
 data/uploads/
 data/outputs/
 data/app.db
+data/app.db-shm
+data/app.db-wal
 
 # Сборки
 build/**/*.app/
