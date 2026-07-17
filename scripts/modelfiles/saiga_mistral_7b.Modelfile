@@ -1,0 +1,28 @@
+# Saiga Mistral 7B — русский instruct-финтюн Mistral-7B (проект IlyaGusev/saiga).
+#
+# НЕ используется по умолчанию — config.py::LLM_MODEL не меняем, пока нет
+# цифр с боевого сервера. Включается только вручную, после сравнения через
+# scripts/benchmark_models.py. См. scripts/modelfiles/README.md — там же
+# честно про то, что в этом файле проверено, а что нужно свериться самому.
+#
+# Перед `ollama create` скачайте GGUF-файл модели (квантование Q4_K_M —
+# разумный баланс качество/скорость на CPU, ~4.4 ГБ) и положите рядом с
+# этим Modelfile под именем ниже — или поправьте путь в FROM под своё имя
+# файла.
+
+FROM ./saiga_mistral_7b.Q4_K_M.gguf
+
+# Формат диалога проекта Saiga (system/user/bot-теги) — см. README.md рядом:
+# сверьте с карточкой модели на HuggingFace перед использованием в проде,
+# несовпадение формата не ломает генерацию, но тихо портит качество ответов.
+TEMPLATE """{{ if .System }}<s>system
+{{ .System }}</s>
+{{ end }}<s>user
+{{ .Prompt }}</s>
+<s>bot
+{{ .Response }}</s>
+"""
+
+PARAMETER stop "</s>"
+PARAMETER temperature 0.2
+PARAMETER num_ctx 4096

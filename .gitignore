@@ -60,3 +60,8 @@ references/
 # Словарь dict/spelling_global.txt — НЕ игнорировать, это наш контент.
 tools/languagetool/jdk-*/
 tools/languagetool/LanguageTool-*/
+
+# Результат scripts/benchmark_models.py — зависит от железа конкретного
+# запуска, не общий контент. Модельные GGUF-файлы — тоже (~5 ГБ каждый).
+scripts/benchmark_results.json
+scripts/modelfiles/*.gguf
