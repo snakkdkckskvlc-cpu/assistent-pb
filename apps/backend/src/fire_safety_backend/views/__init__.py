@@ -1,7 +1,9 @@
 """Роутеры backend'а. main.py собирает их через include_router."""
+
 from . import (
     addressees,
     downloads,
+    feedback,
     health,
     legal,
     letter,
@@ -13,6 +15,7 @@ from . import (
 __all__ = [
     "addressees",
     "downloads",
+    "feedback",
     "health",
     "legal",
     "letter",

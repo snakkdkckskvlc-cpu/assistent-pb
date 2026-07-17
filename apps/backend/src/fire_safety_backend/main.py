@@ -19,6 +19,7 @@ from .services import addressees as addressee_service
 from .views import (
     addressees,
     downloads,
+    feedback,
     health,
     legal,
     letter,
@@ -62,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(tasks.router)
     app.include_router(downloads.router)
     app.include_router(addressees.router)
+    app.include_router(feedback.router)
 
     # Frontend (статика + HTML-страницы) — только если каталог существует
     if config.FRONTEND_DIR.exists():

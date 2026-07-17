@@ -270,6 +270,41 @@ th { color: var(--muted); font-weight: 500; font-size: 13px; text-transform: upp
   font-size: 14px;
 }
 
+/* Фидбек 👍/👎 (app.js::renderFeedbackBlock) */
+.feedback-box {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 12px 16px;
+  background: #fafbfc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+}
+.feedback-label { color: var(--muted); }
+.feedback-vote {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 16px;
+  line-height: 1;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.feedback-vote:hover:not(:disabled) { border-color: var(--accent); }
+.feedback-vote.active { border-color: var(--accent); background: #fbe9e7; }
+.feedback-vote:disabled { opacity: 0.6; cursor: not-allowed; }
+.feedback-comment {
+  flex: 1 1 220px;
+  width: auto;
+  padding: 6px 10px;
+}
+.feedback-send { padding: 6px 14px; }
+.feedback-status { color: var(--muted); font-size: 13px; }
+
 .error-box {
   margin-top: 16px;
   padding: 12px 16px;
