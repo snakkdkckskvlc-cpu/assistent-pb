@@ -16,7 +16,8 @@ log = logging.getLogger(__name__)
 
 
 class Retriever:
-    def __init__(self) -> None:
+    def __init__(self, collection_name: str | None = None) -> None:
+        name = collection_name or config.COLLECTION_NAME
         self._collection = None
         try:
             import chromadb
@@ -31,13 +32,11 @@ class Retriever:
                 model_name=config.EMBED_MODEL,
             )
             self._collection = client.get_collection(
-                name=config.COLLECTION_NAME,
+                name=name,
                 embedding_function=embed_fn,
             )
         except Exception as e:
-            log.warning(
-                "RAG-коллекция ещё не создана: %s. Юр. анализ будет без ссылок на нормы.", e
-            )
+            log.warning("RAG-коллекция «%s» ещё не создана: %s. Поиск по ней отключён.", name, e)
             self._collection = None
 
     def is_ready(self) -> bool:

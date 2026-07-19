@@ -42,10 +42,12 @@ def _mock_pipeline_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path) -> No
 
     # RAG: пусто, без обращения к ChromaDB
     from fire_safety_backend.pipelines import legal as pipelines_legal
+    from fire_safety_backend.pipelines import letter as pipelines_letter
 
     monkeypatch.setattr(
         pipelines_legal, "retrieve_many", lambda queries, top_k=None: [[] for _ in queries]
     )
+    monkeypatch.setattr(pipelines_letter, "retrieve_letters", lambda query, top_k=2: [])
 
     # Генератор DOCX: просто создаём файл-заглушку
     def fake_build_letter_docx(letter: dict, output_path):

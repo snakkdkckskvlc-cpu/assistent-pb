@@ -46,6 +46,15 @@
    .\tools\languagetool\setup.ps1   # один раз, скачивает JDK + LanguageTool, ~430 МБ
    .\tools\languagetool\start.ps1   # держать запущенным рядом с Ollama
    ```
+7a. **Архив писем компании** (опционально — генерация писем начнёт опираться на
+   реальный стиль компании, а не только на промпт). Архив с письмами в git не
+   попадает (коммерческие данные) — путь укажите свой:
+   ```powershell
+   $env:PYTHONPATH = "apps\backend\src;packages\rag\src"
+   .\venv\Scripts\python scripts\index_letters.py --zip "D:\Архив\письма.zip"
+   ```
+   Берутся только DOCX из подпапки «Письма» (настраивается флагом `--folder`).
+   Повторный запуск того же архива ничего не дублирует.
 8. **Фирменный бланк** — положить `letterhead.docx` в
    `apps\backend\src\fire_safety_backend\resources\templates\`. Плейсхолдеры:
    `{{date}}`, `{{recipient}}`, `{{subject}}`, `{{greeting}}`, `{{body}}`,

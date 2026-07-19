@@ -40,6 +40,10 @@ venv/bin/pip install -e apps/backend -e apps/desktop -e packages/rag  # или: 
 # Индексация корпуса законов (первый раз тянет эмбед-модель ~1.3 ГБ)
 PYTHONPATH=packages/rag/src venv/bin/python -m fire_safety_rag.indexer
 
+# Опционально: архив реальных писем компании как образцы стиля для генерации
+# (архив в git не попадает — коммерческие данные; путь укажите свой)
+PYTHONPATH=apps/backend/src:packages/rag/src venv/bin/python scripts/index_letters.py --zip ~/письма.zip
+
 # Backend
 PYTHONPATH=apps/backend/src:packages/rag/src \
   venv/bin/uvicorn fire_safety_backend.main:app --host 127.0.0.1 --port 8000
