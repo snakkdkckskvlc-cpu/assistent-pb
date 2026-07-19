@@ -1,4 +1,5 @@
 """Роутер: генерация официального письма."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException

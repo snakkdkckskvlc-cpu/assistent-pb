@@ -1,4 +1,5 @@
 """Роутер: проверка документа на ошибки."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile

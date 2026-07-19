@@ -3,11 +3,15 @@
 Импорты pytesseract/PIL/pdf2image — ленивые. На dev-машине без OCR-стека
 модуль импортируется, но при вызове функций поднимает понятную ошибку.
 """
+
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ... import config
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class OCRNotAvailable(RuntimeError):

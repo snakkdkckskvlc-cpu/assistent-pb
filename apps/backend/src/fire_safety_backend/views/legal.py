@@ -1,4 +1,5 @@
 """Роутер: юридический анализ договора."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile

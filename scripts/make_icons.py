@@ -3,6 +3,7 @@
 Требует: Pillow, cairosvg (или использует ImageMagick).
 На macOS для .icns использует системный `iconutil`.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -19,12 +20,14 @@ SIZES = [16, 32, 64, 128, 256, 512, 1024]
 
 def rasterize_with_cairosvg(size: int, out: Path) -> None:
     import cairosvg
+
     cairosvg.svg2png(url=str(SVG), write_to=str(out), output_width=size, output_height=size)
 
 
 def rasterize_with_pil(size: int, out: Path) -> None:
     """Fallback: рендерим SVG-фигуру напрямую через PIL (без cairo)."""
     from PIL import Image, ImageDraw
+
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     r = size
@@ -32,9 +35,13 @@ def rasterize_with_pil(size: int, out: Path) -> None:
     d.rounded_rectangle([0, 0, r, r], radius=int(r * 0.22), fill=(26, 29, 35, 255))
     # Языки пламени — три эллипса поверх
     cx, cy = r // 2, int(r * 0.55)
-    d.ellipse([cx - r*0.32, cy - r*0.20, cx + r*0.32, cy + r*0.28], fill=(200, 53, 43, 255))
-    d.ellipse([cx - r*0.22, cy - r*0.12, cx + r*0.22, cy + r*0.24], fill=(242, 140, 26, 255))
-    d.ellipse([cx - r*0.10, cy - r*0.02, cx + r*0.10, cy + r*0.18], fill=(255, 215, 94, 255))
+    d.ellipse([cx - r * 0.32, cy - r * 0.20, cx + r * 0.32, cy + r * 0.28], fill=(200, 53, 43, 255))
+    d.ellipse(
+        [cx - r * 0.22, cy - r * 0.12, cx + r * 0.22, cy + r * 0.24], fill=(242, 140, 26, 255)
+    )
+    d.ellipse(
+        [cx - r * 0.10, cy - r * 0.02, cx + r * 0.10, cy + r * 0.18], fill=(255, 215, 94, 255)
+    )
     img.save(out, "PNG")
 
 
@@ -77,6 +84,7 @@ def build_icns() -> Path | None:
 
 def build_ico() -> Path:
     from PIL import Image
+
     imgs = [Image.open(BUILD / f"icon_{s}.png") for s in [16, 32, 64, 128, 256]]
     ico = BUILD / "AppIcon.ico"
     imgs[0].save(ico, format="ICO", sizes=[(im.width, im.height) for im in imgs])

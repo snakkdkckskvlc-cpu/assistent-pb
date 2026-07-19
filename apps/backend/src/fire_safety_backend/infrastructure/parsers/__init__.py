@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from .docx_parser import extract_docx
-from .pdf_parser import extract_pdf
 from .ocr import ocr_image, ocr_pdf
+from .pdf_parser import extract_pdf
 
 
 class UnsupportedFormatError(ValueError):
@@ -30,4 +30,11 @@ def extract_text(path: Path) -> str:
     raise UnsupportedFormatError(f"Формат не поддерживается: {suffix}")
 
 
-__all__ = ["extract_text", "extract_docx", "extract_pdf", "ocr_image", "ocr_pdf", "UnsupportedFormatError"]
+__all__ = [
+    "extract_text",
+    "extract_docx",
+    "extract_pdf",
+    "ocr_image",
+    "ocr_pdf",
+    "UnsupportedFormatError",
+]

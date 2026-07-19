@@ -1,4 +1,5 @@
 """Роутер: главная страница и статические view-страницы фронтенда."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException

@@ -8,10 +8,13 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
 from .. import config
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 DB_PATH = config.DATA_DIR / "app.db"
 

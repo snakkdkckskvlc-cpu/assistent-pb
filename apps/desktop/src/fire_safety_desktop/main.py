@@ -3,6 +3,7 @@
 Точка входа для сборки в .app/.exe. Все пути к venv/PYTHONPATH прописаны
 на уровне launcher-скриптов (start.bat, launcher-скрипт .app).
 """
+
 from __future__ import annotations
 
 import logging

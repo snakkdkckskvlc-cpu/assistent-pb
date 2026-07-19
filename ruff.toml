@@ -12,16 +12,29 @@ select = [
     "B",   # flake8-bugbear
     "UP",  # pyupgrade
     "SIM", # flake8-simplify
-    "TCH", # flake8-type-checking
+    "TC",  # flake8-type-checking
 ]
 ignore = [
     "E501",   # длина строки — контролируется formatter'ом
     "B008",   # FastAPI использует Depends() как default
 ]
 
+[lint.flake8-type-checking]
+# Аннотации полей внутри pydantic-моделей резолвятся в рантайме — импорты
+# для них нельзя предлагать унести в TYPE_CHECKING.
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
+
 [lint.per-file-ignores]
-"apps/backend/tests/**" = ["S101"]  # assert разрешён в тестах
-"packages/rag/tests/**" = ["S101"]
+# views/: pydantic-модели в аннотациях FastAPI-роутов (тело запроса,
+# response_model) обязаны оставаться рантайм-импортами — FastAPI резолвит
+# аннотации через get_type_hints при регистрации роута, импорт под
+# TYPE_CHECKING уронит приложение на старте. Ruff не выводит базовый класс
+# через границу файла, поэтому TC001 здесь глушится целиком.
+"apps/backend/src/fire_safety_backend/views/**" = ["TC001"]
+# S101: assert разрешён в тестах. TC: гимнастика с TYPE_CHECKING-блоками
+# в тестах не даёт ничего (время импорта тестов не критично), только шум.
+"apps/backend/tests/**" = ["S101", "TC"]
+"packages/rag/tests/**" = ["S101", "TC"]
 
 [format]
 quote-style = "double"

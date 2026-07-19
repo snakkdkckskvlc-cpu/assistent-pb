@@ -7,14 +7,16 @@
 Запуск: `python -m fire_safety_rag.indexer`
 Повторный запуск обновит только новые/изменённые файлы (по хэшу содержимого).
 """
+
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import logging
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from . import config
 from .chunking import chunk_sentences
@@ -61,10 +63,8 @@ def build_index(
         model_name=config.EMBED_MODEL,
     )
     if reset:
-        try:
+        with contextlib.suppress(Exception):
             client.delete_collection(config.COLLECTION_NAME)
-        except Exception:
-            pass
     collection = client.get_or_create_collection(
         name=config.COLLECTION_NAME,
         embedding_function=embed_fn,
@@ -101,8 +101,7 @@ def build_index(
             chunks = chunk_sentences(text, config.CHUNK_TOKENS, config.CHUNK_OVERLAP)
             ids = [f"{fh}_{i}" for i in range(len(chunks))]
             metadatas = [
-                {"source": path.name, "chunk_idx": i, "file_hash": fh}
-                for i in range(len(chunks))
+                {"source": path.name, "chunk_idx": i, "file_hash": fh} for i in range(len(chunks))
             ]
             collection.add(documents=chunks, ids=ids, metadatas=metadatas)
             stats["files_indexed"] += 1
