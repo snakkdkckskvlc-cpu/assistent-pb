@@ -68,6 +68,10 @@ body {
 .card h2 { margin: 0 0 8px; font-size: 18px; }
 .card p { margin: 0; color: var(--muted); font-size: 14px; }
 
+.history-link { margin-top: 28px; font-size: 14px; }
+.history-link a { color: var(--muted); text-decoration: none; }
+.history-link a:hover { color: var(--accent); }
+
 /* --- Форма задачи --- */
 .page {
   max-width: 960px;

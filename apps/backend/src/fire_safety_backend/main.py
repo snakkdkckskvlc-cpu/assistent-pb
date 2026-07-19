@@ -5,6 +5,7 @@ App factory собирает все роутеры из views/ и монтиру
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -16,11 +17,13 @@ from .infrastructure import languagetool, llm
 from .infrastructure.db import init_db
 from .infrastructure.queue import queue
 from .services import addressees as addressee_service
+from .services import history as history_service
 from .views import (
     addressees,
     downloads,
     feedback,
     health,
+    history,
     legal,
     letter,
     spellcheck,
@@ -35,12 +38,18 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+async def _record_task_history(task) -> None:
+    # SQLite — блокирующий вызов, уводим с event loop воркера очереди.
+    await asyncio.to_thread(history_service.record, task)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     addressee_service.seed_defaults()
     llm.startup()
     languagetool.startup()
+    queue.on_task_finished = _record_task_history
     queue.start()
     log.info(
         "Backend started. Ollama: %s, model: %s",
@@ -64,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(downloads.router)
     app.include_router(addressees.router)
     app.include_router(feedback.router)
+    app.include_router(history.router)
 
     # Frontend (статика + HTML-страницы) — только если каталог существует
     if config.FRONTEND_DIR.exists():

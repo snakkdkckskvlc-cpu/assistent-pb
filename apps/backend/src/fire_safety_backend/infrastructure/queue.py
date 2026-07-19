@@ -47,6 +47,10 @@ class TaskQueue:
         # при переиспользовании (например, в тестах с новым event loop).
         self._queue: asyncio.Queue[tuple[Task, Callable[[Task], Awaitable[Any]]]] | None = None
         self._worker_task: asyncio.Task | None = None
+        # Колбэк «задача завершена» (успех или ошибка). Назначается снаружи
+        # (lifespan main.py пишет историю задач) — сама очередь не знает о
+        # сервисах, слои не переворачиваются. Ошибка колбэка не валит воркер.
+        self.on_task_finished: Callable[[Task], Awaitable[None]] | None = None
 
     def start(self) -> None:
         if self._worker_task is None:
@@ -92,6 +96,11 @@ class TaskQueue:
             finally:
                 task.finished_at = datetime.now(UTC).isoformat()
                 log.info("Task end: %s → %s", task.id, task.status)
+                if self.on_task_finished is not None:
+                    try:
+                        await self.on_task_finished(task)
+                    except Exception:
+                        log.exception("on_task_finished failed for %s", task.id)
 
 
 queue = TaskQueue()

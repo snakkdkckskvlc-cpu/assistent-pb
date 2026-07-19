@@ -71,6 +71,19 @@ CREATE TABLE IF NOT EXISTS feedback (
     rating TEXT NOT NULL,
     comment TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS task_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    duration_sec REAL,
+    tokens INTEGER NOT NULL DEFAULT 0,
+    summary TEXT NOT NULL DEFAULT '',
+    error TEXT
+);
 """
 
 
