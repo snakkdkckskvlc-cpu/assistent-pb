@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import socket
@@ -81,34 +82,65 @@ def _wait_backend(url: str, timeout: int = 30) -> bool:
     return False
 
 
+def _show_fatal_error(message: str) -> None:
+    """Запуск идёт через pythonw.exe (без консоли) — при любой необработанной
+    ошибке пользователь иначе не увидит вообще ничего: ни окна, ни консоли,
+    ни лога. Пишем traceback в файл рядом с проектом и, на Windows, дублируем
+    нативным MessageBox — иначе «клик по ярлыку ничего не делает» невозможно
+    отличить от «всё зависло» или «просто медленно грузится»."""
+    log_path = _project_root() / "desktop_error.log"
+    with contextlib.suppress(OSError):
+        log_path.write_text(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\n{message}\n", encoding="utf-8")
+
+    if sys.platform == "win32":
+        import ctypes
+
+        short = message if len(message) < 1000 else message[:1000] + "…"
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            f"{short}\n\nПодробности: {log_path}",
+            f"{APP_NAME} — ошибка запуска",
+            0x10,  # MB_ICONERROR
+        )
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
-    root = _project_root()
-    os.chdir(root)
-    _prepare_sys_path()
+    try:
+        root = _project_root()
+        os.chdir(root)
+        _prepare_sys_path()
 
-    port = _pick_port()
-    url = f"http://{HOST}:{port}"
+        port = _pick_port()
+        url = f"http://{HOST}:{port}"
 
-    t = threading.Thread(target=_run_backend, args=(port,), daemon=True)
-    t.start()
+        t = threading.Thread(target=_run_backend, args=(port,), daemon=True)
+        t.start()
 
-    if not _wait_backend(url):
-        log.error("Backend не поднялся за 30 сек")
-        return
+        if not _wait_backend(url):
+            _show_fatal_error(
+                "Backend не поднялся за 30 секунд.\n"
+                "Проверьте, что Ollama запущена (значок ламы в трее)."
+            )
+            return
 
-    webview.create_window(
-        title=APP_NAME,
-        url=url,
-        width=1280,
-        height=860,
-        min_size=(900, 600),
-    )
-    webview.start()
+        webview.create_window(
+            title=APP_NAME,
+            url=url,
+            width=1280,
+            height=860,
+            min_size=(900, 600),
+        )
+        webview.start()
+    except Exception:
+        import traceback
+
+        _show_fatal_error(traceback.format_exc())
+        raise
 
 
 if __name__ == "__main__":
