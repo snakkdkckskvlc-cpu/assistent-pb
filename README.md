@@ -69,6 +69,8 @@ PYTHONPATH=apps/backend/src:packages/rag/src:apps/desktop/src \
 ```powershell
 # Распаковать архив, из папки проекта:
 .\START.bat
+#или
+powershell -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
 ```
 
 Скрипт поставит Python, Ollama, Tesseract, Poppler, зависимости, проиндексирует
