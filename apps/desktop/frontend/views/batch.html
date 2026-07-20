@@ -95,10 +95,24 @@
           const stats = result.stats || {};
           const parts = [`<p>Всего файлов: ${stats["всего"] ?? "?"} · договоров проанализировано: ${stats["договоров"] ?? "?"} · пропущено: ${stats["пропущено"] ?? "?"}</p>`];
           if (result._docx_path) {
-            parts.push(`<div class="actions"><a class="btn" href="/api/download/${encodeURIComponent(result._docx_path)}" download>📄 Скачать сводный отчёт (DOCX)</a></div>`);
+            parts.push(`<div class="actions"><button class="btn" id="batch-download">📄 Скачать сводный отчёт (DOCX)</button> <span class="hint" id="batch-download-status"></span></div>`);
           }
           for (const item of (result["файлы"] || [])) parts.push(renderFileItem(item));
           container.innerHTML = parts.join("\n");
+
+          const dlBtn = document.getElementById("batch-download");
+          if (dlBtn) {
+            dlBtn.addEventListener("click", async () => {
+              const statusEl = document.getElementById("batch-download-status");
+              dlBtn.disabled = true;
+              statusEl.textContent = "";
+              const res = await downloadFile(`/api/download/${encodeURIComponent(result._docx_path)}`, result._docx_path);
+              dlBtn.disabled = false;
+              if (res && res.ok === false && res.error !== "cancelled") {
+                statusEl.textContent = "Не удалось сохранить: " + res.error;
+              }
+            });
+          }
         },
       });
     });

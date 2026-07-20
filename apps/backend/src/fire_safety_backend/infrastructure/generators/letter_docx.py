@@ -2,7 +2,11 @@
 
 Ожидает, что в шаблоне letterhead.docx есть плейсхолдеры:
   {{date}}, {{recipient}}, {{subject}}, {{greeting}}, {{body}},
-  {{signoff}}, {{sender_position}}, {{sender_name}}
+  {{sender_position}}, {{sender_name}}
+
+Сам шаблон собирается из канонического бланка компании скриптом
+scripts/build_letterhead_template.py — не редактируйте letterhead.docx
+руками, правьте исходный «бланк ПожСервис …docx» и пересоберите.
 
 Многострочные значения ({{recipient}} = «Директору …\\nИванову А.А.»,
 многоабзацное {{body}}) корректно разбиваются на параграфы с сохранением
@@ -106,7 +110,6 @@ def build_letter_docx(letter: dict, output_path: Path) -> Path:
         "subject": letter.get("тема", ""),
         "greeting": letter.get("обращение", ""),
         "body": letter.get("тело", ""),
-        "signoff": letter.get("формула_вежливости", "С уважением,"),
         "sender_position": letter.get("должность_отправителя_placeholder", "[должность]"),
         "sender_name": letter.get("фио_отправителя_placeholder", "[Фамилия И.О.]"),
     }
@@ -131,7 +134,7 @@ def build_letter_docx(letter: dict, output_path: Path) -> Path:
             if para.strip():
                 doc.add_paragraph(para.strip())
         doc.add_paragraph()
-        doc.add_paragraph(mapping["signoff"])
+        doc.add_paragraph("С уважением,")
         doc.add_paragraph(mapping["sender_position"])
         doc.add_paragraph(mapping["sender_name"])
 

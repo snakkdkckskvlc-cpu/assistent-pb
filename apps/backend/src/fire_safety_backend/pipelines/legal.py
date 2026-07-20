@@ -13,7 +13,7 @@ from fire_safety_rag import retrieve_many
 
 from .. import config
 from ..infrastructure import llm
-from ._prompts import load_prompt, make_token_counter
+from ._prompts import load_prompt, make_progress_counter
 
 if TYPE_CHECKING:
     from ..infrastructure.queue import Task
@@ -96,7 +96,17 @@ def _assign_chunk_ids(chunks: list[dict]) -> dict[str, dict]:
     return chunk_ids
 
 
-async def run_legal_analysis(text: str, task: Task | None = None) -> dict:
+async def run_legal_analysis(
+    text: str,
+    task: Task | None = None,
+    base_percent: int = 0,
+    span_percent: int = 100,
+) -> dict:
+    """base_percent/span_percent — доля общей полосы прогресса задачи, которую
+    занимает именно этот вызов. По умолчанию — вся полоса (0..100), как при
+    самостоятельном юр. анализе одного договора; pipelines/batch.py передаёт
+    свою долю на файл, чтобы полоса не откатывалась назад между файлами
+    пакета (иначе у каждого файла процент заново стартовал бы с нуля)."""
     prompt = load_prompt("legal")
 
     # Достаём релевантные нормы из RAG одним батч-запросом (retrieve_many),
@@ -106,6 +116,7 @@ async def run_legal_analysis(text: str, task: Task | None = None) -> dict:
     #  - ответственность
     if task:
         task.progress = "Подбираю нормы из базы"
+        task.percent = base_percent + int(span_percent * 0.05)
     rag_queries = [
         text[:1500],
         "ответственность сторон штрафные санкции неустойка",
@@ -157,7 +168,12 @@ async def run_legal_analysis(text: str, task: Task | None = None) -> dict:
         user=user_msg,
         num_ctx=8192,
         num_predict=config.LLM_NUM_PREDICT_LEGAL,
-        on_delta=make_token_counter(task),
+        on_delta=make_progress_counter(
+            task,
+            config.LLM_NUM_PREDICT_LEGAL,
+            base_percent=base_percent + int(span_percent * 0.10),
+            span_percent=int(span_percent * 0.85),
+        ),
     )
     if not isinstance(result, dict):
         # Модель отступила от схемы и вернула не-объект (например, массив).

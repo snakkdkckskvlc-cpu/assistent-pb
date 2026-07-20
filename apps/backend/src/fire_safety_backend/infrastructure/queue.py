@@ -32,11 +32,14 @@ class Task:
     progress: str = ""
     result: Any = None
     error: str | None = None
-    # Число полученных потоковых чанков от Ollama (≈ токенов) — растёт по
-    # мере генерации, для живого счётчика в UI (см. llm.py::chat on_delta,
-    # pipelines/_prompts.py::make_token_counter). Не сбрасывается между
-    # чанками документа внутри одной задачи — монотонно растёт весь прогон.
+    # Число полученных потоковых чанков от Ollama (≈ токенов), кумулятивно
+    # на всю задачу — не показывается в живом UI (см. percent ниже), но
+    # пишется в историю задач (services/history.py) как диагностика.
     tokens: int = 0
+    # Грубая, но честная оценка прогресса 0..100 для полосы загрузки в UI
+    # (см. pipelines/_prompts.py::make_progress_counter). Не обязана дойти
+    # до 100 сама — финальные 100% показывает фронтенд по status == "done".
+    percent: int = 0
 
 
 class TaskQueue:

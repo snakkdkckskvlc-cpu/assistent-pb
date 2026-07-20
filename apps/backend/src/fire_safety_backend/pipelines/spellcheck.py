@@ -1,4 +1,4 @@
-"""Кнопка 1: проверка орфографии/пунктуации/стиля."""
+"""Кнопка 1: проверка орфографии и пунктуации."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from fire_safety_rag import chunk_sentences
 
 from .. import config
 from ..infrastructure import languagetool, llm
-from ._prompts import load_prompt, make_token_counter
+from ._prompts import load_prompt, make_progress_counter
 
 if TYPE_CHECKING:
     from ..infrastructure.queue import Task
@@ -70,6 +70,7 @@ async def run_spellcheck(text: str, task: Task | None = None) -> dict:
     # languagetool.py, references/languagetool-master/README_reference.md).
     if task:
         task.progress = "Проверяю через LanguageTool"
+        task.percent = 3
     lt_errors = await languagetool.check(text)
     for e in lt_errors:
         e["chunk"] = 0
@@ -87,11 +88,15 @@ async def run_spellcheck(text: str, task: Task | None = None) -> dict:
         if task:
             task.progress = f"Фрагмент {i}/{len(chunks)}"
         log.info("Spellcheck chunk %d/%d (%d words)", i, len(chunks), len(chunk.split()))
+        chunk_base = 5 + int(90 * (i - 1) / len(chunks))
+        chunk_span = max(1, int(90 / len(chunks)))
         result = await llm.chat_json(
             system=prompt,
             user=chunk,
             num_predict=config.LLM_NUM_PREDICT_SPELLCHECK,
-            on_delta=make_token_counter(task),
+            on_delta=make_progress_counter(
+                task, config.LLM_NUM_PREDICT_SPELLCHECK, chunk_base, chunk_span
+            ),
         )
         errors = result.get("errors", []) or []
         # Модель иногда отступает от схемы (например, список строк вместо

@@ -51,11 +51,14 @@ def test_long_example_is_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def test_run_letter_passes_examples_to_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    # run_letter() отдаёт только текстовые поля LLM-ответа — DOCX здесь не
+    # собирается (см. views/letter.py::api_letter_render), поэтому мокать
+    # достаточно chat_json и retrieve_letters.
     captured: dict = {}
 
     async def fake_chat_json(system: str, user: str, **kwargs) -> dict:
         captured["user"] = user
-        return {"тема": "т", "обращение": "о", "тело": "т", "формула_вежливости": "ф"}
+        return {"тема": "т", "обращение": "о", "тело": "т"}
 
     from fire_safety_backend.infrastructure import llm
 
@@ -66,24 +69,9 @@ async def test_run_letter_passes_examples_to_llm(monkeypatch: pytest.MonkeyPatch
         lambda query, top_k=2: [{"text": "Образец фирменного стиля.", "source": "s.docx"}],
     )
 
-    def fake_build_docx(letter: dict, output_path):
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"fake")
-        return output_path
+    result = await letter_module.run_letter("напомнить о встрече", "заказчик")
 
-    from fire_safety_backend.infrastructure.generators import letter_docx
-
-    monkeypatch.setattr(letter_docx, "build_letter_docx", fake_build_docx)
-
-    import tempfile
-    from pathlib import Path
-
-    from fire_safety_backend import config
-
-    monkeypatch.setattr(config, "OUTPUT_DIR", Path(tempfile.mkdtemp()))
-
-    await letter_module.run_letter("напомнить о встрече", "заказчик")
-
+    assert result == {"тема": "т", "обращение": "о", "тело": "т"}
     assert "Образец фирменного стиля." in captured["user"]
     assert "НАБРОСОК ПОЛЬЗОВАТЕЛЯ" in captured["user"]
     # Примеры идут ДО наброска — модель читает контекст до задачи.

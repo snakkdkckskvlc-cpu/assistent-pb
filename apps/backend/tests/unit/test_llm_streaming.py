@@ -1,9 +1,8 @@
 """Юнит-тесты infrastructure/llm.py::chat (стриминг-режим on_delta) и
-pipelines/_prompts.py::make_token_counter.
+pipelines/_prompts.py::make_progress_counter.
 
-См. часть 2 плана "фиксы код-ревью + стриминг + фидбек + бенчмарк" —
-живой индикатор прогресса (счётчик токенов) вместо полноценного SSE:
-все три пайплайна возвращают структурный JSON, частичный JSON нерендерибелен.
+Живой индикатор прогресса (полоса загрузки в %) вместо полноценного SSE:
+все пайплайны возвращают структурный JSON, частичный JSON нерендерибелен.
 """
 
 from __future__ import annotations
@@ -12,7 +11,7 @@ import json
 
 from fire_safety_backend.infrastructure import llm
 from fire_safety_backend.infrastructure.queue import Task
-from fire_safety_backend.pipelines._prompts import make_token_counter
+from fire_safety_backend.pipelines._prompts import make_progress_counter
 
 
 class _FakeResponse:
@@ -126,13 +125,13 @@ async def test_chat_streaming_skips_blank_lines(monkeypatch) -> None:
     assert result == "аб"
 
 
-def test_make_token_counter_returns_none_without_task() -> None:
-    assert make_token_counter(None) is None
+def test_make_progress_counter_returns_none_without_task() -> None:
+    assert make_progress_counter(None, expected_tokens=10) is None
 
 
-def test_make_token_counter_increments_task_tokens() -> None:
+def test_make_progress_counter_increments_task_tokens() -> None:
     task = Task(id="t1", kind="spellcheck")
-    counter = make_token_counter(task)
+    counter = make_progress_counter(task, expected_tokens=10)
     assert counter is not None
 
     counter("a")
@@ -140,3 +139,53 @@ def test_make_token_counter_increments_task_tokens() -> None:
     counter("ccc")
 
     assert task.tokens == 3
+
+
+def test_make_progress_counter_scales_percent_to_expected_tokens() -> None:
+    task = Task(id="t1", kind="letter")
+    counter = make_progress_counter(task, expected_tokens=10, base_percent=0, span_percent=100)
+    assert counter is not None
+
+    for _ in range(5):
+        counter("x")
+    assert task.percent == 50
+
+
+def test_make_progress_counter_percent_clamped_past_expected_tokens() -> None:
+    task = Task(id="t1", kind="letter")
+    counter = make_progress_counter(task, expected_tokens=5, base_percent=0, span_percent=100)
+    assert counter is not None
+
+    for _ in range(20):
+        counter("x")
+    assert task.percent == 100
+
+
+def test_make_progress_counter_respects_base_and_span() -> None:
+    """Второй чанк из трёх (batch/spellcheck): своя доля полосы, не с нуля."""
+    task = Task(id="t1", kind="spellcheck")
+    counter = make_progress_counter(task, expected_tokens=10, base_percent=30, span_percent=30)
+    assert counter is not None
+
+    for _ in range(10):
+        counter("x")
+    assert task.percent == 60  # 30 (база) + 30 (вся доля, чанк полностью сгенерирован)
+
+
+def test_make_progress_counter_two_calls_do_not_leak_between_calls() -> None:
+    """Разные вызовы (например, разные чанки одной задачи) считают токены
+    независимо — иначе полоса прыгала бы вперёд/назад между чанками."""
+    task = Task(id="t1", kind="spellcheck")
+    counter1 = make_progress_counter(task, expected_tokens=10, base_percent=0, span_percent=50)
+    counter2 = make_progress_counter(task, expected_tokens=10, base_percent=50, span_percent=50)
+    assert counter1 is not None
+    assert counter2 is not None
+
+    for _ in range(10):
+        counter1("x")
+    assert task.percent == 50
+
+    for _ in range(5):
+        counter2("x")
+    assert task.percent == 75  # 50 + 50% доли второго вызова, а не 50 + 100%
+    assert task.tokens == 15  # кумулятивно на задачу — для истории
