@@ -29,6 +29,9 @@ def _summarize(task: Task) -> str:
         return f"Находок: {len(findings)}" if isinstance(findings, list) else ""
     if task.kind == "letter":
         return str(result.get("тема") or "")[:200]
+    if task.kind == "batch":
+        stats = result.get("stats") or {}
+        return f"Файлов: {stats.get('всего', '?')}, договоров: {stats.get('договоров', '?')}"
     return ""
 
 

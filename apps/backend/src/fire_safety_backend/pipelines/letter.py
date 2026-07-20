@@ -89,8 +89,10 @@ async def run_letter(
     # Генерируем DOCX на основе фирменного бланка (python-docx — блокирующий
     # файловый I/O, тоже уводим с event loop).
     from ..infrastructure.generators.letter_docx import build_letter_docx
+    from ..infrastructure.generators.letter_eml import build_letter_eml
 
-    output_path = config.OUTPUT_DIR / f"letter_{task.id if task else 'preview'}.docx"
+    stem = f"letter_{task.id if task else 'preview'}"
+    output_path = config.OUTPUT_DIR / f"{stem}.docx"
     try:
         await asyncio.to_thread(build_letter_docx, result, output_path)
         result["_docx_path"] = str(output_path.name)
@@ -101,5 +103,16 @@ async def run_letter(
         log.warning("Не удалось собрать DOCX письма: %s", e, exc_info=True)
         result["_docx_path"] = None
         result["_warning"] = "Не удалось сформировать DOCX — доступен только текст письма"
+
+    # .eml — черновик для почтовой программы: сопроводительный текст + DOCX
+    # во вложении. Нет DOCX — письмо всё равно собирается, просто без вложения.
+    eml_path = config.OUTPUT_DIR / f"{stem}.eml"
+    try:
+        docx_for_attach = output_path if result.get("_docx_path") else None
+        await asyncio.to_thread(build_letter_eml, result, docx_for_attach, eml_path)
+        result["_eml_path"] = str(eml_path.name)
+    except Exception as e:
+        log.warning("Не удалось собрать .eml письма: %s", e, exc_info=True)
+        result["_eml_path"] = None
 
     return result

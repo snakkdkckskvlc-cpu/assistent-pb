@@ -122,8 +122,9 @@ def test_letter_accepts_draft(client: TestClient) -> None:
     # Проверяем что появилось сопроводительное e-mail
     assert "email" in payload
     assert "тело" in payload["email"]
-    # DOCX сгенерирован
+    # DOCX и .eml сгенерированы
     assert payload.get("_docx_path"), "Должен быть путь к DOCX для скачивания"
+    assert payload.get("_eml_path"), "Должен быть путь к .eml для скачивания"
 
 
 def test_reject_empty_input(client: TestClient) -> None:

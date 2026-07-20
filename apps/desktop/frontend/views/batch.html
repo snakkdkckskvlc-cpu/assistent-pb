@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Пакетная проверка договоров — Ассистент</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><a href="/">🔥 Ассистент</a></div>
+    <div class="status" id="health"></div>
+  </header>
+
+  <main class="page">
+    <a class="back" href="/">← На главную</a>
+    <div class="section">
+      <h2>📦 Пакетная проверка договоров</h2>
+      <p class="hint">Загрузите несколько файлов разом (до 20). Тип каждого определяется автоматически: юридический анализ запускается только для договоров, остальные (письма, акты, сметы) помечаются и пропускаются. В конце — сводный DOCX-отчёт.</p>
+
+      <div class="field">
+        <span class="field-label">Файлы (DOCX / PDF / сканы / TXT)</span>
+        <div class="file-picker">
+          <label class="btn btn-secondary" for="files">📎 Выбрать файлы</label>
+          <input type="file" id="files" class="visually-hidden" multiple accept=".docx,.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.txt">
+          <span class="file-name" id="file-name">Файлы не выбраны</span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn" id="submit">Проверить пакет</button>
+        <span class="hint">На CPU ≈ 3–10 мин на каждый договор.</span>
+      </div>
+
+      <div id="progress" class="progress" style="display:none"></div>
+      <div id="error" class="error-box" style="display:none"></div>
+      <div id="result" class="result"></div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    updateHealth();
+
+    const filesInput = document.getElementById("files");
+    filesInput.addEventListener("change", () => {
+      const el = document.getElementById("file-name");
+      const n = filesInput.files.length;
+      el.textContent = n ? `Выбрано файлов: ${n}` : "Файлы не выбраны";
+      el.classList.toggle("has-file", n > 0);
+    });
+
+    const CRIT_CLASS = {
+      "красный": "crit-red",
+      "жёлтый": "crit-yellow", "желтый": "crit-yellow",
+      "зелёный": "crit-green", "зеленый": "crit-green",
+    };
+
+    function renderFileItem(item) {
+      const parts = [`<h3>📄 ${escapeHtml(item["файл"] || "?")}</h3>`];
+      if (item["пропущен"]) {
+        parts.push(`<p class="hint">Тип: ${escapeHtml(item["тип"] || "?")}. ${escapeHtml(item["причина"] || "Пропущен.")}</p>`);
+        return parts.join("\n");
+      }
+      const findings = item["находки"] || [];
+      parts.push(`<p class="hint">Тип: договор. Находок: ${findings.length}.</p>`);
+      for (const f of findings) {
+        const crit = (f["критичность"] || "").toLowerCase();
+        parts.push(`<div class="finding ${CRIT_CLASS[crit] || ""}">
+          <span class="crit-label">${escapeHtml(f["критичность"] || "?")}</span> — ${escapeHtml(f["в_чём_риск"] || "")}
+          ${f["цитата_из_договора"] ? `<blockquote>${escapeHtml(f["цитата_из_договора"])}</blockquote>` : ""}
+          ${f["предложение_правки"] ? `<div class="redline">💡 ${escapeHtml(f["предложение_правки"])}</div>` : ""}
+          ${f["ссылка_на_норму"] ? `<span class="norm">${escapeHtml(f["ссылка_на_норму"])}</span>` : ""}
+        </div>`);
+      }
+      return parts.join("\n");
+    }
+
+    document.getElementById("submit").addEventListener("click", () => {
+      if (!filesInput.files.length) {
+        const errBox = document.getElementById("error");
+        errBox.style.display = "block";
+        errBox.textContent = "Выберите хотя бы один файл";
+        return;
+      }
+      submitForm({
+        endpoint: "/api/batch",
+        buildRequest: () => {
+          const fd = new FormData();
+          for (const f of filesInput.files) fd.append("files", f);
+          return { url: "/api/batch", body: fd, headers: undefined };
+        },
+        resultContainer: document.getElementById("result"),
+        progressContainer: document.getElementById("progress"),
+        renderResult: (result, container) => {
+          const stats = result.stats || {};
+          const parts = [`<p>Всего файлов: ${stats["всего"] ?? "?"} · договоров проанализировано: ${stats["договоров"] ?? "?"} · пропущено: ${stats["пропущено"] ?? "?"}</p>`];
+          if (result._docx_path) {
+            parts.push(`<div class="actions"><a class="btn" href="/api/download/${encodeURIComponent(result._docx_path)}" download>📄 Скачать сводный отчёт (DOCX)</a></div>`);
+          }
+          for (const item of (result["файлы"] || [])) parts.push(renderFileItem(item));
+          container.innerHTML = parts.join("\n");
+        },
+      });
+    });
+  </script>
+</body>
+</html>

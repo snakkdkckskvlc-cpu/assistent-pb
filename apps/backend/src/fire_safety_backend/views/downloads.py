@@ -11,6 +11,11 @@ from .. import config
 
 router = APIRouter(prefix="/api/download", tags=["download"])
 
+_MEDIA_TYPES = {
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".eml": "message/rfc822",
+}
+
 
 @router.get("/{filename}")
 async def api_download(filename: str) -> FileResponse:
@@ -18,8 +23,5 @@ async def api_download(filename: str) -> FileResponse:
     path = config.OUTPUT_DIR / safe
     if not path.exists():
         raise HTTPException(status_code=404, detail="Файл не найден")
-    return FileResponse(
-        path=str(path),
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=safe,
-    )
+    media_type = _MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(path=str(path), media_type=media_type, filename=safe)

@@ -9,7 +9,7 @@ from .. import config
 
 router = APIRouter(tags=["frontend"])
 
-_ALLOWED_VIEWS = {"spellcheck", "legal", "letter", "history"}
+_ALLOWED_VIEWS = {"spellcheck", "legal", "letter", "history", "batch"}
 
 
 @router.get("/", response_class=HTMLResponse)

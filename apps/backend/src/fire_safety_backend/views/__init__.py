@@ -2,6 +2,7 @@
 
 from . import (
     addressees,
+    batch,
     downloads,
     feedback,
     health,
@@ -15,6 +16,7 @@ from . import (
 
 __all__ = [
     "addressees",
+    "batch",
     "downloads",
     "feedback",
     "health",

@@ -142,10 +142,15 @@
       parts.push(`<div style="color:var(--muted);margin-top:10px">${escapeHtml(pos)} — ${escapeHtml(name)}</div>`);
       parts.push(`</div>`);
 
-      if (result._docx_path) {
-        parts.push(`<div class="actions" style="margin-top:16px">
-          <a class="btn" href="/api/download/${encodeURIComponent(result._docx_path)}" download>📄 Скачать DOCX (на бланке ПожСервис)</a>
-        </div>`);
+      if (result._docx_path || result._eml_path) {
+        const dl = [];
+        if (result._docx_path) {
+          dl.push(`<a class="btn" href="/api/download/${encodeURIComponent(result._docx_path)}" download>📄 Скачать DOCX (на бланке ПожСервис)</a>`);
+        }
+        if (result._eml_path) {
+          dl.push(`<a class="btn secondary" href="/api/download/${encodeURIComponent(result._eml_path)}" download title="Черновик для Outlook/Thunderbird: адресат, тема и текст заполнены, DOCX во вложении">📧 Скачать .eml для почты</a>`);
+        }
+        parts.push(`<div class="actions" style="margin-top:16px">${dl.join("\n")}</div>`);
       }
 
       // === 2. Сопроводительное e-mail ===

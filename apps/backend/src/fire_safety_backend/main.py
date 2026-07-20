@@ -20,6 +20,7 @@ from .services import addressees as addressee_service
 from .services import history as history_service
 from .views import (
     addressees,
+    batch,
     downloads,
     feedback,
     health,
@@ -69,6 +70,7 @@ def create_app() -> FastAPI:
     app.include_router(spellcheck.router)
     app.include_router(legal.router)
     app.include_router(letter.router)
+    app.include_router(batch.router)
     app.include_router(tasks.router)
     app.include_router(downloads.router)
     app.include_router(addressees.router)
