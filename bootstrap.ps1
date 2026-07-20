@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 # ================================================================
 # Ассистент ПБ — автоматическая установка на Windows
 # ================================================================
@@ -13,9 +15,9 @@
 # ================================================================
 
 $ErrorActionPreference = "Stop"
-$ProgressPreference = "SilentlyContinue"  # ускоряет Invoke-WebRequest в разы
+$ProgressPreference = "SilentlyContinue"
 
-# Определяем корень проекта надёжно (работает и при запуске из .bat)
+# Определяем корневую папку проекта
 if ($PSScriptRoot) {
     $root = $PSScriptRoot
 } else {
@@ -23,22 +25,36 @@ if ($PSScriptRoot) {
 }
 Set-Location $root
 
-# UTF-8 для корректного вывода кириллицы
+# Настройка кодировки UTF-8
 try {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     $OutputEncoding = [System.Text.Encoding]::UTF8
 } catch { }
 
+# Настройки для обхода проблем с сетью
+try {
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11 -bor [System.Net.SecurityProtocolType]::Tls
+    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+    [System.Net.ServicePointManager]::DefaultConnectionLimit = 100
+    [System.Net.WebRequest]::DefaultWebProxy.Credentials = [System.Net.CredentialCache]::DefaultCredentials
+} catch { }
+
+# Путь к лог-файлу
 $log = Join-Path $root "bootstrap.log"
 try { Start-Transcript -Path $log -Append -ErrorAction SilentlyContinue | Out-Null } catch { }
+
+# ================================================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ================================================================
 
 function Section($msg) {
     Write-Host ""
     Write-Host "=== $msg ===" -ForegroundColor Cyan
 }
+
 function Ok($msg)   { Write-Host "  [OK] $msg" -ForegroundColor Green }
-function Warn($msg) { Write-Host "  [!]  $msg" -ForegroundColor Yellow }
-function Fail($msg) { Write-Host "  [X]  $msg" -ForegroundColor Red; Stop-Transcript | Out-Null; exit 1 }
+function Warn($msg) { Write-Host "  [!] $msg" -ForegroundColor Yellow }
+function Fail($msg) { Write-Host "  [X] $msg" -ForegroundColor Red; Stop-Transcript | Out-Null; exit 1 }
 
 function Test-Command($cmd) {
     $null = Get-Command $cmd -ErrorAction SilentlyContinue
@@ -50,38 +66,183 @@ function Refresh-Path {
                 [System.Environment]::GetEnvironmentVariable("Path", "User")
 }
 
+# ================================================================
+# ФУНКЦИЯ СКАЧИВАНИЯ С ПОВТОРАМИ
+# ================================================================
+
 function Download-File($url, $out, $desc) {
-    Write-Host "  Скачиваю $desc..." -NoNewline
+    Write-Host "  Downloading $desc..." -NoNewline
     try {
-        Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
-        $sizeMB = [math]::Round((Get-Item $out).Length / 1MB, 1)
-        Write-Host " готово ($sizeMB МБ)" -ForegroundColor Green
-    } catch {
-        Write-Host " ошибка" -ForegroundColor Red
-        throw $_
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11 -bor [System.Net.SecurityProtocolType]::Tls
+        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+    } catch { }
+    
+    $maxRetries = 5
+    $retryDelay = 10
+    for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+        try {
+            if ($attempt -gt 1) {
+                Write-Host "`n  Attempt $attempt of $maxRetries..." -ForegroundColor Yellow
+            }
+            if ($attempt -le 3) {
+                Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing -TimeoutSec 120
+            } else {
+                $webClient = New-Object System.Net.WebClient
+                $webClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                $webClient.DownloadFile($url, $out)
+                $webClient.Dispose()
+            }
+            $sizeMB = [math]::Round((Get-Item $out).Length / 1MB, 1)
+            Write-Host " done ($sizeMB MB)" -ForegroundColor Green
+            return
+        } catch {
+            if ($attempt -lt $maxRetries) {
+                Write-Host " error, retry in $retryDelay sec..." -ForegroundColor Yellow
+                Start-Sleep -Seconds $retryDelay
+                $retryDelay += 5
+            } else {
+                Write-Host " error" -ForegroundColor Red
+                if (Test-Command "curl") {
+                    Write-Host "  Trying via curl..." -ForegroundColor Yellow
+                    try {
+                        & curl -L -o $out $url --connect-timeout 120 --ssl-no-revoke --insecure
+                        if ($LASTEXITCODE -eq 0) {
+                            $sizeMB = [math]::Round((Get-Item $out).Length / 1MB, 1)
+                            Write-Host " done via curl ($sizeMB MB)" -ForegroundColor Green
+                            return
+                        }
+                    } catch { }
+                }
+                throw $_
+            }
+        }
     }
 }
 
-# Оборачиваем ВСЁ в try/catch — если что-то падает, показываем ошибку и НЕ закрываем окно
+# ================================================================
+# СПЕЦИАЛЬНЫЕ ФУНКЦИИ ДЛЯ СКАЧИВАНИЯ
+# ================================================================
+
+function Download-File-Advanced($url, $out, $desc) {
+    Write-Host "  Downloading $desc..." -NoNewline
+    
+    $maxRetries = 3
+    $retryDelay = 5
+    
+    for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+        try {
+            if ($attempt -gt 1) {
+                Write-Host "`n  Retry $attempt of $maxRetries..." -ForegroundColor Yellow
+            }
+            
+            $webClient = New-Object System.Net.WebClient
+            $webClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            $webClient.Headers.Add("Accept", "*/*")
+            $webClient.Headers.Add("Accept-Language", "en-US,en;q=0.9")
+            $webClient.Proxy = [System.Net.WebRequest]::GetSystemWebProxy()
+            $webClient.Proxy.Credentials = [System.Net.CredentialCache]::DefaultCredentials
+            $webClient.DownloadFile($url, $out)
+            $webClient.Dispose()
+            
+            $sizeMB = [math]::Round((Get-Item $out).Length / 1MB, 1)
+            Write-Host " done ($sizeMB MB)" -ForegroundColor Green
+            return $true
+            
+        } catch {
+            Write-Host "!" -NoNewline
+            if ($attempt -lt $maxRetries) {
+                Start-Sleep -Seconds $retryDelay
+            } else {
+                Write-Host " error" -ForegroundColor Red
+                return $false
+            }
+        }
+    }
+    return $false
+}
+
+function Download-File-BITS($url, $out) {
+    Write-Host "  Downloading via BITS..." -NoNewline
+    try {
+        $jobName = "Download_$(Get-Date -Format 'yyyyMMddHHmmss')"
+        Start-BitsTransfer -Source $url -Destination $out -Priority High -DisplayName $jobName -ErrorAction Stop
+        $sizeMB = [math]::Round((Get-Item $out).Length / 1MB, 1)
+        Write-Host " done ($sizeMB MB)" -ForegroundColor Green
+        return $true
+    } catch {
+        Write-Host " error" -ForegroundColor Red
+        return $false
+    }
+}
+
+function Download-File-NET($url, $out) {
+    Write-Host "  Downloading via .NET HttpClient..." -NoNewline
+    try {
+        Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
+        $handler = New-Object System.Net.Http.HttpClientHandler
+        $handler.UseProxy = $true
+        $handler.Proxy = [System.Net.WebRequest]::GetSystemWebProxy()
+        $handler.Proxy.Credentials = [System.Net.CredentialCache]::DefaultCredentials
+        $handler.ServerCertificateCustomValidationCallback = { $true }
+        
+        $client = New-Object System.Net.Http.HttpClient($handler)
+        $client.Timeout = [TimeSpan]::FromMinutes(5)
+        $client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        
+        $response = $client.GetAsync($url).GetAwaiter().GetResult()
+        $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+        $fileStream = [System.IO.File]::Create($out)
+        $stream.CopyTo($fileStream)
+        $fileStream.Close()
+        $client.Dispose()
+        
+        $sizeMB = [math]::Round((Get-Item $out).Length / 1MB, 1)
+        Write-Host " done ($sizeMB MB)" -ForegroundColor Green
+        return $true
+    } catch {
+        Write-Host " error" -ForegroundColor Red
+        return $false
+    }
+}
+
+function Download-File-Curl($url, $out) {
+    Write-Host "  Downloading via curl..." -NoNewline
+    try {
+        & curl -L -o $out $url --connect-timeout 30 --max-time 300 --ssl-no-revoke --insecure 2>$null
+        if ((Test-Path $out) -and ((Get-Item $out).Length -gt 1MB)) {
+            $sizeMB = [math]::Round((Get-Item $out).Length / 1MB, 1)
+            Write-Host " done ($sizeMB MB)" -ForegroundColor Green
+            return $true
+        }
+    } catch { }
+    Write-Host " error" -ForegroundColor Red
+    return $false
+}
+
+# ================================================================
+# ОСНОВНОЙ БЛОК УСТАНОВКИ
+# ================================================================
+
 try {
 
-# ---------------------------------------------------------------
-Section "Ассистент ПБ — установка на Windows"
-Write-Host "Проект: $root"
-Write-Host "Лог:    $log"
-Write-Host "Начало: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-Write-Host "PowerShell: $($PSVersionTable.PSVersion) · Windows: $([Environment]::OSVersion.VersionString)"
+Section "Assistant PB - Installation on Windows"
+Write-Host "Project: $root"
+Write-Host "Log: $log"
+Write-Host "Start: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+Write-Host "PowerShell: $($PSVersionTable.PSVersion) Windows: $([Environment]::OSVersion.VersionString)"
 
-# ---------------------------------------------------------------
-Section "1/8 · Python 3.13"
+# ================================================================
+# ШАГ 1: УСТАНОВКА PYTHON 3.12 (СОВМЕСТИМАЯ ВЕРСИЯ ДЛЯ CHROMADB)
+# ================================================================
 
+Section "1/8 Python 3.12"
 Refresh-Path
 $pythonOk = $false
 foreach ($cmd in @("py", "python", "python3")) {
     if (Test-Command $cmd) {
         $ver = & $cmd --version 2>&1
-        if ($ver -match "Python 3\.(11|12|13)\.") {
-            Ok "Найден: $ver ($cmd)"
+        if ($ver -match 'Python 3\.(11|12)\.') {
+            Ok "Found: $ver ($cmd)"
             $script:PYTHON = $cmd
             $pythonOk = $true
             break
@@ -90,52 +251,114 @@ foreach ($cmd in @("py", "python", "python3")) {
 }
 
 if (-not $pythonOk) {
-    Write-Host "  Python 3.11-3.13 не найден. Устанавливаю Python 3.13..."
+    Write-Host "  Python 3.11-3.12 not found. Installing Python 3.12..."
     if (Test-Command "winget") {
         try {
-            winget install --id Python.Python.3.13 --silent --accept-package-agreements --accept-source-agreements | Out-Null
+            winget install --id Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements | Out-Null
             Refresh-Path
             $script:PYTHON = "py"
-            Ok "Python 3.13 установлен через winget"
+            Ok "Python 3.12 installed via winget"
         } catch {
-            Warn "winget не сработал: $($_.Exception.Message)"
+            Warn "winget failed: $($_.Exception.Message)"
         }
     }
     if (-not (Test-Command $script:PYTHON)) {
-        $installer = Join-Path $env:TEMP "python-3.13.1-amd64.exe"
-        Download-File "https://www.python.org/ftp/python/3.13.1/python-3.13.1-amd64.exe" $installer "Python 3.13.1"
-        Write-Host "  Запускаю установщик (silent, всё для всех пользователей)..."
+        $installer = Join-Path $env:TEMP "python-3.12.8-amd64.exe"
+        Download-File "https://www.python.org/ftp/python/3.12.8/python-3.12.8-amd64.exe" $installer "Python 3.12.8"
+        Write-Host "  Running installer (silent, all users)..."
         Start-Process -FilePath $installer -ArgumentList "/quiet","InstallAllUsers=1","PrependPath=1","Include_pip=1" -Wait
         Refresh-Path
         $script:PYTHON = "py"
-        if (-not (Test-Command "py")) { Fail "Python не установился. Установите вручную с python.org и запустите скрипт снова." }
-        Ok "Python 3.13 установлен"
+        if (-not (Test-Command "py")) { Fail "Python did not install. Please install manually." }
+        Ok "Python 3.12 installed"
     }
 }
 
-# ---------------------------------------------------------------
-Section "2/8 · Ollama + языковая модель"
+# ================================================================
+# ШАГ 2: УСТАНОВКА OLLAMA + ЯЗЫКОВАЯ МОДЕЛЬ
+# ================================================================
+
+Section "2/8 Ollama + language model"
 
 $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
 if (-not $ollamaCmd) {
     $installer = Join-Path $env:TEMP "OllamaSetup.exe"
-    Download-File "https://ollama.com/download/OllamaSetup.exe" $installer "Ollama Setup"
-    Write-Host "  Запускаю установщик Ollama..."
+    
+    if (Test-Path $installer) { Remove-Item $installer -Force -ErrorAction SilentlyContinue }
+    
+    $downloaded = $false
+    $urls = @(
+        "https://ollama.com/download/OllamaSetup.exe",
+        "https://github.com/ollama/ollama/releases/latest/download/OllamaSetup.exe"
+    )
+    
+    foreach ($url in $urls) {
+        if ($downloaded) { break }
+        Write-Host "  Trying URL: $url"
+        
+        if (-not $downloaded) {
+            if (Download-File-Advanced $url $installer "Ollama Setup (WebClient)") {
+                $downloaded = $true
+            }
+        }
+        
+        if (-not $downloaded) {
+            if (Download-File-NET $url $installer) {
+                $downloaded = $true
+            }
+        }
+        
+        if (-not $downloaded) {
+            if (Download-File-BITS $url $installer) {
+                $downloaded = $true
+            }
+        }
+        
+        if (-not $downloaded) {
+            if (Download-File-Curl $url $installer) {
+                $downloaded = $true
+            }
+        }
+    }
+    
+    if (-not $downloaded) {
+        Write-Host "  Final attempt: standard download..."
+        try {
+            Download-File "https://ollama.com/download/OllamaSetup.exe" $installer "Ollama Setup"
+            $downloaded = $true
+        } catch {
+            Write-Host "  Final attempt failed" -ForegroundColor Yellow
+        }
+    }
+    
+    if (-not $downloaded) {
+        Fail "Cannot download Ollama. Please check your internet connection and firewall.`nOr install manually: https://ollama.com/download/windows"
+    }
+    
+    Write-Host "  Running Ollama installer..."
     Start-Process -FilePath $installer -ArgumentList "/SILENT" -Wait
     Refresh-Path
     Start-Sleep -Seconds 3
-    if (-not (Test-Command "ollama")) { Fail "Ollama не установилась. Поставьте вручную: https://ollama.com/download/windows" }
-    Ok "Ollama установлена"
+    
+    if (-not (Test-Command "ollama")) { 
+        Write-Host "  Trying installer with /VERYSILENT..." -ForegroundColor Yellow
+        Start-Process -FilePath $installer -ArgumentList "/VERYSILENT" -Wait
+        Refresh-Path
+        Start-Sleep -Seconds 3
+        if (-not (Test-Command "ollama")) { 
+            Fail "Ollama did not install. Install manually: https://ollama.com/download/windows" 
+        }
+    }
+    Ok "Ollama installed"
 } else {
-    Ok "Ollama уже установлена: $($ollamaCmd.Source)"
+    Ok "Ollama already installed: $($ollamaCmd.Source)"
 }
 
-# Убеждаемся, что служба запущена
 try {
     Invoke-WebRequest -Uri "http://127.0.0.1:11434/api/tags" -TimeoutSec 3 -UseBasicParsing | Out-Null
-    Ok "Служба Ollama работает"
+    Ok "Ollama service is running"
 } catch {
-    Write-Host "  Запускаю ollama serve..."
+    Write-Host "  Starting ollama serve..."
     Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden
     Start-Sleep -Seconds 5
 }
@@ -143,125 +366,359 @@ try {
 $model = if ($env:LLM_MODEL) { $env:LLM_MODEL } else { "qwen2.5:7b-instruct" }
 $installedModels = (& ollama list) -join "`n"
 if ($installedModels -match [regex]::Escape($model)) {
-    Ok "Модель $model уже установлена"
+    Ok "Model $model already installed"
 } else {
-    Write-Host "  Скачиваю модель $model (~4.7 ГБ, может занять 10–30 минут)..."
+    Write-Host "  Downloading model $model (~4.7 GB, may take 10-30 minutes)..."
     & ollama pull $model
-    if ($LASTEXITCODE -ne 0) { Fail "Не удалось скачать модель $model" }
-    Ok "Модель $model установлена"
+    if ($LASTEXITCODE -ne 0) { Fail "Failed to download model $model" }
+    Ok "Model $model installed"
 }
 
-# ---------------------------------------------------------------
-Section "3/8 · Tesseract OCR + русский язык"
+# ================================================================
+# ШАГ 3: УСТАНОВКА TESSERACT OCR + РУССКИЙ ЯЗЫК
+# ================================================================
 
+# ================================================================
+# ШАГ 3: УСТАНОВКА TESSERACT OCR (АВТОМАТИЧЕСКИ ЛЮБЫМ СПОСОБОМ)
+# ================================================================
+# ================================================================
+# ШАГ 3: УСТАНОВКА TESSERACT OCR + РУССКИЙ ЯЗЫК
+# ================================================================
+
+Section "3/8 Tesseract OCR + Russian language"
+
+# Проверяем, установлен ли уже Tesseract
 if (Test-Command "tesseract") {
-    Ok "Tesseract уже установлен: $((Get-Command tesseract).Source)"
-} else {
-    $installer = Join-Path $env:TEMP "tesseract-setup.exe"
-    Download-File "https://digi.bib.uni-mannheim.de/tesseract/tesseract-ocr-w64-setup-5.3.3.20231005.exe" $installer "Tesseract OCR 5.3.3"
-    Write-Host "  Запускаю установщик Tesseract (silent, с русским языком)..."
-    Start-Process -FilePath $installer -ArgumentList "/S" -Wait
-    Refresh-Path
-    if (-not (Test-Command "tesseract")) {
-        # Иногда Tesseract не добавляется в PATH автоматически
-        $tessDefault = "C:\Program Files\Tesseract-OCR"
-        if (Test-Path $tessDefault) {
-            [Environment]::SetEnvironmentVariable("Path", "$env:Path;$tessDefault", "Machine")
-            $env:Path += ";$tessDefault"
+    Ok "Tesseract already installed: $((Get-Command tesseract).Source)"
+    
+    # Проверяем русский язык
+    $langs = (& tesseract --list-langs 2>&1) -join " "
+    if ($langs -match "\brus\b") {
+        Ok "Russian language: available"
+    } else {
+        Warn "Russian language pack not found"
+        Write-Host "  Downloading Russian language pack..." -ForegroundColor Yellow
+        try {
+            $tessdataDir = "C:\Program Files\Tesseract-OCR\tessdata"
+            if (-not (Test-Path $tessdataDir)) { 
+                $tessdataDir = Join-Path (Split-Path (Get-Command tesseract).Source) "tessdata" 
+            }
+            $rusFile = Join-Path $tessdataDir "rus.traineddata"
+            Download-File "https://github.com/tesseract-ocr/tessdata_best/raw/main/rus.traineddata" $rusFile "rus.traineddata"
+            Ok "Russian language pack installed"
+        } catch {
+            Warn "Could not download Russian language pack"
+            Write-Host "  You can download it manually from:" -ForegroundColor Yellow
+            Write-Host "  https://github.com/tesseract-ocr/tessdata_best/raw/main/rus.traineddata" -ForegroundColor Cyan
+            Write-Host "  And place it in: $tessdataDir" -ForegroundColor Cyan
         }
     }
-    if (-not (Test-Command "tesseract")) { Fail "Tesseract не установился" }
-    Ok "Tesseract установлен"
-}
-
-# Проверяем русский языковой пакет; если нет — качаем rus.traineddata из tessdata_best
-$langs = (& tesseract --list-langs 2>&1) -join " "
-if ($langs -match "\brus\b") {
-    Ok "Русский язык: доступен"
+    
 } else {
-    Warn "Русский языковой пакет не найден — скачиваю..."
-    $tessdataDir = "C:\Program Files\Tesseract-OCR\tessdata"
-    if (-not (Test-Path $tessdataDir)) { $tessdataDir = Join-Path (Split-Path (Get-Command tesseract).Source) "tessdata" }
-    $rusFile = Join-Path $tessdataDir "rus.traineddata"
-    Download-File "https://github.com/tesseract-ocr/tessdata_best/raw/main/rus.traineddata" $rusFile "rus.traineddata"
-    Ok "Русский языковой пакет установлен"
+    # Tesseract не установлен - пробуем скачать
+    $installer = Join-Path $env:TEMP "tesseract-setup.exe"
+    if (Test-Path $installer) { Remove-Item $installer -Force -ErrorAction SilentlyContinue }
+    
+    $downloaded = $false
+    $installAttempts = 0
+    $maxInstallAttempts = 3
+    
+    Write-Host "  Tesseract is not installed." -ForegroundColor Yellow
+    Write-Host "  Attempting to download automatically..." -ForegroundColor Yellow
+    
+    # Список методов скачивания
+    $downloadMethods = @(
+        @{
+            Name = "GitHub (direct)"
+            Url = "https://github.com/UB-Mannheim/tesseract/releases/download/v5.3.3.20231005/tesseract-ocr-w64-setup-5.3.3.20231005.exe"
+        },
+        @{
+            Name = "GitHub (alternative)"
+            Url = "https://github.com/tesseract-ocr/tesseract/releases/download/5.3.3/tesseract-ocr-w64-setup-5.3.3.20231005.exe"
+        },
+        @{
+            Name = "SourceForge mirror"
+            Url = "https://sourceforge.net/projects/tesseract-ocr-alt/files/tesseract-ocr-w64-setup-5.3.3.20231005.exe/download"
+        },
+        @{
+            Name = "UB-Mannheim mirror"
+            Url = "https://digi.bib.uni-mannheim.de/tesseract/tesseract-ocr-w64-setup-5.3.3.20231005.exe"
+        }
+    )
+    
+    while (-not $downloaded -and $installAttempts -lt $maxInstallAttempts) {
+        $installAttempts++
+        Write-Host "`n  Attempt $installAttempts of $maxInstallAttempts..." -ForegroundColor Cyan
+        
+        foreach ($method in $downloadMethods) {
+            if ($downloaded) { break }
+            
+            Write-Host "    Trying: $($method.Name)..." -NoNewline
+            
+            # Пробуем разные способы загрузки для каждого источника
+            $downloadSuccess = $false
+            
+            # Способ 1: WebClient
+            if (-not $downloadSuccess) {
+                try {
+                    $webClient = New-Object System.Net.WebClient
+                    $webClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    $webClient.Headers.Add("Accept", "*/*")
+                    $webClient.Proxy = [System.Net.WebRequest]::GetSystemWebProxy()
+                    $webClient.Proxy.Credentials = [System.Net.CredentialCache]::DefaultCredentials
+                    $webClient.DownloadFile($method.Url, $installer)
+                    $webClient.Dispose()
+                    
+                    if ((Test-Path $installer) -and ((Get-Item $installer).Length -gt 10MB)) {
+                        $downloadSuccess = $true
+                        Write-Host " SUCCESS!" -ForegroundColor Green
+                    }
+                } catch {
+                    # Пробуем следующий способ
+                }
+            }
+            
+            # Способ 2: BITS
+            if (-not $downloadSuccess) {
+                try {
+                    Start-BitsTransfer -Source $method.Url -Destination $installer -Priority High -ErrorAction SilentlyContinue
+                    if ((Test-Path $installer) -and ((Get-Item $installer).Length -gt 10MB)) {
+                        $downloadSuccess = $true
+                        Write-Host " SUCCESS!" -ForegroundColor Green
+                    }
+                } catch {
+                    # Пробуем следующий способ
+                }
+            }
+            
+            # Способ 3: Invoke-WebRequest
+            if (-not $downloadSuccess) {
+                try {
+                    Invoke-WebRequest -Uri $method.Url -OutFile $installer -UseBasicParsing -TimeoutSec 120 -ErrorAction SilentlyContinue
+                    if ((Test-Path $installer) -and ((Get-Item $installer).Length -gt 10MB)) {
+                        $downloadSuccess = $true
+                        Write-Host " SUCCESS!" -ForegroundColor Green
+                    }
+                } catch {
+                    # Пробуем следующий способ
+                }
+            }
+            
+            if ($downloadSuccess) {
+                $downloaded = $true
+                $sizeMB = [math]::Round((Get-Item $installer).Length / 1MB, 1)
+                Write-Host "    Downloaded: $sizeMB MB" -ForegroundColor Green
+            } else {
+                Write-Host " failed" -ForegroundColor Yellow
+            }
+        }
+        
+        if (-not $downloaded -and $installAttempts -lt $maxInstallAttempts) {
+            Write-Host "  Waiting 5 seconds before retry..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 5
+        }
+    }
+    
+    # Если скачалось - устанавливаем
+    if ($downloaded) {
+        Write-Host "`n  Installing Tesseract..." -ForegroundColor Green
+        Write-Host "  This may take a minute..." -ForegroundColor Yellow
+        
+        try {
+            Start-Process -FilePath $installer -ArgumentList "/S" -Wait
+            Refresh-Path
+            Start-Sleep -Seconds 5
+            
+            # Проверяем установку
+            if (-not (Test-Command "tesseract")) {
+                $tessPaths = @(
+                    "C:\Program Files\Tesseract-OCR\tesseract.exe",
+                    "C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"
+                )
+                foreach ($path in $tessPaths) {
+                    if (Test-Path $path) {
+                        $dir = Split-Path $path
+                        [Environment]::SetEnvironmentVariable('Path', "$env:Path;$dir", 'Machine')
+                        $env:Path += ";$dir"
+                        break
+                    }
+                }
+            }
+            
+            if (Test-Command "tesseract") { 
+                Ok "Tesseract installed successfully!" 
+                
+                # Скачиваем русский язык
+                Write-Host "  Downloading Russian language pack..." -ForegroundColor Yellow
+                try {
+                    $tessdataDir = "C:\Program Files\Tesseract-OCR\tessdata"
+                    if (-not (Test-Path $tessdataDir)) { 
+                        $tessdataDir = Join-Path (Split-Path (Get-Command tesseract).Source) "tessdata" 
+                    }
+                    $rusFile = Join-Path $tessdataDir "rus.traineddata"
+                    Download-File "https://github.com/tesseract-ocr/tessdata_best/raw/main/rus.traineddata" $rusFile "rus.traineddata"
+                    Ok "Russian language pack installed"
+                } catch {
+                    Warn "Could not download Russian language pack"
+                }
+            } else {
+                Warn "Tesseract installer ran but command not found."
+                Write-Host "  Please restart your computer and run script again." -ForegroundColor Yellow
+            }
+        } catch {
+            Warn "Installation failed: $($_.Exception.Message)"
+            $downloaded = $false
+        }
+    }
+    
+    # Если НЕ скачалось - открываем браузер для ручной установки
+    if (-not $downloaded) {
+        Write-Host ""
+        Write-Host "="*70 -ForegroundColor Red
+        Write-Host "  TESSERACT COULD NOT BE DOWNLOADED AUTOMATICALLY" -ForegroundColor Red
+        Write-Host "="*70 -ForegroundColor Red
+        Write-Host ""
+        Write-Host "  Tesseract is required for OCR (text recognition in PDF scans)." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  Please install it manually following these steps:" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "  1. OPEN YOUR BROWSER and go to:" -ForegroundColor White
+        Write-Host "     https://github.com/UB-Mannheim/tesseract/releases" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "  2. DOWNLOAD this file:" -ForegroundColor White
+        Write-Host "     tesseract-ocr-w64-setup-5.3.3.20231005.exe" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "  3. RUN the downloaded file" -ForegroundColor White
+        Write-Host "     - Click 'Next' through the installer" -ForegroundColor Gray
+        Write-Host "     - IMPORTANT: On the 'Select Components' screen" -ForegroundColor Gray
+        Write-Host "       make sure 'Russian' language is CHECKED" -ForegroundColor Gray
+        Write-Host "     - Complete the installation" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  4. After installation, RESTART your computer" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  5. Run this script again - it will detect Tesseract" -ForegroundColor White
+        Write-Host "     and continue with the installation" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "="*70 -ForegroundColor Red
+        
+        # Открываем браузер с нужной страницей
+        Write-Host "`n  Opening browser with download page..." -ForegroundColor Yellow
+        Start-Process "https://github.com/UB-Mannheim/tesseract/releases/tag/v5.3.3.20231005"
+        Start-Sleep -Seconds 2
+        
+        Write-Host ""
+        Write-Host "  Press ENTER AFTER you have installed Tesseract and restarted your computer" -ForegroundColor Green
+        Write-Host "  Or press CTRL+C to skip and continue without Tesseract" -ForegroundColor Yellow
+        Write-Host ""
+        
+        $userInput = Read-Host "  [Press ENTER to continue, or type 'skip' to skip Tesseract]"
+        
+        if ($userInput -eq "skip" -or $userInput -eq "SKIP") {
+            Warn "Tesseract installation skipped. OCR functionality will be limited."
+            Warn "You can install Tesseract manually later."
+        } else {
+            # Проверяем, установился ли Tesseract
+            Refresh-Path
+            if (Test-Command "tesseract") {
+                Ok "Tesseract found! Installation confirmed."
+            } else {
+                Warn "Tesseract not found. Skipping for now."
+                Warn "You can install it manually later."
+            }
+        }
+    }
 }
+# ================================================================
+# ШАГ 4: УСТАНОВКА POPPLER
+# ================================================================
 
-# ---------------------------------------------------------------
-Section "4/8 · Poppler (для OCR PDF-сканов)"
-
+Section "4/8 Poppler"
 $popplerDir = Join-Path $root "poppler"
 if (Test-Path (Join-Path $popplerDir "Library\bin\pdftoppm.exe")) {
-    Ok "Poppler уже распакован в $popplerDir"
+    Ok "Poppler already extracted to $popplerDir"
 } else {
     $zip = Join-Path $env:TEMP "poppler.zip"
     Download-File "https://github.com/oschwartz10612/poppler-windows/releases/download/v24.08.0-0/Release-24.08.0-0.zip" $zip "Poppler 24.08"
-    Write-Host "  Распаковываю Poppler..."
+    Write-Host "  Extracting Poppler..."
     Expand-Archive -Path $zip -DestinationPath $popplerDir -Force
-    # Внутри архива есть корневая папка типа "poppler-24.08.0" — переносим содержимое наверх
     $inner = Get-ChildItem $popplerDir -Directory | Select-Object -First 1
     if ($inner -and (Test-Path (Join-Path $inner.FullName "Library\bin"))) {
         Get-ChildItem $inner.FullName | Move-Item -Destination $popplerDir -Force
         Remove-Item $inner.FullName -Recurse -Force
     }
-    Ok "Poppler распакован"
+    Ok "Poppler extracted"
 }
-
 $popplerBin = Join-Path $popplerDir "Library\bin"
 if ($env:Path -notlike "*$popplerBin*") { $env:Path += ";$popplerBin" }
 
-# ---------------------------------------------------------------
-Section "5/8 · Python venv + зависимости"
+# ================================================================
+# ШАГ 5: СОЗДАНИЕ VENV + УСТАНОВКА PYTHON-ЗАВИСИМОСТЕЙ
+# ================================================================
 
+Section "5/8 Python venv + dependencies"
+
+# Удаляем старый venv если он был создан с Python 3.13
 $venv = Join-Path $root "venv"
-$venvPython = Join-Path $venv "Scripts\python.exe"
-
-if (Test-Path $venvPython) {
-    Ok "venv уже существует: $venv"
-} else {
-    Write-Host "  Создаю venv..."
-    & $script:PYTHON -m venv $venv
-    if (-not (Test-Path $venvPython)) { Fail "Не удалось создать venv" }
-    Ok "venv создан"
+if (Test-Path $venv) {
+    Write-Host "  Removing old venv (created with Python 3.13)..."
+    Remove-Item -Recurse -Force $venv -ErrorAction SilentlyContinue
 }
 
-Write-Host "  Устанавливаю зависимости (editable-пакеты apps/backend, apps/desktop, packages/rag; это займёт 3–10 минут; тянет torch, ~200 МБ)..."
+$venvPython = Join-Path $venv "Scripts\python.exe"
+
+Write-Host "  Creating venv with Python $(& $script:PYTHON --version)..."
+& $script:PYTHON -m venv $venv
+if (-not (Test-Path $venvPython)) { Fail "Failed to create venv" }
+Ok "venv created"
+
+Write-Host "  Installing dependencies (editable packages apps/backend, apps/desktop, packages/rag; this will take 3-10 minutes; pulls torch, ~200 MB)..."
 & $venvPython -m pip install --upgrade pip --quiet
+
+# Устанавливаем numpy и pybind11 отдельно (для chroma-hnswlib)
+Write-Host "  Installing build dependencies (numpy, pybind11)..." -ForegroundColor Yellow
+& $venvPython -m pip install numpy pybind11 --quiet
+
+# Устанавливаем основные пакеты
 & $venvPython -m pip install --quiet `
     -e (Join-Path $root "apps\backend") `
     -e (Join-Path $root "apps\desktop") `
     -e (Join-Path $root "packages\rag")
-if ($LASTEXITCODE -ne 0) { Fail "Ошибка установки зависимостей — смотрите $log" }
-Ok "Python-зависимости установлены"
+if ($LASTEXITCODE -ne 0) { 
+    Warn "Error installing dependencies - trying with --no-build-isolation..."
+    & $venvPython -m pip install --no-build-isolation --quiet `
+        -e (Join-Path $root "apps\backend") `
+        -e (Join-Path $root "apps\desktop") `
+        -e (Join-Path $root "packages\rag")
+    if ($LASTEXITCODE -ne 0) { Fail "Error installing dependencies - see $log" }
+}
+Ok "Python dependencies installed"
 
-# ---------------------------------------------------------------
-Section "6/8 · Индексация нормативной базы"
+# ================================================================
+# ШАГ 6: ИНДЕКСАЦИЯ НОРМАТИВНОЙ БАЗЫ
+# ================================================================
 
+Section "6/8 Indexing regulatory database"
 $chromaDir = Join-Path $root "data\chroma"
 if ((Test-Path $chromaDir) -and (Get-ChildItem $chromaDir -File -Recurse | Measure-Object).Count -gt 0) {
-    Ok "База ChromaDB уже проиндексирована"
+    Ok "ChromaDB database already indexed"
 } else {
-    Write-Host "  Индексирую корпус (при первом запуске скачает эмбед-модель ~1.3 ГБ)..."
+    Write-Host "  Indexing corpus (first run will download embedding model ~1.3 GB)..."
     Push-Location $root
     try {
         $env:PYTHONPATH = "$root\apps\backend\src;$root\packages\rag\src"
         & $venvPython -m fire_safety_rag.indexer
-        if ($LASTEXITCODE -ne 0) { Fail "Ошибка индексации" }
+        if ($LASTEXITCODE -ne 0) { Fail "Indexing error" }
     } finally {
         Pop-Location
     }
-    Ok "Корпус проиндексирован"
+    Ok "Corpus indexed"
 }
 
-# ---------------------------------------------------------------
-Section "7/8 · LanguageTool (офлайн-проверка орфографии, опционально)"
+# ================================================================
+# ШАГ 7: LANGUAGE TOOL (ОПЦИОНАЛЬНО)
+# ================================================================
 
-# Необязательный шаг: усиливает проверку орфографии детерминированными
-# правилами в дополнение к LLM. Если что-то пойдёт не так (нет сети,
-# Adoptium/languagetool.org недоступны и т.п.) — НЕ прерываем всю
-# установку, просто предупреждаем и едем дальше без LanguageTool
-# (приложение и так рассчитано работать без него, см. languagetool_ready
-# в /api/health).
+Section "7/8 LanguageTool (optional)"
 $ltReady = $false
 $ltSetup = Join-Path $root "tools\languagetool\setup.ps1"
 if (Test-Path $ltSetup) {
@@ -269,21 +726,21 @@ if (Test-Path $ltSetup) {
     try {
         & $ltSetup
         $ltReady = $true
-        Ok "LanguageTool готов"
+        Ok "LanguageTool ready"
     } catch {
-        Warn "Не удалось установить LanguageTool: $($_.Exception.Message) — приложение будет работать без него"
+        Warn "Failed to install LanguageTool: $($_.Exception.Message) - application will work without it"
     } finally {
         Pop-Location
     }
 } else {
-    Warn "tools\languagetool\setup.ps1 не найден — пропускаю"
+    Warn "tools\languagetool\setup.ps1 not found - skipping"
 }
 
-# ---------------------------------------------------------------
-Section "8/8 · Ярлык на рабочем столе"
+# ================================================================
+# ШАГ 8: СОЗДАНИЕ ЯРЛЫКА НА РАБОЧЕМ СТОЛЕ
+# ================================================================
 
-# start.bat — запускает приложение, прописывает PYTHONPATH и PATH.
-# Если LanguageTool установлен — заодно тихо стартует его сервер.
+Section "8/8 Desktop shortcut"
 $ltLaunchLine = ""
 if ($ltReady) {
     $ltLaunchLine = 'start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0tools\languagetool\start.ps1"'
@@ -301,52 +758,53 @@ $ltLaunchLine
 start "" "%~dp0venv\Scripts\pythonw.exe" -m fire_safety_desktop.main
 endlocal
 "@ | Set-Content -Path $startBat -Encoding ASCII
-Ok "start.bat создан"
+Ok "start.bat created"
 
-$iconPath = Join-Path $root "build\icons\AppIcon.ico"
 $desktop = [Environment]::GetFolderPath("Desktop")
-$shortcut = Join-Path $desktop "Ассистент ПБ.lnk"
+$shortcut = Join-Path $desktop "Assistant PB.lnk"
 
 $wsh = New-Object -ComObject WScript.Shell
 $lnk = $wsh.CreateShortcut($shortcut)
 $lnk.TargetPath = $startBat
 $lnk.WorkingDirectory = $root
-if (Test-Path $iconPath) { $lnk.IconLocation = $iconPath }
-$lnk.Description = "Ассистент по пожарной безопасности"
+$lnk.Description = "Fire Safety Assistant"
 $lnk.Save()
-Ok "Ярлык создан: $shortcut"
+Ok "Shortcut created: $shortcut"
 
-# ---------------------------------------------------------------
-Section "Готово"
+# ================================================================
+# ЗАВЕРШЕНИЕ УСТАНОВКИ
+# ================================================================
+
+Section "Done"
 Write-Host ""
-Write-Host "Всё установлено." -ForegroundColor Green
-Write-Host "Запуск: двойной клик по ярлыку «Ассистент ПБ» на рабочем столе."
-Write-Host "Или: $startBat"
+Write-Host "All installed." -ForegroundColor Green
+Write-Host "Launch: double-click the 'Assistant PB' shortcut on the desktop."
+Write-Host "Or: $startBat"
 Write-Host ""
-Write-Host "Тестовые примеры: $root\tests\samples\"
-Write-Host "Лог установки:    $log"
+Write-Host "Test samples: $root\tests\samples\"
+Write-Host "Installation log: $log"
 Write-Host ""
 
 try { Stop-Transcript | Out-Null } catch { }
-Write-Host "Нажмите Enter, чтобы закрыть..."
+Write-Host "Press Enter to close..."
 try { [Console]::ReadLine() | Out-Null } catch { Read-Host }
 
 } catch {
     Write-Host ""
     Write-Host "================================================================" -ForegroundColor Red
-    Write-Host "  ОШИБКА УСТАНОВКИ" -ForegroundColor Red
+    Write-Host "  INSTALLATION ERROR" -ForegroundColor Red
     Write-Host "================================================================" -ForegroundColor Red
     Write-Host ""
     Write-Host $_.Exception.Message -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "Полный текст ошибки:" -ForegroundColor Yellow
+    Write-Host "Full error details:" -ForegroundColor Yellow
     Write-Host $_.ScriptStackTrace
     Write-Host ""
-    Write-Host "Лог установки: $log" -ForegroundColor Cyan
-    Write-Host "Пришлите этот лог + скриншот этого окна разработчику." -ForegroundColor Cyan
+    Write-Host "Installation log: $log" -ForegroundColor Cyan
+    Write-Host "Please send this log + screenshot to the developer." -ForegroundColor Cyan
     Write-Host ""
     try { Stop-Transcript | Out-Null } catch { }
-    Write-Host "Нажмите Enter, чтобы закрыть..."
+    Write-Host "Press Enter to close..."
     try { [Console]::ReadLine() | Out-Null } catch { Read-Host }
     exit 1
 }
