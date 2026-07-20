@@ -13,7 +13,6 @@ router = APIRouter(prefix="/api/download", tags=["download"])
 
 _MEDIA_TYPES = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".eml": "message/rfc822",
 }
 
 

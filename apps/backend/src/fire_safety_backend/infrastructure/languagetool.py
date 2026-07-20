@@ -22,17 +22,16 @@ from .. import config
 log = logging.getLogger(__name__)
 
 # rule.category.id (см. LanguageTool /v2/check) → наш формат ошибки
-# ("орфография"/"пунктуация"/"стиль"), используемый и LLM-промптом
-# spellcheck.txt, и таблицей во frontend (spellcheck.html).
+# ("орфография"/"пунктуация"), используемый и LLM-промптом spellcheck.txt,
+# и таблицей во frontend (spellcheck.html). Проверка сознательно сужена до
+# орфографии и пунктуации — категории вроде GRAMMAR/STYLE/LOGIC/EXTEND
+# (стилистика, согласование, канцелярит) в _CATEGORY_TO_TYPE не попадают и
+# просто отбрасываются в check() ниже.
 _CATEGORY_TO_TYPE = {
     "TYPOS": "орфография",
     "PUNCTUATION": "пунктуация",
     "TYPOGRAPHY": "пунктуация",
     "CASING": "пунктуация",
-    "GRAMMAR": "стиль",
-    "STYLE": "стиль",
-    "LOGIC": "стиль",
-    "EXTEND": "стиль",
 }
 
 _SENTENCE_END_CHARS = {".", "!", "?", "…"}
@@ -62,6 +61,10 @@ def _get_client() -> httpx.AsyncClient:
     return _client
 
 
+def _category_id(match: dict) -> str:
+    return (match.get("rule") or {}).get("category", {}).get("id", "")
+
+
 def _match_to_error(match: dict) -> dict:
     ctx = match.get("context", {})
     ctx_text = ctx.get("text", "")
@@ -72,11 +75,8 @@ def _match_to_error(match: dict) -> dict:
     replacements = match.get("replacements") or []
     after = replacements[0].get("value", "") if replacements else ""
 
-    category_id = (match.get("rule") or {}).get("category", {}).get("id", "")
-    error_type = _CATEGORY_TO_TYPE.get(category_id, "стиль")
-
     return {
-        "type": error_type,
+        "type": _CATEGORY_TO_TYPE[_category_id(match)],
         "before": before,
         "after": after,
         "reason": match.get("message") or match.get("shortMessage") or "",
@@ -95,8 +95,7 @@ def _is_proper_noun_false_positive(match: dict) -> bool:
     организаций, которые промпт LLM прямо просит не трогать (см.
     resources/prompts/spellcheck.txt). Эвристика: слово с заглавной буквы
     НЕ в начале предложения — почти всегда имя собственное, а не опечатка."""
-    category_id = (match.get("rule") or {}).get("category", {}).get("id", "")
-    if category_id != "TYPOS":
+    if _category_id(match) != "TYPOS":
         return False
     ctx = match.get("context", {})
     ctx_text = ctx.get("text", "")
@@ -128,7 +127,11 @@ async def check(text: str, language: str = "ru-RU") -> list[dict]:
         log.warning("LanguageTool вернул невалидный JSON")
         return []
 
-    return [_match_to_error(m) for m in matches if not _is_proper_noun_false_positive(m)]
+    return [
+        _match_to_error(m)
+        for m in matches
+        if _category_id(m) in _CATEGORY_TO_TYPE and not _is_proper_noun_false_positive(m)
+    ]
 
 
 async def healthcheck() -> dict:

@@ -42,22 +42,12 @@ def test_match_to_error_maps_punctuation_category() -> None:
     assert error["after"] == ""  # нет вариантов замены
 
 
-def test_match_to_error_unknown_category_falls_back_to_style() -> None:
-    match = {
-        "message": "тест",
-        "rule": {"category": {"id": "SOMETHING_NEW"}},
-        "context": {"text": "текст", "offset": 0, "length": 5},
-    }
-    error = languagetool._match_to_error(match)
-    assert error["type"] == "стиль"
-
-
 def test_match_to_error_empty_context_slice_yields_empty_before() -> None:
     # Раньше пустой срез схлопывался в фолбэк `or ctx_text`, подставляя
     # весь контекст-сниппет вместо честной пустой строки.
     match = {
         "message": "тест",
-        "rule": {"category": {"id": "STYLE"}},
+        "rule": {"category": {"id": "TYPOS"}},
         "context": {"text": "какой-то контекст целиком", "offset": 0, "length": 0},
     }
     error = languagetool._match_to_error(match)
@@ -86,6 +76,58 @@ async def test_check_returns_empty_list_when_server_unreachable(
 async def test_check_empty_text_short_circuits() -> None:
     errors = await languagetool.check("   ")
     assert errors == []
+
+
+class _MatchesResponse:
+    def __init__(self, matches: list[dict]) -> None:
+        self._matches = matches
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> dict:
+        return {"matches": self._matches}
+
+
+class _MatchesClient:
+    def __init__(self, matches: list[dict]) -> None:
+        self._matches = matches
+
+    async def post(self, *args, **kwargs) -> _MatchesResponse:
+        return _MatchesResponse(self._matches)
+
+
+async def test_check_drops_style_and_grammar_findings(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Проверка сужена до орфографии/пунктуации (см. languagetool.py::
+    # _CATEGORY_TO_TYPE) — GRAMMAR/STYLE/LOGIC/EXTEND должны быть отброшены
+    # целиком, а не помечены как "стиль".
+    matches = [
+        {
+            "message": "опечатка",
+            "rule": {"category": {"id": "TYPOS"}},
+            "context": {"text": "текст с ошибкой", "offset": 0, "length": 5},
+        },
+        {
+            "message": "пунктуация",
+            "rule": {"category": {"id": "PUNCTUATION"}},
+            "context": {"text": "текст без запятой", "offset": 0, "length": 5},
+        },
+        {
+            "message": "стиль",
+            "rule": {"category": {"id": "STYLE"}},
+            "context": {"text": "канцелярский оборот", "offset": 0, "length": 5},
+        },
+        {
+            "message": "грамматика",
+            "rule": {"category": {"id": "GRAMMAR"}},
+            "context": {"text": "согласование", "offset": 0, "length": 5},
+        },
+    ]
+    monkeypatch.setattr(languagetool, "_get_client", lambda: _MatchesClient(matches))
+    errors = await languagetool.check("текст с ошибкой без запятой канцелярский оборот")
+    types = {e["type"] for e in errors}
+    assert types == {"орфография", "пунктуация"}
+    assert len(errors) == 2
 
 
 async def test_healthcheck_returns_false_when_server_unreachable(

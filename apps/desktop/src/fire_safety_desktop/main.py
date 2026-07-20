@@ -82,6 +82,39 @@ def _wait_backend(url: str, timeout: int = 30) -> bool:
     return False
 
 
+class _Api:
+    """Мост JS↔Python для pywebview (в браузере доступен как window.pywebview.api.*).
+
+    Единственная причина существования — скачивание файлов. Встроенный
+    webview (WebView2 на Windows) НЕ поддерживает обычный браузерный
+    механизм `<a download>`: клик по такой ссылке внутри окна pywebview
+    молча ничего не делает, без единой ошибки. save_file() качает файл с
+    локального backend (тот же процесс, тот же порт) и показывает
+    нативный системный диалог «Сохранить как» — так пользователь реально
+    получает файл на диск. См. app.js::downloadFile()."""
+
+    def __init__(self, base_url: str) -> None:
+        self._base_url = base_url
+
+    def save_file(self, download_path: str, suggested_name: str) -> dict:
+        try:
+            r = httpx.get(f"{self._base_url}{download_path}", timeout=30)
+            r.raise_for_status()
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+        window = webview.windows[0]
+        result = window.create_file_dialog(webview.SAVE_DIALOG, save_filename=suggested_name)
+        if not result:
+            return {"ok": False, "error": "cancelled"}
+        dest = result if isinstance(result, str) else result[0]
+        try:
+            Path(dest).write_bytes(r.content)
+        except OSError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "path": dest}
+
+
 def _show_fatal_error(message: str) -> None:
     """Запуск идёт через pythonw.exe (без консоли) — при любой необработанной
     ошибке пользователь иначе не увидит вообще ничего: ни окна, ни консоли,
@@ -134,6 +167,7 @@ def main() -> None:
             width=1280,
             height=860,
             min_size=(900, 600),
+            js_api=_Api(url),
         )
         webview.start()
     except Exception:

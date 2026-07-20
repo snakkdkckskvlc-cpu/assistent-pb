@@ -19,7 +19,7 @@ async def api_task(task_id: str) -> dict:
         "kind": task.kind,
         "status": task.status,
         "progress": task.progress,
-        "tokens": task.tokens,
+        "percent": task.percent,
         "result": task.result,
         "error": task.error,
         "created_at": task.created_at,

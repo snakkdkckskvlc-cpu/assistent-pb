@@ -55,10 +55,15 @@
    ```
    Берутся только DOCX из подпапки «Письма» (настраивается флагом `--folder`).
    Повторный запуск того же архива ничего не дублирует.
-8. **Фирменный бланк** — положить `letterhead.docx` в
-   `apps\backend\src\fire_safety_backend\resources\templates\`. Плейсхолдеры:
-   `{{date}}`, `{{recipient}}`, `{{subject}}`, `{{greeting}}`, `{{body}}`,
-   `{{signoff}}`, `{{sender_position}}`, `{{sender_name}}`.
+8. **Фирменный бланк** — как и архив писем (шаг 7a), в git не попадает
+   (реквизиты, ИНН, подписанты — коммерческие данные). Соберите из своей
+   копии канонического «бланк ПожСервис новый.docx»:
+   ```powershell
+   .\venv\Scripts\python scripts\build_letterhead_template.py --source "<путь к бланку>.docx"
+   ```
+   Результат сохраняется в `resources\templates\letterhead.docx`. Без этого
+   шага письмо всё равно сгенерируется, но на пустом бланке без реквизитов
+   компании (см. fallback в `infrastructure/generators/letter_docx.py`).
 9. **Запуск**:
    ```powershell
    $env:PYTHONPATH = "apps\backend\src;packages\rag\src;apps\desktop\src"

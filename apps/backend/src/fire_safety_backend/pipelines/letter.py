@@ -1,4 +1,12 @@
-"""Кнопка 3: набросок → официальное письмо."""
+"""Кнопка 3: набросок → официальное письмо.
+
+Генерация возвращает только текстовые поля (JSON от модели) — DOCX здесь
+не строится. Интерфейс показывает поля РЕДАКТИРУЕМЫМИ, а DOCX собирается по
+кнопке «Скачать» отдельным быстрым эндпоинтом (views/letter.py::
+api_letter_render) уже из текущих значений, включая правки пользователя —
+не из исходного ответа модели. Один источник правды для содержимого DOCX,
+и не тратим время на файл, который тут же будет пересобран после правки.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +18,7 @@ from fire_safety_rag import retrieve_letters
 
 from .. import config
 from ..infrastructure import llm
-from ._prompts import load_prompt, make_token_counter
+from ._prompts import load_prompt, make_progress_counter
 
 if TYPE_CHECKING:
     from ..infrastructure.queue import Task
@@ -68,6 +76,7 @@ async def run_letter(
     # Поиск по ChromaDB + эмбеддинг наброска — блокирующие, уводим с event loop.
     if task:
         task.progress = "Подбираю примеры из архива писем"
+        task.percent = 5
     style_block = await asyncio.to_thread(_style_examples_block, draft)
 
     tone_line = f" (тон: {tone_hint})" if tone_hint else ""
@@ -79,40 +88,11 @@ async def run_letter(
     )
     if task:
         task.progress = "Формирую официальное письмо"
-    result = await llm.chat_json(
+    return await llm.chat_json(
         system=prompt,
         user=user_msg,
         num_predict=config.LLM_NUM_PREDICT_LETTER,
-        on_delta=make_token_counter(task),
+        on_delta=make_progress_counter(
+            task, config.LLM_NUM_PREDICT_LETTER, base_percent=10, span_percent=88
+        ),
     )
-
-    # Генерируем DOCX на основе фирменного бланка (python-docx — блокирующий
-    # файловый I/O, тоже уводим с event loop).
-    from ..infrastructure.generators.letter_docx import build_letter_docx
-    from ..infrastructure.generators.letter_eml import build_letter_eml
-
-    stem = f"letter_{task.id if task else 'preview'}"
-    output_path = config.OUTPUT_DIR / f"{stem}.docx"
-    try:
-        await asyncio.to_thread(build_letter_docx, result, output_path)
-        result["_docx_path"] = str(output_path.name)
-    except Exception as e:
-        # build_letter_docx сама умеет обходиться без шаблона (fallback на
-        # чистый DOCX) — сюда попадают только реальные сбои (битый .docx,
-        # ошибка записи на диск и т.п.), не "шаблон не найден".
-        log.warning("Не удалось собрать DOCX письма: %s", e, exc_info=True)
-        result["_docx_path"] = None
-        result["_warning"] = "Не удалось сформировать DOCX — доступен только текст письма"
-
-    # .eml — черновик для почтовой программы: сопроводительный текст + DOCX
-    # во вложении. Нет DOCX — письмо всё равно собирается, просто без вложения.
-    eml_path = config.OUTPUT_DIR / f"{stem}.eml"
-    try:
-        docx_for_attach = output_path if result.get("_docx_path") else None
-        await asyncio.to_thread(build_letter_eml, result, docx_for_attach, eml_path)
-        result["_eml_path"] = str(eml_path.name)
-    except Exception as e:
-        log.warning("Не удалось собрать .eml письма: %s", e, exc_info=True)
-        result["_eml_path"] = None
-
-    return result

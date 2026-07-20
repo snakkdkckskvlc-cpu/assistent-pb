@@ -24,16 +24,11 @@ def _mock_pipeline_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path) -> No
                 "общий_вывод": "OK",
             },
             "тема": "test",
+            "получатель": "Руководителю организации\n\n ",
             "обращение": "Уважаемые коллеги!",
             "тело": "Тестовое письмо.",
-            "формула_вежливости": "С уважением,",
             "должность_отправителя_placeholder": "[должность]",
             "фио_отправителя_placeholder": "[Фамилия И.О.]",
-            "email": {
-                "кому": "test@example.com",
-                "тема": "test",
-                "тело": "Тестовое сопроводительное письмо.",
-            },
         }
 
     from fire_safety_backend.infrastructure import llm
@@ -94,9 +89,12 @@ def test_spellcheck_accepts_text(client: TestClient) -> None:
     result = _wait_task_done(client, task_id)
     assert result["status"] == "done", result
     assert "errors" in result["result"]
-    # Счётчик токенов для UI-индикатора (см. infrastructure/queue.py::Task.tokens)
-    # должен быть в ответе даже когда LLM замокан и стриминг не шёл (0).
-    assert result["tokens"] == 0
+    # Полоса загрузки для UI (см. infrastructure/queue.py::Task.percent) должна
+    # быть в ответе валидным числом 0..100 даже когда LLM замокан и реального
+    # стриминга не было (конкретное значение зависит от того, где по ходу
+    # пайплайна выставляются промежуточные метки — не фиксируем его жёстко).
+    assert isinstance(result["percent"], int)
+    assert 0 <= result["percent"] <= 100
 
 
 def test_legal_accepts_text(client: TestClient) -> None:
@@ -109,6 +107,9 @@ def test_legal_accepts_text(client: TestClient) -> None:
 
 
 def test_letter_accepts_draft(client: TestClient) -> None:
+    # run_letter() отдаёт только текстовые поля — DOCX здесь не собирается,
+    # интерфейс показывает поля редактируемыми и собирает DOCX отдельным
+    # запросом на /api/letter/render (см. test_letter_render_* ниже).
     r = client.post(
         "/api/letter",
         json={"draft": "Напомнить о встрече", "addressee_type": "заказчик"},
@@ -118,13 +119,34 @@ def test_letter_accepts_draft(client: TestClient) -> None:
     result = _wait_task_done(client, task_id)
     assert result["status"] == "done", result
     payload = result["result"]
-    assert "тема" in payload
-    # Проверяем что появилось сопроводительное e-mail
-    assert "email" in payload
-    assert "тело" in payload["email"]
-    # DOCX и .eml сгенерированы
-    assert payload.get("_docx_path"), "Должен быть путь к DOCX для скачивания"
-    assert payload.get("_eml_path"), "Должен быть путь к .eml для скачивания"
+    assert payload["тема"] == "test"
+    assert payload["тело"] == "Тестовое письмо."
+    assert "_docx_path" not in payload
+    assert "email" not in payload
+
+
+def test_letter_render_builds_docx_from_fields(client: TestClient) -> None:
+    r = client.post(
+        "/api/letter/render",
+        json={
+            "тема": "О проведении ТО",
+            "получатель": "Директору\nООО «Ромашка»\n\nИванову И.И.",
+            "обращение": "Уважаемый Иван Иванович!",
+            "тело": "Текст письма.",
+            "должность_отправителя_placeholder": "Директор",
+            "фио_отправителя_placeholder": "О.Н. Сляднев",
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["docx_path"].endswith(".docx")
+
+
+def test_letter_render_accepts_empty_fields(client: TestClient) -> None:
+    # Все поля опциональны — пустой запрос не должен падать с 422/500,
+    # просто соберёт бланк с пустыми местами (пользователь мог всё стереть).
+    r = client.post("/api/letter/render", json={})
+    assert r.status_code == 200, r.text
 
 
 def test_reject_empty_input(client: TestClient) -> None:

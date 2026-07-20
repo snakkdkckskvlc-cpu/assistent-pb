@@ -113,82 +113,88 @@
       }
     });
 
+    // Реквизиты компании — фиксированный текст бланка, не редактируется
+    // (реальный источник — resources/templates/letterhead.docx, собранный
+    // из «бланк ПожСервис новый.docx» скриптом build_letterhead_template.py).
+    const LETTERHEAD_REQUISITES = `<strong>ООО «ПожСервис»</strong><br>
+      Юридический адрес: 398005, г. Липецк, ул. Парковая, д. 10<br>
+      Фактический (почтовый) адрес: 398017, г. Липецк, ул. 9 Мая, д. 9а<br>
+      ИНН 4823026435/КПП 482301001<br>
+      Р/сч 40702810435000105037, Алтайское отделение №8644 ПАО «Сбербанк России» г. Барнаул, БИК 040173604<br>
+      тел/факс (4742) 28-67-88, https://pozhservis48.ru · эл.почта: info@pozhservis48.ru`;
+
     function renderLetterResult(result, container) {
-      const parts = [];
+      const today = new Date().toLocaleDateString("ru-RU");
+      container.innerHTML = `
+        <h3>📄 Официальное письмо (на бланке ПожСервис)</h3>
+        <p class="hint">Поля ниже — редактируемые: поправьте текст перед скачиванием, если нужно. В DOCX попадёт то, что видите здесь.</p>
+        <div class="letterhead-preview">
+          <div class="letterhead-requisites">${LETTERHEAD_REQUISITES}</div>
+          <div class="letterhead-dateline">${escapeHtml(today)} № ______________ · На №________ от ______________</div>
 
-      // === 1. Официальное письмо ===
-      parts.push(`<h3>📄 Официальное письмо (для печати на бланке)</h3>`);
-      if (result._warning) {
-        parts.push(`<div class="verdict">⚠ ${escapeHtml(result._warning)}</div>`);
-      }
-      parts.push(`<div class="letter-preview">`);
-      if (result["получатель"]) {
-        parts.push(`<div class="letter-recipient">${escapeHtml(result["получатель"]).replace(/\n/g, "<br>")}</div><br>`);
-      }
-      if (result["тема"]) {
-        parts.push(`<div class="letter-subject">Касательно: ${escapeHtml(result["тема"])}</div>`);
-      }
-      if (result["обращение"]) {
-        parts.push(`<div class="letter-greeting">${escapeHtml(result["обращение"])}</div><br>`);
-      }
-      if (result["тело"]) {
-        parts.push(`<div>${escapeHtml(result["тело"]).replace(/\n/g, "<br>")}</div><br>`);
-      }
-      if (result["формула_вежливости"]) {
-        parts.push(`<div>${escapeHtml(result["формула_вежливости"])}</div>`);
-      }
-      const pos = result["должность_отправителя_placeholder"] || "Директор";
-      const name = result["фио_отправителя_placeholder"] || "О.Н. Сляднев";
-      parts.push(`<div style="color:var(--muted);margin-top:10px">${escapeHtml(pos)} — ${escapeHtml(name)}</div>`);
-      parts.push(`</div>`);
+          <label class="field-label" for="f-recipient">Получатель</label>
+          <textarea class="letterhead-field letterhead-recipient-field" id="f-recipient" rows="3"></textarea>
 
-      if (result._docx_path || result._eml_path) {
-        const dl = [];
-        if (result._docx_path) {
-          dl.push(`<a class="btn" href="/api/download/${encodeURIComponent(result._docx_path)}" download>📄 Скачать DOCX (на бланке ПожСервис)</a>`);
-        }
-        if (result._eml_path) {
-          dl.push(`<a class="btn secondary" href="/api/download/${encodeURIComponent(result._eml_path)}" download title="Черновик для Outlook/Thunderbird: адресат, тема и текст заполнены, DOCX во вложении">📧 Скачать .eml для почты</a>`);
-        }
-        parts.push(`<div class="actions" style="margin-top:16px">${dl.join("\n")}</div>`);
-      }
+          <label class="field-label" for="f-subject">Тема</label>
+          <input type="text" class="letterhead-field letterhead-subject-field" id="f-subject">
 
-      // === 2. Сопроводительное e-mail ===
-      const email = result.email || {};
-      if (email["тело"] || email["тема"]) {
-        parts.push(`<h3 style="margin-top:32px">📧 Сопроводительное e-mail</h3>`);
-        parts.push(`<div class="email-preview">`);
-        parts.push(`<div class="email-header"><span class="email-label">Кому:</span> <span id="email-to">${escapeHtml(email["кому"] || "(не указано)")}</span></div>`);
-        parts.push(`<div class="email-header"><span class="email-label">Тема:</span> <span id="email-subj">${escapeHtml(email["тема"] || "")}</span></div>`);
-        parts.push(`<div class="email-body" id="email-body">${escapeHtml(email["тело"] || "").replace(/\n/g, "<br>")}</div>`);
-        parts.push(`</div>`);
-        parts.push(`<div class="actions" style="margin-top:12px">
-          <button class="btn btn-secondary" id="copy-email">📋 Скопировать e-mail</button>
-          <span class="hint" id="copy-status"></span>
-        </div>`);
-      }
+          <label class="field-label" for="f-greeting">Обращение</label>
+          <input type="text" class="letterhead-field letterhead-greeting-field" id="f-greeting">
 
-      container.innerHTML = parts.join("");
+          <label class="field-label" for="f-body">Текст письма</label>
+          <textarea class="letterhead-field letterhead-body-field" id="f-body" rows="10"></textarea>
 
-      // Обработчик копирования e-mail в буфер
-      const copyBtn = document.getElementById("copy-email");
-      if (copyBtn) {
-        copyBtn.addEventListener("click", async () => {
-          const text = [
-            "Кому: " + (email["кому"] || ""),
-            "Тема: " + (email["тема"] || ""),
-            "",
-            email["тело"] || "",
-          ].join("\n");
-          try {
-            await navigator.clipboard.writeText(text);
-            document.getElementById("copy-status").textContent = "✓ Скопировано";
-            setTimeout(() => (document.getElementById("copy-status").textContent = ""), 2500);
-          } catch (e) {
-            document.getElementById("copy-status").textContent = "Не удалось скопировать: " + e.message;
+          <div class="letterhead-signoff-static">С уважением,</div>
+          <div class="letterhead-signoff-row">
+            <input type="text" class="letterhead-field" id="f-sender-position" placeholder="должность">
+            <input type="text" class="letterhead-field" id="f-sender-name" placeholder="Фамилия И.О.">
+          </div>
+        </div>
+        <div class="actions" style="margin-top:16px">
+          <button class="btn" id="letter-download">📄 Скачать DOCX</button>
+          <span class="hint" id="letter-download-status"></span>
+        </div>
+      `;
+
+      document.getElementById("f-recipient").value = result["получатель"] || "";
+      document.getElementById("f-subject").value = result["тема"] || "";
+      document.getElementById("f-greeting").value = result["обращение"] || "";
+      document.getElementById("f-body").value = result["тело"] || "";
+      document.getElementById("f-sender-position").value = result["должность_отправителя_placeholder"] || "Директор";
+      document.getElementById("f-sender-name").value = result["фио_отправителя_placeholder"] || "О.Н. Сляднев";
+
+      document.getElementById("letter-download").addEventListener("click", async () => {
+        const btn = document.getElementById("letter-download");
+        const statusEl = document.getElementById("letter-download-status");
+        btn.disabled = true;
+        statusEl.textContent = "Собираю DOCX…";
+        try {
+          const fields = {
+            "получатель": document.getElementById("f-recipient").value,
+            "тема": document.getElementById("f-subject").value,
+            "обращение": document.getElementById("f-greeting").value,
+            "тело": document.getElementById("f-body").value,
+            "должность_отправителя_placeholder": document.getElementById("f-sender-position").value,
+            "фио_отправителя_placeholder": document.getElementById("f-sender-name").value,
+          };
+          const r = await fetch("/api/letter/render", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(fields),
+          });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const { docx_path } = await r.json();
+          statusEl.textContent = "";
+          const res = await downloadFile(`/api/download/${encodeURIComponent(docx_path)}`, docx_path);
+          if (res && res.ok === false && res.error !== "cancelled") {
+            statusEl.textContent = "Не удалось сохранить: " + res.error;
           }
-        });
-      }
+        } catch (e) {
+          statusEl.textContent = "Ошибка: " + (e.message || String(e));
+        } finally {
+          btn.disabled = false;
+        }
+      });
     }
 
     document.getElementById("submit").addEventListener("click", () => {

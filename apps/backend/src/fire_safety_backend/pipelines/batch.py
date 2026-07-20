@@ -7,8 +7,10 @@
 DOCX-отчёт по всему пакету.
 
 Очередь остаётся однопоточной (на CPU LLM и так занимает все ядра —
-параллелить файлы некуда), файлы идут последовательно, прогресс и счётчик
-токенов у задачи общие на весь пакет.
+параллелить файлы некуда), файлы идут последовательно. Полоса прогресса
+общая на весь пакет: каждому файлу достаётся своя доля (100/N процентов),
+юр. анализ договора получает её через base_percent/span_percent — иначе
+полоса откатывалась бы назад на старте анализа каждого следующего файла.
 """
 
 from __future__ import annotations
@@ -34,9 +36,12 @@ async def run_batch(file_paths: list[Path], task: Task | None = None) -> dict:
     items: list[dict] = []
     contracts = 0
 
+    file_span = max(1, int(100 / len(file_paths)))
     for i, path in enumerate(file_paths, start=1):
+        file_base = int(100 * (i - 1) / len(file_paths))
         if task:
             task.progress = f"Файл {i}/{len(file_paths)}: {path.name}"
+            task.percent = file_base
         item: dict = {"файл": path.name}
 
         try:
@@ -67,7 +72,9 @@ async def run_batch(file_paths: list[Path], task: Task | None = None) -> dict:
             continue
 
         contracts += 1
-        analysis = await run_legal_analysis(text, task=task)
+        analysis = await run_legal_analysis(
+            text, task=task, base_percent=file_base, span_percent=file_span
+        )
         findings = analysis.get("находки")
         item["находки"] = findings if isinstance(findings, list) else []
         item["сводка"] = analysis.get("сводка")

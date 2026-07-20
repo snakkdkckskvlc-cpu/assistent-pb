@@ -40,6 +40,26 @@ async function pollTask(taskId, onProgress) {
   }
 }
 
+// Скачивание файла. Приложение обычно работает в окне pywebview (десктоп),
+// а не в браузере — встроенный webview (WebView2 на Windows) НЕ поддерживает
+// обычный браузерный механизм <a download>: клик молча ничего не делает,
+// без ошибки. Поэтому внутри pywebview идём через нативный мост (js_api,
+// см. fire_safety_desktop/main.py::_Api.save_file) с системным диалогом
+// «Сохранить как»; в обычном браузере (или если моста нет) — штатный <a download>.
+async function downloadFile(url, filename) {
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.save_file) {
+    const res = await window.pywebview.api.save_file(url, filename);
+    return res;
+  }
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  return { ok: true };
+}
+
 // --- Фидбек 👍/👎 (общий блок, дописывается под результатом любой из трёх функций) ---
 
 function renderFeedbackBlock(container, functionName, taskId) {
@@ -100,6 +120,16 @@ function renderFeedbackBlock(container, functionName, taskId) {
   });
 }
 
+// --- Полоса загрузки (общая на все четыре функции) ---
+
+function renderProgress(container, label, percent) {
+  const pct = Math.max(0, Math.min(100, Math.round(percent || 0)));
+  container.innerHTML = `
+    <div class="progress-label"><span class="spinner"></span> ${escapeHtml(label)} <span class="progress-percent">${pct}%</span></div>
+    <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+  `;
+}
+
 // --- Универсальная submit-логика ---
 
 async function submitForm({ endpoint, buildRequest, resultContainer, progressContainer, renderResult }) {
@@ -109,7 +139,7 @@ async function submitForm({ endpoint, buildRequest, resultContainer, progressCon
   errBox.textContent = "";
   resultContainer.innerHTML = "";
   progressContainer.style.display = "block";
-  progressContainer.innerHTML = '<span class="spinner"></span> Отправка запроса…';
+  renderProgress(progressContainer, "Отправка запроса…", 0);
   btn.disabled = true;
 
   try {
@@ -120,14 +150,13 @@ async function submitForm({ endpoint, buildRequest, resultContainer, progressCon
       throw new Error(t || `HTTP ${r.status}`);
     }
     const { task_id } = await r.json();
-    progressContainer.innerHTML = `<span class="spinner"></span> Задача поставлена в очередь (id: ${task_id})…`;
+    renderProgress(progressContainer, `Задача поставлена в очередь (id: ${task_id})…`, 0);
 
     let taskKind = "";
     const result = await pollTask(task_id, (t) => {
       taskKind = t.kind || taskKind;
       const label = t.status === "queued" ? "В очереди" : (t.progress || "Обработка");
-      const tokenSuffix = t.tokens > 0 ? ` (…${t.tokens} токенов)` : "";
-      progressContainer.innerHTML = `<span class="spinner"></span> ${escapeHtml(label)}${tokenSuffix}`;
+      renderProgress(progressContainer, label, t.percent);
     });
 
     progressContainer.style.display = "none";
