@@ -2,7 +2,7 @@
 
 Файл БД: data/app.db в корне проекта. Схема поднимается идемпотентно
 в `init_db()` — вызывается в lifespan FastAPI. Доменные данные (сиды)
-заливаются отдельно сервисами (см. services/addressees.py::seed_defaults).
+заливаются отдельно сервисами (см. services/addressees.py::seed_defaults). /
 """
 
 from __future__ import annotations

@@ -48,6 +48,7 @@ bootstrap.log
 .vscode/
 .idea/
 .claude/
+.vs/
 
 # Промежуточные артефакты сборки иконок (готовые .icns / .ico остаются)
 build/icons/AppIcon.iconset/
