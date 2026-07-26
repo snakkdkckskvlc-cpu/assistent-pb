@@ -92,10 +92,55 @@ Write-Host "Log: $log"
 Write-Host "Start: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 
 # ================================================================
-# STEP 1: PYTHON 3.12
+# STEP 1: GIT (нужен для автообновления приложения с GitHub)
 # ================================================================
 
-Section "1/8 Python 3.12"
+Section "1/8 Git"
+Refresh-Path
+$GITHUB_REPO_URL = "https://github.com/snakkdkckskvlc-cpu/assistent-pb"
+
+if (Test-Command "git") {
+    Ok "Git already installed"
+} elseif (Test-Command "winget") {
+    Write-Host "  Installing Git via winget..." -ForegroundColor Yellow
+    try {
+        winget install --id Git.Git --silent --accept-package-agreements --accept-source-agreements | Out-Null
+        Refresh-Path
+        if (Test-Command "git") { Ok "Git installed" } else { Warn "Git install did not take effect (PATH?) - auto-update will be unavailable" }
+    } catch {
+        Warn "Could not install Git - auto-update will be unavailable. $($_.Exception.Message)"
+    }
+} else {
+    Warn "Git not found and winget unavailable - auto-update will be unavailable. Install Git manually from https://git-scm.com/download/win"
+}
+
+if (Test-Command "git") {
+    if (-not (Test-Path (Join-Path $root ".git"))) {
+        Write-Host "  Linking project folder to GitHub (enables auto-update)..." -ForegroundColor Yellow
+        try {
+            & git init --quiet 2>&1 | Out-Null
+            & git remote add origin $GITHUB_REPO_URL 2>&1 | Out-Null
+            & git fetch origin main --depth 1 --quiet 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                & git reset --hard origin/main --quiet 2>&1 | Out-Null
+                & git symbolic-ref HEAD refs/heads/main 2>&1 | Out-Null
+                Ok "Project linked to GitHub ($GITHUB_REPO_URL)"
+            } else {
+                Warn "Could not reach GitHub - auto-update will be unavailable until next run"
+            }
+        } catch {
+            Warn "Failed to link project to GitHub: $($_.Exception.Message)"
+        }
+    } else {
+        Ok "Project already linked to GitHub"
+    }
+}
+
+# ================================================================
+# STEP 2: PYTHON 3.12
+# ================================================================
+
+Section "2/8 Python 3.12"
 Refresh-Path
 $pythonOk = $false
 foreach ($cmd in @("py", "python", "python3")) {
@@ -135,10 +180,10 @@ if (-not $pythonOk) {
 }
 
 # ================================================================
-# STEP 2: OLLAMA + MODEL
+# STEP 3: OLLAMA + MODEL
 # ================================================================
 
-Section "2/8 Ollama + language model"
+Section "3/8 Ollama + language model"
 
 $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
 if (-not $ollamaCmd) {
@@ -184,10 +229,10 @@ if ($installedModels -match [regex]::Escape($model)) {
 }
 
 # ================================================================
-# STEP 3: TESSERACT
+# STEP 4: TESSERACT
 # ================================================================
 
-Section "3/8 Tesseract OCR"
+Section "4/8 Tesseract OCR"
 if (Test-Command "tesseract") {
     Ok "Tesseract already installed"
 } else {
@@ -216,10 +261,10 @@ if (Test-Command "tesseract") {
 }
 
 # ================================================================
-# STEP 4: POPPLER
+# STEP 5: POPPLER
 # ================================================================
 
-Section "4/8 Poppler"
+Section "5/8 Poppler"
 $popplerDir = Join-Path $root "poppler"
 $localZip = Join-Path $root "installers\poppler.zip"
 $tempZip = Join-Path $env:TEMP "poppler.zip"
@@ -252,10 +297,10 @@ if (Test-Path (Join-Path $popplerDir "Library\bin\pdftoppm.exe")) {
 }
 
 # ================================================================
-# STEP 5: VENV + DEPENDENCIES
+# STEP 6: VENV + DEPENDENCIES
 # ================================================================
 
-Section "5/8 Python venv + dependencies"
+Section "6/8 Python venv + dependencies"
 
 $venv = Join-Path $root "venv"
 $venvPython = Join-Path $venv "Scripts\python.exe"
@@ -275,38 +320,13 @@ Ok "venv created"
 # ================================================================
 # УСТАНОВКА ВСЕХ ПАКЕТОВ (ВКЛЮЧАЯ ДЛЯ DESKTOP)
 # ================================================================
-# Версии намеренно НЕ закреплены (в отличие от pyproject.toml): закреплённая
-# chromadb==0.5.23 тянет chroma-hnswlib==0.7.6, для которой на чистой Windows
-# часто нет готового wheel — сборка из исходников требует Visual Studio Build
-# Tools, которых обычно нет. Свежие версии chromadb такой проблемы не имеют.
+# Список пакетов живёт в requirements-runtime.txt — тот же файл читает
+# fire_safety_desktop.updater при автообновлении, чтобы не расходиться.
 
 Write-Host "  Installing all required packages..." -ForegroundColor Yellow
 
-# Полный список пакетов — должен покрывать зависимости apps/backend,
-# apps/desktop и packages/rag (см. их pyproject.toml). Если туда добавляется
-# новая зависимость — обязательно добавить и сюда, иначе она молча не
-# установится и приложение упадёт при первом запуске с ModuleNotFoundError.
-$packages = @(
-    "numpy",
-    "nltk",
-    "chromadb",
-    "langchain",
-    "torch",
-    "transformers",
-    "sentence-transformers",
-    "pywebview",
-    "fastapi",
-    "uvicorn[standard]",
-    "pydantic",
-    "requests",
-    "httpx",
-    "pillow",
-    "python-multipart",
-    "python-docx",
-    "pdfplumber",
-    "pdf2image",
-    "pytesseract"
-)
+$reqFile = Join-Path $root "requirements-runtime.txt"
+$packages = Get-Content $reqFile | Where-Object { $_ -and -not $_.TrimStart().StartsWith("#") } | ForEach-Object { $_.Trim() }
 
 $failed = @()
 
@@ -416,10 +436,10 @@ if ($criticalMissing.Count -gt 0) {
 Ok "Python dependencies installation completed"
 
 # ================================================================
-# STEP 6: INDEXING
+# STEP 7: INDEXING
 # ================================================================
 
-Section "6/8 Indexing regulatory database"
+Section "7/8 Indexing regulatory database"
 $docsDir = Join-Path $root "data\documents"
 if (-not (Test-Path $docsDir)) {
     New-Item -ItemType Directory -Path $docsDir -Force | Out-Null
@@ -444,10 +464,10 @@ if ($docCount -gt 0) {
 }
 
 # ================================================================
-# STEP 7: DESKTOP SHORTCUT
+# STEP 8: DESKTOP SHORTCUT
 # ================================================================
 
-Section "7/8 Desktop shortcut"
+Section "8/8 Desktop shortcut"
 
 # Модель, выбранная на шаге 2, — записываем в data\llm_model.txt, чтобы
 # backend использовал именно её независимо от способа запуска приложения

@@ -51,6 +51,24 @@ def _show_fatal_error(message: str) -> None:
         )
 
 
+def _show_info(message: str) -> None:
+    if sys.platform == "win32":
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(0, message, APP_NAME, 0x40)  # MB_ICONINFORMATION
+
+
+def _relaunch() -> None:
+    """Перезапускает тем же способом, каким приложение всегда запускается
+    (ярлык/start.bat зовут именно `pythonw -m fire_safety_desktop.main`) —
+    нужно после автообновления, чтобы подхватить новый код: старые модули
+    уже импортированы в память текущего процесса, простой continue их не
+    заменит."""
+    import subprocess
+
+    subprocess.Popen([sys.executable, "-m", "fire_safety_desktop.main"], cwd=str(_project_root()))
+
+
 try:
     import httpx
     import uvicorn
@@ -178,6 +196,17 @@ def main() -> None:
     try:
         root = _project_root()
         os.chdir(root)
+
+        try:
+            from . import updater
+
+            if updater.check_and_apply_update(root):
+                _show_info("Доступно обновление. Приложение обновлено до последней версии и сейчас перезапустится.")
+                _relaunch()
+                return
+        except Exception:
+            log.warning("Update check failed", exc_info=True)
+
         _prepare_sys_path()
         _prepare_path()
 
@@ -202,7 +231,11 @@ def main() -> None:
             min_size=(900, 600),
             js_api=_Api(url),
         )
-        webview.start()
+        # Без этого на Windows окно/таскбар показывают иконку pythonw.exe —
+        # pywebview (winforms-бэкенд) без явного icon= сам достаёт иконку из
+        # sys.executable, а это именно pythonw.exe, а не наше приложение.
+        icon_path = root / "build" / "icons" / "AppIcon.ico"
+        webview.start(icon=str(icon_path) if icon_path.exists() else None)
     except Exception:
         import traceback
 

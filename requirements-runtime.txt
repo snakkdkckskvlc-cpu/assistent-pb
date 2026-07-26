@@ -1,0 +1,32 @@
+# Пакеты рантайма для venv на Windows-машине пользователя.
+#
+# Единственный источник правды для bootstrap.ps1 (первая установка) и
+# fire_safety_desktop.updater (автообновление) — оба ставят ровно этот
+# список. Если в apps/backend, apps/desktop или packages/rag появилась
+# новая внешняя зависимость — добавьте её и сюда, иначе она не попадёт
+# в venv и приложение упадёт с ModuleNotFoundError.
+#
+# Версии намеренно НЕ закреплены (в отличие от pyproject.toml каждого
+# пакета): закреплённая chromadb==0.5.23 тянет chroma-hnswlib==0.7.6, для
+# которой на чистой Windows часто нет готового wheel — сборка из исходников
+# требует Visual Studio Build Tools, которых обычно нет. Свежие версии
+# chromadb такой проблемы не имеют.
+numpy
+nltk
+chromadb
+langchain
+torch
+transformers
+sentence-transformers
+pywebview
+fastapi
+uvicorn[standard]
+pydantic
+requests
+httpx
+pillow
+python-multipart
+python-docx
+pdfplumber
+pdf2image
+pytesseract
