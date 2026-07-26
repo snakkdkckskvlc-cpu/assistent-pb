@@ -58,6 +58,18 @@ def _show_info(message: str) -> None:
         ctypes.windll.user32.MessageBoxW(0, message, APP_NAME, 0x40)  # MB_ICONINFORMATION
 
 
+def _check_update_in_background(root: Path) -> None:
+    try:
+        from . import updater
+
+        if updater.check_and_apply_update(root):
+            _show_info("Доступно обновление. Приложение обновлено до последней версии и сейчас перезапустится.")
+            _relaunch()
+            os._exit(0)  # резкий выход нормален: перезапуск, не сохраняем состояние
+    except Exception:
+        log.warning("Update check failed", exc_info=True)
+
+
 def _relaunch() -> None:
     """Перезапускает тем же способом, каким приложение всегда запускается
     (ярлык/start.bat зовут именно `pythonw -m fire_safety_desktop.main`) —
@@ -66,7 +78,12 @@ def _relaunch() -> None:
     заменит."""
     import subprocess
 
-    subprocess.Popen([sys.executable, "-m", "fire_safety_desktop.main"], cwd=str(_project_root()))
+    no_window = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    subprocess.Popen(
+        [sys.executable, "-m", "fire_safety_desktop.main"],
+        cwd=str(_project_root()),
+        creationflags=no_window,
+    )
 
 
 try:
@@ -196,19 +213,14 @@ def main() -> None:
     try:
         root = _project_root()
         os.chdir(root)
-
-        try:
-            from . import updater
-
-            if updater.check_and_apply_update(root):
-                _show_info("Доступно обновление. Приложение обновлено до последней версии и сейчас перезапустится.")
-                _relaunch()
-                return
-        except Exception:
-            log.warning("Update check failed", exc_info=True)
-
         _prepare_sys_path()
         _prepare_path()
+
+        # В фоне, а не до открытия окна: git fetch — сетевой запрос, в худшем
+        # случае секунды простоя интернета. Раньше это тормозило каждый
+        # запуск; теперь окно открывается сразу, а обновление (если найдётся)
+        # предложит перезапуск отдельным окном, не блокируя старт.
+        threading.Thread(target=_check_update_in_background, args=(root,), daemon=True).start()
 
         port = _pick_port()
         url = f"http://{HOST}:{port}"

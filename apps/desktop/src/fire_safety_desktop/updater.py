@@ -27,7 +27,14 @@ FETCH_TIMEOUT_SEC = 10
 APPLY_TIMEOUT_SEC = 600
 
 
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
+
 def _run(args: list[str], cwd: Path, timeout: float) -> subprocess.CompletedProcess[str]:
+    # Без CREATE_NO_WINDOW каждый git/pip под pythonw.exe (у него нет своей
+    # консоли) открывает и тут же закрывает отдельное окно консоли — при
+    # проверке обновлений это несколько git-вызовов на каждый запуск, и без
+    # этого флага пользователь видит мелькающую пачку чёрных окон.
     return subprocess.run(
         args,
         cwd=str(cwd),
@@ -36,6 +43,7 @@ def _run(args: list[str], cwd: Path, timeout: float) -> subprocess.CompletedProc
         text=True,
         encoding="utf-8",
         errors="replace",
+        creationflags=_NO_WINDOW,
     )
 
 
