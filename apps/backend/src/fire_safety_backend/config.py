@@ -27,9 +27,23 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR = DATA_DIR / "outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+
+def _default_llm_model() -> str:
+    """qwen2.5:7b-instruct — модель, которую bootstrap.ps1 фактически качает по
+    умолчанию. Если при установке был выбран другой LLM_MODEL, bootstrap.ps1
+    записывает его в data/llm_model.txt — читаем оттуда, чтобы поведение не
+    зависело от того, как именно запущено приложение (ярлык/start.bat/IDE)."""
+    model_file = DATA_DIR / "llm_model.txt"
+    if model_file.exists():
+        name = model_file.read_text(encoding="utf-8").strip()
+        if name:
+            return name
+    return "qwen2.5:7b-instruct"
+
+
 # --- LLM (Ollama) ---
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen2.5:14b-instruct-q4_K_M")
+LLM_MODEL = os.environ.get("LLM_MODEL") or _default_llm_model()
 LLM_TIMEOUT_SEC = int(os.environ.get("LLM_TIMEOUT_SEC", "900"))
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.2"))
 LLM_NUM_CTX = int(os.environ.get("LLM_NUM_CTX", "4096"))

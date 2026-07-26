@@ -275,10 +275,17 @@ Ok "venv created"
 # ================================================================
 # УСТАНОВКА ВСЕХ ПАКЕТОВ (ВКЛЮЧАЯ ДЛЯ DESKTOP)
 # ================================================================
+# Версии намеренно НЕ закреплены (в отличие от pyproject.toml): закреплённая
+# chromadb==0.5.23 тянет chroma-hnswlib==0.7.6, для которой на чистой Windows
+# часто нет готового wheel — сборка из исходников требует Visual Studio Build
+# Tools, которых обычно нет. Свежие версии chromadb такой проблемы не имеют.
 
 Write-Host "  Installing all required packages..." -ForegroundColor Yellow
 
-# Полный список пакетов
+# Полный список пакетов — должен покрывать зависимости apps/backend,
+# apps/desktop и packages/rag (см. их pyproject.toml). Если туда добавляется
+# новая зависимость — обязательно добавить и сюда, иначе она молча не
+# установится и приложение упадёт при первом запуске с ModuleNotFoundError.
 $packages = @(
     "numpy",
     "nltk",
@@ -289,10 +296,16 @@ $packages = @(
     "sentence-transformers",
     "pywebview",
     "fastapi",
-    "uvicorn",
+    "uvicorn[standard]",
     "pydantic",
     "requests",
-    "pillow"
+    "httpx",
+    "pillow",
+    "python-multipart",
+    "python-docx",
+    "pdfplumber",
+    "pdf2image",
+    "pytesseract"
 )
 
 $failed = @()
@@ -344,29 +357,22 @@ if ($LASTEXITCODE -eq 0) {
 # ================================================================
 # УСТАНОВКА ПРОЕКТНЫХ ПАКЕТОВ
 # ================================================================
+# Настоящий editable install (не просто .pth с путём к src) — так пакеты
+# fire-safety-backend/-desktop/-rag получают нормальные метаданные и их
+# видно в `pip list`. --no-deps — их зависимости уже поставлены выше
+# как незакреплённые версии; без --no-deps pip попытается подтянуть
+# закреплённые в pyproject.toml (например chromadb==0.5.23) и упадёт
+# на сборке chroma-hnswlib из исходников (см. комментарий про Visual Studio).
 
-Write-Host "`n  Installing project packages..." -ForegroundColor Yellow
-
-$projectPaths = @(
-    @{Name="apps\backend"; Path=Join-Path $root "apps\backend"},
-    @{Name="apps\desktop"; Path=Join-Path $root "apps\desktop"},
-    @{Name="packages\rag"; Path=Join-Path $root "packages\rag"}
-)
-
-foreach ($proj in $projectPaths) {
-    $projPath = $proj.Path
-    $projName = $proj.Name
-    
-    Write-Host "  Installing $projName..." -NoNewline
-    
-    $srcPath = Join-Path $projPath "src"
-    if (Test-Path $srcPath) {
-        $pthFile = Join-Path $venv "Lib\site-packages\_$($projName.Replace('\','_')).pth"
-        $srcPath | Set-Content -Path $pthFile -Encoding UTF8
-        Write-Host " OK (path added: $srcPath)" -ForegroundColor Green
-    } else {
-        Write-Host " SKIPPED (src not found)" -ForegroundColor Yellow
-    }
+Write-Host "`n  Installing project packages (editable)..." -ForegroundColor Yellow
+& $venvPip install --no-deps --quiet --no-cache-dir `
+    -e (Join-Path $root "apps\backend") `
+    -e (Join-Path $root "apps\desktop") `
+    -e (Join-Path $root "packages\rag")
+if ($LASTEXITCODE -eq 0) {
+    Ok "Project packages installed"
+} else {
+    Fail "Failed to install project packages (apps/backend, apps/desktop, packages/rag)"
 }
 
 # ================================================================
@@ -375,23 +381,36 @@ foreach ($proj in $projectPaths) {
 
 Write-Host "`n  Final verification..." -ForegroundColor Yellow
 
-$checkPackages = @("numpy", "nltk", "chromadb", "langchain", "torch", "transformers", "pywebview")
-$allOk = $true
+# Критичные пакеты — без них приложение не запустится вообще (падает
+# сразу при импорте, до появления окна). Их отсутствие — это Fail,
+# а не Warn, чтобы установщик не врал "completed successfully".
+$criticalPackages = @("fastapi", "uvicorn", "httpx", "webview", "fire_safety_backend", "fire_safety_desktop")
+# Остальное нужно для конкретных функций (RAG, OCR) — без них приложение
+# запустится, но часть возможностей не будет работать.
+$optionalPackages = @("numpy", "nltk", "chromadb", "langchain", "torch", "transformers", "docx", "pdfplumber", "pytesseract")
 
-foreach ($pkg in $checkPackages) {
-    $check = & $venvPython -c "import $pkg; print('OK')" 2>&1
+$criticalMissing = @()
+foreach ($pkg in $criticalPackages) {
+    $check = & $venvPython -c "import $pkg" 2>&1
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "    $pkg: OK" -ForegroundColor Green
+        Write-Host "    ${pkg}: OK" -ForegroundColor Green
     } else {
-        Write-Host "    $pkg: MISSING" -ForegroundColor Red
-        $allOk = $false
+        Write-Host "    ${pkg}: MISSING" -ForegroundColor Red
+        $criticalMissing += $pkg
     }
 }
 
-if ($allOk) {
-    Ok "All packages installed successfully!"
-} else {
-    Warn "Some packages are missing. Please check manually."
+foreach ($pkg in $optionalPackages) {
+    $check = & $venvPython -c "import $pkg" 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "    ${pkg}: OK" -ForegroundColor Green
+    } else {
+        Write-Host "    ${pkg}: MISSING" -ForegroundColor Yellow
+    }
+}
+
+if ($criticalMissing.Count -gt 0) {
+    Fail "Critical packages missing, app will not start: $($criticalMissing -join ', ')"
 }
 
 Ok "Python dependencies installation completed"
@@ -430,28 +449,46 @@ if ($docCount -gt 0) {
 
 Section "7/8 Desktop shortcut"
 
+# Модель, выбранная на шаге 2, — записываем в data\llm_model.txt, чтобы
+# backend использовал именно её независимо от способа запуска приложения
+# (ярлык / start.bat / IDE). См. fire_safety_backend.config._default_llm_model.
+$dataDir = Join-Path $root "data"
+if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
+$model | Set-Content -Path (Join-Path $dataDir "llm_model.txt") -Encoding UTF8 -NoNewline
+
+# start.bat остаётся для запуска вручную из консоли (см. README); ярлык на
+# рабочем столе (ниже) запускает pythonw.exe напрямую — без окна cmd.exe.
 $startBat = Join-Path $root "start.bat"
 @"
 @echo off
 setlocal
 cd /d "%~dp0"
-set "PATH=%~dp0poppler\Library\bin;%PATH%"
-set "PYTHONPATH=%~dp0apps\backend\src;%~dp0packages\rag\src;%~dp0apps\desktop\src;%~dp0apps\desktop"
-if "%LLM_MODEL%"=="" set "LLM_MODEL=$model"
 start "" "%~dp0venv\Scripts\pythonw.exe" -m fire_safety_desktop.main
 endlocal
 "@ | Set-Content -Path $startBat -Encoding ASCII
 Ok "start.bat created"
 
+# Иконка — .ico нужен для ярлыка Windows; .svg (frontend\icon.svg) сам по
+# себе не подходит. Без этого шага ярлык получал бы серую иконку по
+# умолчанию от pythonw.exe.
+$iconPath = Join-Path $root "build\icons\AppIcon.ico"
+if (-not (Test-Path $iconPath)) {
+    Write-Host "  Generating app icon..." -ForegroundColor Yellow
+    & $venvPython (Join-Path $root "scripts\make_icons.py") 2>&1 | Out-Null
+}
+
 $desktop = [Environment]::GetFolderPath("Desktop")
 $shortcut = Join-Path $desktop "Assistant PB.lnk"
+$pythonwExe = Join-Path $venv "Scripts\pythonw.exe"
 
 try {
     $wsh = New-Object -ComObject WScript.Shell
     $lnk = $wsh.CreateShortcut($shortcut)
-    $lnk.TargetPath = $startBat
+    $lnk.TargetPath = $pythonwExe
+    $lnk.Arguments = "-m fire_safety_desktop.main"
     $lnk.WorkingDirectory = $root
     $lnk.Description = "Fire Safety Assistant"
+    if (Test-Path $iconPath) { $lnk.IconLocation = $iconPath }
     $lnk.Save()
     Ok "Shortcut created: $shortcut"
 } catch {

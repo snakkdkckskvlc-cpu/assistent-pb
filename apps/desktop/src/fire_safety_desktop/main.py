@@ -1,7 +1,9 @@
 """Desktop-обёртка: запускает FastAPI backend в фоне и открывает нативное окно.
 
-Точка входа для сборки в .app/.exe. Все пути к venv/PYTHONPATH прописаны
-на уровне launcher-скриптов (start.bat, launcher-скрипт .app).
+Точка входа для сборки в .app/.exe. Самодостаточна: apps/backend и
+packages/rag либо уже установлены в venv (editable install — тогда просто
+импортируются), либо добавляются в sys.path вручную (_prepare_sys_path) —
+никакой внешний launcher-скрипт для этого не нужен.
 """
 
 from __future__ import annotations
@@ -15,10 +17,6 @@ import threading
 import time
 from pathlib import Path
 
-import httpx
-import uvicorn
-import webview
-
 APP_NAME = "Ассистент ПБ"
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
@@ -29,6 +27,42 @@ log = logging.getLogger(__name__)
 def _project_root() -> Path:
     """fire_safety_desktop/main.py → src → fire_safety_desktop → desktop → apps → корень."""
     return Path(__file__).resolve().parent.parent.parent.parent.parent
+
+
+def _show_fatal_error(message: str) -> None:
+    """Запуск идёт через pythonw.exe (без консоли) — при любой необработанной
+    ошибке пользователь иначе не увидит вообще ничего: ни окна, ни консоли,
+    ни лога. Пишем traceback в файл рядом с проектом и, на Windows, дублируем
+    нативным MessageBox — иначе «клик по ярлыку ничего не делает» невозможно
+    отличить от «всё зависло» или «просто медленно грузится»."""
+    log_path = _project_root() / "desktop_error.log"
+    with contextlib.suppress(OSError):
+        log_path.write_text(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\n{message}\n", encoding="utf-8")
+
+    if sys.platform == "win32":
+        import ctypes
+
+        short = message if len(message) < 1000 else message[:1000] + "…"
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            f"{short}\n\nПодробности: {log_path}",
+            f"{APP_NAME} — ошибка запуска",
+            0x10,  # MB_ICONERROR
+        )
+
+
+try:
+    import httpx
+    import uvicorn
+    import webview
+except ImportError as e:
+    _show_fatal_error(
+        f"Не найден модуль: {e.name}\n\n"
+        "Установка зависимостей не завершена. Запустите bootstrap.ps1 ещё раз "
+        "или выполните вручную:\n"
+        "venv\\Scripts\\pip install -e apps\\backend -e apps\\desktop -e packages\\rag"
+    )
+    sys.exit(1)
 
 
 def _prepare_sys_path() -> None:
@@ -45,6 +79,18 @@ def _prepare_sys_path() -> None:
     for path in candidates:
         if path.exists() and str(path) not in sys.path:
             sys.path.insert(0, str(path))
+
+
+def _prepare_path() -> None:
+    """Добавляет poppler\\Library\\bin в PATH (нужен pdf2image для сканов PDF).
+
+    Раньше это делал внешний start.bat — из-за этого приложение падало на OCR,
+    если запущено любым другим способом (ярлык напрямую на pythonw.exe, IDE,
+    сборка PyInstaller). Делаем это здесь, чтобы поведение не зависело от
+    способа запуска."""
+    poppler_bin = _project_root() / "poppler" / "Library" / "bin"
+    if poppler_bin.exists():
+        os.environ["PATH"] = f"{poppler_bin}{os.pathsep}{os.environ.get('PATH', '')}"
 
 
 def _pick_port() -> int:
@@ -69,11 +115,19 @@ def _run_backend(port: int) -> None:
     uvicorn.run(app, host=HOST, port=port, log_level="warning")
 
 
-def _wait_backend(url: str, timeout: int = 30) -> bool:
+def _wait_backend(url: str, timeout: int = 90) -> bool:
+    """Ждём, пока backend начнёт отвечать на HTTP.
+
+    Проверяем "/" (отдача статики), а не "/api/health": health-эндпоинт
+    дожидается прогрева RAG (загрузка embedding-модели в память), что на
+    первом запуске может занять больше времени, чем нужно окну — раньше
+    это приводило к ложному "backend не поднялся" при полностью рабочем
+    backend'е, который просто ещё не успел прогреть RAG.
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            r = httpx.get(f"{url}/api/health", timeout=2)
+            r = httpx.get(f"{url}/", timeout=2)
             if r.status_code < 500:
                 return True
         except Exception:
@@ -115,28 +169,6 @@ class _Api:
         return {"ok": True, "path": dest}
 
 
-def _show_fatal_error(message: str) -> None:
-    """Запуск идёт через pythonw.exe (без консоли) — при любой необработанной
-    ошибке пользователь иначе не увидит вообще ничего: ни окна, ни консоли,
-    ни лога. Пишем traceback в файл рядом с проектом и, на Windows, дублируем
-    нативным MessageBox — иначе «клик по ярлыку ничего не делает» невозможно
-    отличить от «всё зависло» или «просто медленно грузится»."""
-    log_path = _project_root() / "desktop_error.log"
-    with contextlib.suppress(OSError):
-        log_path.write_text(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\n{message}\n", encoding="utf-8")
-
-    if sys.platform == "win32":
-        import ctypes
-
-        short = message if len(message) < 1000 else message[:1000] + "…"
-        ctypes.windll.user32.MessageBoxW(
-            0,
-            f"{short}\n\nПодробности: {log_path}",
-            f"{APP_NAME} — ошибка запуска",
-            0x10,  # MB_ICONERROR
-        )
-
-
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -147,6 +179,7 @@ def main() -> None:
         root = _project_root()
         os.chdir(root)
         _prepare_sys_path()
+        _prepare_path()
 
         port = _pick_port()
         url = f"http://{HOST}:{port}"
@@ -156,7 +189,7 @@ def main() -> None:
 
         if not _wait_backend(url):
             _show_fatal_error(
-                "Backend не поднялся за 30 секунд.\n"
+                "Backend не поднялся за 90 секунд.\n"
                 "Проверьте, что Ollama запущена (значок ламы в трее)."
             )
             return

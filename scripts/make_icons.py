@@ -1,6 +1,12 @@
 """Собирает PNG-иконки разных размеров, .icns (macOS) и .ico (Windows).
 
-Требует: Pillow, cairosvg (или использует ImageMagick).
+Требует: Pillow, и один из (resvg-py | cairosvg | svglib+reportlab) для
+честного рендера icon.svg — если ни один не доступен, используется грубый
+fallback (перерисовка формы вручную через PIL, без учёта реального SVG).
+resvg-py — предпочтительный вариант на Windows: чистый Rust-бинарь в wheel,
+без системных зависимостей (в отличие от cairosvg/pycairo, которым нужна
+нативная libcairo, и от svglib+reportlab, которые на этом icon.svg падают
+на клип-пути скруглённого прямоугольника).
 На macOS для .icns использует системный `iconutil`.
 """
 
@@ -10,7 +16,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-FRONTEND = ROOT / "frontend"
+FRONTEND = ROOT / "apps" / "desktop" / "frontend"
 BUILD = ROOT / "build" / "icons"
 BUILD.mkdir(parents=True, exist_ok=True)
 
@@ -18,10 +24,29 @@ SVG = FRONTEND / "icon.svg"
 SIZES = [16, 32, 64, 128, 256, 512, 1024]
 
 
+def rasterize_with_resvg(size: int, out: Path) -> None:
+    import resvg_py
+
+    png_bytes = resvg_py.svg_to_bytes(svg_path=str(SVG), width=size, height=size)
+    out.write_bytes(bytes(png_bytes))
+
+
 def rasterize_with_cairosvg(size: int, out: Path) -> None:
     import cairosvg
 
     cairosvg.svg2png(url=str(SVG), write_to=str(out), output_width=size, output_height=size)
+
+
+def rasterize_with_svglib(size: int, out: Path) -> None:
+    """Fallback без нативного cairo: svglib+reportlab, чистый Python."""
+    from reportlab.graphics import renderPM
+    from svglib.svglib import svg2rlg
+
+    drawing = svg2rlg(str(SVG))
+    scale = size / drawing.width
+    drawing.width = drawing.height = size
+    drawing.scale(scale, scale)
+    renderPM.drawToFile(drawing, str(out), fmt="PNG", bg=0x000000, configPIL={"transparent": True})
 
 
 def rasterize_with_pil(size: int, out: Path) -> None:
@@ -46,10 +71,13 @@ def rasterize_with_pil(size: int, out: Path) -> None:
 
 
 def rasterize(size: int, out: Path) -> None:
-    try:
-        rasterize_with_cairosvg(size, out)
-    except Exception:
-        rasterize_with_pil(size, out)
+    for renderer in (rasterize_with_resvg, rasterize_with_cairosvg, rasterize_with_svglib):
+        try:
+            renderer(size, out)
+            return
+        except Exception:
+            pass
+    rasterize_with_pil(size, out)
 
 
 def build_icns() -> Path | None:
@@ -85,9 +113,15 @@ def build_icns() -> Path | None:
 def build_ico() -> Path:
     from PIL import Image
 
-    imgs = [Image.open(BUILD / f"icon_{s}.png") for s in [16, 32, 64, 128, 256]]
+    # Pillow's ICO writer downsamples FROM the saved image — passing the
+    # smallest (16x16) as base silently produces a single 16x16-only .ico
+    # (blurry/blank-looking once Windows upscales it for the desktop icon).
+    # Must save from the largest source so every requested size gets a
+    # properly downsampled frame.
+    sizes = [16, 32, 64, 128, 256]
+    imgs = [Image.open(BUILD / f"icon_{s}.png") for s in sizes]
     ico = BUILD / "AppIcon.ico"
-    imgs[0].save(ico, format="ICO", sizes=[(im.width, im.height) for im in imgs])
+    imgs[-1].save(ico, format="ICO", sizes=[(im.width, im.height) for im in imgs])
     return ico
 
 
@@ -96,7 +130,7 @@ def main() -> None:
     for size in SIZES:
         out = BUILD / f"icon_{size}.png"
         rasterize(size, out)
-        print(f"  → {out.name}")
+        print(f"  -> {out.name}")
     icns = build_icns()
     if icns:
         print(f"macOS icon: {icns}")

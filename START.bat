@@ -1,8 +1,16 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-set "PATH=%~dp0poppler\Library\bin;%PATH%"
-set "PYTHONPATH=%~dp0apps\backend\src;%~dp0packages\rag\src;%~dp0apps\desktop\src;%~dp0apps\desktop"
-if "%LLM_MODEL%"=="" set "LLM_MODEL=qwen2.5:7b-instruct"
-start "" "%~dp0venv\Scripts\pythonw.exe" -m fire_safety_desktop.main
+
+if exist "%~dp0venv\Scripts\pythonw.exe" (
+    start "" "%~dp0venv\Scripts\pythonw.exe" -m fire_safety_desktop.main
+    goto :end
+)
+
+echo Assistant PB is not installed yet. Running the installer (bootstrap.ps1)...
+echo A Windows admin-rights prompt (UAC) will appear shortly - accept it to continue.
+echo.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0bootstrap.ps1"
+
+:end
 endlocal
