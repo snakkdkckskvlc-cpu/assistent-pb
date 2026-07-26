@@ -58,6 +58,20 @@ def _show_info(message: str) -> None:
         ctypes.windll.user32.MessageBoxW(0, message, APP_NAME, 0x40)  # MB_ICONINFORMATION
 
 
+def _set_app_user_model_id() -> None:
+    """Таскбар Windows определяет иконку запущенного приложения не по живому
+    HICON окна (это лишь заголовок окна), а по AppUserModelID процесса. Без
+    явного AUMID Windows считает "приложением" сам pythonw.exe и показывает
+    его иконку в таскбаре — даже когда у окна уже стоит своя иконка. Нужно
+    выставить это ДО создания окна."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    with contextlib.suppress(Exception):
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("PozhServis.AssistentPB.Desktop")
+
+
 def _check_update_in_background(root: Path) -> None:
     try:
         from . import updater
@@ -211,6 +225,8 @@ def main() -> None:
     )
 
     try:
+        _set_app_user_model_id()
+
         root = _project_root()
         os.chdir(root)
         _prepare_sys_path()
