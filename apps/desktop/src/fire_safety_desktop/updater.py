@@ -18,7 +18,10 @@ import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +50,9 @@ def _run(args: list[str], cwd: Path, timeout: float) -> subprocess.CompletedProc
     )
 
 
-def _git(root: Path, *args: str, timeout: float = FETCH_TIMEOUT_SEC) -> subprocess.CompletedProcess[str]:
+def _git(
+    root: Path, *args: str, timeout: float = FETCH_TIMEOUT_SEC
+) -> subprocess.CompletedProcess[str]:
     return _run(["git", *args], cwd=root, timeout=timeout)
 
 
@@ -59,17 +64,23 @@ def _is_safe_to_update(root: Path) -> bool:
         return False
 
     status = _git(root, "status", "--porcelain")
-    if status.returncode != 0 or status.stdout.strip():
-        return False
-
-    return True
+    return status.returncode == 0 and not status.stdout.strip()
 
 
 def _reinstall_dependencies(root: Path) -> bool:
     req_file = root / "requirements-runtime.txt"
     if req_file.exists():
         r = _run(
-            [sys.executable, "-m", "pip", "install", "-r", str(req_file), "--quiet", "--prefer-binary"],
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "-r",
+                str(req_file),
+                "--quiet",
+                "--prefer-binary",
+            ],
             cwd=root,
             timeout=APPLY_TIMEOUT_SEC,
         )
@@ -79,10 +90,18 @@ def _reinstall_dependencies(root: Path) -> bool:
 
     r = _run(
         [
-            sys.executable, "-m", "pip", "install", "--no-deps", "--quiet",
-            "-e", str(root / "apps" / "backend"),
-            "-e", str(root / "apps" / "desktop"),
-            "-e", str(root / "packages" / "rag"),
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--quiet",
+            "-e",
+            str(root / "apps" / "backend"),
+            "-e",
+            str(root / "apps" / "desktop"),
+            "-e",
+            str(root / "packages" / "rag"),
         ],
         cwd=root,
         timeout=APPLY_TIMEOUT_SEC,
@@ -120,7 +139,9 @@ def check_and_apply_update(root: Path) -> bool:
         if local.stdout.strip() == remote.stdout.strip():
             return False  # уже последняя версия
 
-        reset = _git(root, "reset", "--hard", f"origin/{GITHUB_REMOTE_BRANCH}", "--quiet", timeout=30)
+        reset = _git(
+            root, "reset", "--hard", f"origin/{GITHUB_REMOTE_BRANCH}", "--quiet", timeout=30
+        )
         if reset.returncode != 0:
             log.warning("update: git reset failed: %s", reset.stderr)
             return False

@@ -69,7 +69,9 @@ def _set_app_user_model_id() -> None:
     import ctypes
 
     with contextlib.suppress(Exception):
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("PozhServis.AssistentPB.Desktop")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "PozhServis.AssistentPB.Desktop"
+        )
 
 
 def _check_update_in_background(root: Path) -> None:
@@ -77,7 +79,9 @@ def _check_update_in_background(root: Path) -> None:
         from . import updater
 
         if updater.check_and_apply_update(root):
-            _show_info("Доступно обновление. Приложение обновлено до последней версии и сейчас перезапустится.")
+            _show_info(
+                "Доступно обновление. Приложение обновлено до последней версии и сейчас перезапустится."
+            )
             _relaunch()
             os._exit(0)  # резкий выход нормален: перезапуск, не сохраняем состояние
     except Exception:
