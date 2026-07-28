@@ -80,14 +80,33 @@
         const quoteWarn = f["_цитата_найдена"] === false
           ? `<span class="quote-warn">⚠ точная цитата не найдена в тексте документа — возможно, перефразирована моделью</span>`
           : "";
-        const normCls = f["_источник_подтверждён"] ? "norm grounded" : "norm";
-        const normBadge = f["_источник_подтверждён"] ? "✓ " : "📖 ";
+        // Два независимых признака: подтверждён ли ФРАГМЕНТ, на который
+        // сослалась модель, и найден ли в нём НОМЕР СТАТЬИ. Модель может
+        // указать реальный фрагмент, но назвать при этом не ту статью —
+        // так и было с неустойкой (ст. 395 вместо ст. 333).
+        const normStatus = f["_норма_статус"] || "";
+        let normCls = "norm";
+        let normBadge = "📖 ";
+        let normHint = "Статья из общих знаний модели — контекстом не подтверждена";
+        if (normStatus === "не_в_контексте") {
+          normCls = "norm unverified";
+          normBadge = "⚠ ";
+          normHint = "Этой статьи не было в переданных модели нормах — проверьте номер";
+        } else if (f["_источник_подтверждён"] && normStatus === "подтверждена") {
+          normCls = "norm grounded";
+          normBadge = "✓ ";
+          normHint = "Статья найдена в переданном фрагменте нормативной базы";
+        } else if (normStatus === "подтверждена") {
+          normCls = "norm grounded";
+          normBadge = "✓ ";
+          normHint = "Номер статьи найден в переданных нормах";
+        }
         parts.push(`<div class="finding ${cls}">
           <div class="crit-label">${critLabel(f["критичность"])}</div>
           <blockquote>${escapeHtml(f["цитата_из_договора"] || "")}${quoteWarn}</blockquote>
           <div><b>Риск:</b> ${escapeHtml(f["в_чём_риск"] || "")}</div>
           <div class="redline"><b>Правка:</b> ${escapeHtml(f["предложение_правки"] || "")}</div>
-          <div class="${normCls}">${normBadge}${escapeHtml(f["ссылка_на_норму"] || "требует проверки юристом")}</div>
+          <div class="${normCls}" title="${escapeHtml(normHint)}">${normBadge}${escapeHtml(f["ссылка_на_норму"] || "требует проверки юристом")}</div>
         </div>`);
       }
 

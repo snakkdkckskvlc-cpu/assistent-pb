@@ -22,6 +22,14 @@ log = logging.getLogger(__name__)
 
 _SHORT_ID_LENGTH = 4
 
+# Границы структурных единиц нормативного акта — те же, что в чанкере RAG
+# (packages/rag/.../chunking.py). Нужны здесь, чтобы обрезать фрагмент нормы
+# по границе статьи, а не по счётчику символов.
+_ARTICLE_BOUNDARY_RE = re.compile(
+    r"^[ \t]*(?:Статья\s+\d+(?:\.\d+)*|Пункт\s+\d+(?:\.\d+)*|\d+\.\d+(?:\.\d+)*\.?\s+[А-ЯЁ])",
+    re.MULTILINE,
+)
+
 # Замерено на реальных договорах НЛМК (qwen2.5, русский текст): 2.57 символа
 # на токен, 3.78 токена на слово. В расчёте бюджета берутся ЗАВЕДОМО ХУДШИЕ
 # значения, а не замеренные: часть обязана влезть в окно гарантированно, а не
@@ -35,11 +43,55 @@ _SHORT_ID_LENGTH = 4
 _CHARS_PER_TOKEN = 2.0
 _TOKENS_PER_WORD = 4.6
 # Сколько фрагментов нормативки даём модели на ОДНУ часть договора и до какой
-# длины их режем. Чанк корпуса — до 500 слов (≈1900 токенов); шесть таких, как
-# было раньше, — это ~11 000 токенов контекста ТОЛЬКО под нормы, что само по
-# себе больше всего окна 8k.
-_RAG_CHUNKS_PER_PART = 1
-_RAG_CHUNK_MAX_CHARS = 1800
+# длины их режем. После перехода на постатейный чанкинг фрагмент — это одна
+# статья (обычно 300–600 символов), а не простыня на 500 слов, поэтому за те же
+# деньги влезает три нормы вместо одной. Раньше шесть чанков по 500 слов
+# составляли ~11 000 токенов — больше всего окна 8k.
+_RAG_CHUNKS_PER_PART = 3
+_RAG_CHUNK_MAX_CHARS = 900
+
+# Типы документов, релевантные для ДОГОВОРНЫХ рисков. После переиндексации
+# корпус на 74% состоит из технических сводов правил (2463 чанка из 3334), и
+# без фильтра запрос про неустойку выдавал СП про отопление и огнестойкость.
+# Замер на реальном пункте о неустойке 2%/день: без фильтра — СП 7.13130,
+# 69-ФЗ, СП 2.13130; с фильтром — ГК РФ ст. 715, 723, 708.
+_CONTRACT_LAW_TYPES = ["code", "federal_law", "government_decree"]
+# Признаки того, что пункт договора отсылает к пожарно-технической норме, а не
+# к гражданскому праву, — тогда СП и ГОСТы как раз нужны.
+_TECHNICAL_HINTS = (
+    "пожарн",
+    "сигнализац",
+    "пожаротушен",
+    "эвакуац",
+    "огнестойк",
+    "оповещен",
+    "апс",
+    "аупт",
+    "соуэ",
+    "гост",
+    "сп ",
+)
+
+
+def _norm_filter_for(part: str) -> dict:
+    """Какие типы документов искать под конкретную часть договора.
+
+    Правило, а не LLM-роутер: роутер стоил бы ещё одного вызова модели (на CPU
+    это 20–60 секунд на каждую из частей), а выбор здесь между двумя вариантами
+    и делается по словам в тексте надёжнее и бесплатно.
+    """
+    low = part.lower()
+    if any(h in low for h in _TECHNICAL_HINTS):
+        # Пункт ссылается на пожарную технику — берём и нормы ПБ тоже.
+        return {"status": {"$ne": "superseded"}}
+    return {
+        "$and": [
+            {"status": {"$ne": "superseded"}},
+            {"doc_type": {"$in": _CONTRACT_LAW_TYPES}},
+        ]
+    }
+
+
 # Запас на разметку ролей, служебные токены и погрешность оценки.
 _SAFETY_TOKENS = 300
 
@@ -99,6 +151,61 @@ def _split_oversized_parts(parts: list[str], prompt: str) -> list[str]:
     return out
 
 
+def _trim_norm_text(text: str, max_chars: int) -> str:
+    """Обрезает фрагмент нормы по границе статьи, а не по счётчику символов.
+
+    Посимвольная обрезка рубила статью на полуслове: замерено, что при лимите
+    1800 из ст. 333 ГК РФ («Уменьшение неустойки») до модели доезжало 39% —
+    обрыв приходился ровно на условие о снижении неустойки для
+    предпринимателей. Лучше отдать на одну статью меньше, но целиком.
+    """
+    if len(text) <= max_chars:
+        return text
+    bounds = [m.start() for m in _ARTICLE_BOUNDARY_RE.finditer(text) if 0 < m.start() <= max_chars]
+    if bounds:
+        return text[: bounds[-1]].rstrip()
+    # Разметку не опознали — режем хотя бы по границе предложения.
+    cut = text.rfind(". ", 0, max_chars)
+    return text[: cut + 1] if cut > max_chars // 2 else text[:max_chars]
+
+
+def _extract_article_numbers(ref: str) -> list[str]:
+    """Номера статей/пунктов из ссылки модели: «п. 2 ст. 401 ГК РФ» → ['401'].
+
+    Берём именно номер статьи, а не номер пункта внутри неё: в контексте и в
+    метаданных чанка единицей является статья.
+    """
+    if not ref:
+        return []
+    nums = re.findall(r"(?:ст\.?|статья|статьи)\s*(\d+(?:\.\d+)*)", ref, flags=re.IGNORECASE)
+    nums += re.findall(r"(?:п\.?|пункт)\s*(\d+(?:\.\d+){1,})", ref, flags=re.IGNORECASE)
+    return nums
+
+
+def _verify_article_reference(ref: str, context_chunks: list[dict]) -> str:
+    """Сверяет номер статьи из «ссылка_на_норму» с тем, что реально отдали модели.
+
+    Тот же приём, что уже работает для цитат (_verify_quote) и для ID
+    фрагментов (_resolve_chunk_id): не верить модели на слово, а проверить по
+    выданному контексту. Замерено, зачем: для неустойки 2% в день модель
+    сослалась на ст. 395 ГК РФ, тогда как верная — ст. 333, и ст. 395 в
+    контекст вообще не попадала.
+
+    Возвращает «подтверждена» | «не_в_контексте» | «не_проверялась».
+    """
+    numbers = _extract_article_numbers(ref)
+    if not numbers:
+        # «требует проверки юристом» и подобное — проверять нечего.
+        return "не_проверялась"
+    haystack = "\n".join(f"{c.get('article', '')}\n{c.get('text', '')}" for c in context_chunks)
+    for num in numbers:
+        if re.search(rf"(?:Статья|ст\.?)\s*{re.escape(num)}\b", haystack, flags=re.IGNORECASE):
+            return "подтверждена"
+        if re.search(rf"^{re.escape(num)}\b", haystack, flags=re.MULTILINE):
+            return "подтверждена"
+    return "не_в_контексте"
+
+
 def _normalize_quote(quote: str) -> str:
     return " ".join(str(quote).split()).casefold()
 
@@ -125,6 +232,74 @@ def _merge_findings(parts_findings: list[list[dict]]) -> list[dict]:
                 seen.add(key)
             merged.append(f)
     return merged
+
+
+_CONTRACT_CLAUSE_RE = re.compile(r"^[ \t]*(\d+(?:\.\d+)*)\.?\s+([А-ЯЁ][^\n]{0,90})", re.MULTILINE)
+_SANCTION_WORDS = ("неустойк", "штраф", "пеня", "пени", "убытк")
+# Кого называют в пункте о санкции. Порядок важен: «Заказчик вправе взыскать с
+# Подрядчика» — санкция против Подрядчика, хотя Заказчик упомянут первым,
+# поэтому решает не порядок слов, а наличие обеих сторон и падеж.
+_CONTRACTOR_WORDS = ("подрядчик", "исполнител")
+_CUSTOMER_WORDS = ("заказчик",)
+
+
+def _build_outline(text: str) -> list[str]:
+    """Оглавление договора: номера и заголовки пунктов.
+
+    Извлекается регэкспом ИЗ ПОЛНОГО текста, а не пересказывается моделью —
+    значит, выдумать пункт, которого нет, невозможно.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _CONTRACT_CLAUSE_RE.finditer(text):
+        num, title = m.group(1), " ".join(m.group(2).split())
+        if num in seen:
+            continue
+        seen.add(num)
+        out.append(f"{num} {title}")
+    return out
+
+
+def _build_sanction_map(text: str) -> list[str]:
+    """Все места договора, где упомянуты санкции, с номером пункта и стороной.
+
+    Это прямой ответ на пропущенный при поразделном разборе системный вывод:
+    «раздел Ответственность содержит санкции только против Подрядчика».
+    Такое видно лишь по всему документу сразу, а каждая отдельная часть об
+    этом умалчивает.
+    """
+    out: list[str] = []
+    current = "?"
+    for line in text.split("\n"):
+        m = re.match(r"^[ \t]*(\d+(?:\.\d+)*)\.?\s", line)
+        if m:
+            current = m.group(1)
+        low = line.lower()
+        if not any(w in low for w in _SANCTION_WORDS):
+            continue
+        against = []
+        if any(w in low for w in _CONTRACTOR_WORDS):
+            against.append("Подрядчик")
+        if any(w in low for w in _CUSTOMER_WORDS):
+            against.append("Заказчик")
+        who = "/".join(against) if against else "сторона не определена"
+        out.append(f"п. {current} — упомянуты: {who} — {' '.join(line.split())[:110]}")
+    return out
+
+
+def _condense_findings(findings: list[dict], max_chars: int) -> str:
+    lines: list[str] = []
+    used = 0
+    for f in findings:
+        line = (
+            f"[{f.get('критичность', '?')}] {str(f.get('в_чём_риск', ''))[:130]} "
+            f"(норма: {f.get('ссылка_на_норму', '—')})"
+        )
+        if used + len(line) > max_chars:
+            break
+        lines.append(line)
+        used += len(line)
+    return "\n".join(lines)
 
 
 def _merge_summaries(summaries: list[dict]) -> dict:
@@ -284,6 +459,7 @@ async def run_legal_analysis(
             retrieve_many,
             [part[:1500], "ответственность неустойка штраф убытки"],
             _RAG_CHUNKS_PER_PART,
+            _norm_filter_for(part),
         )
         context_chunks: list[dict] = []
         seen_keys: set[str] = set()
@@ -303,7 +479,9 @@ async def run_legal_analysis(
         # generate_short_id выше).
         chunk_ids = _assign_chunk_ids(top_chunks)
         context_block = "\n\n".join(
-            f"[{cid}] {h['source']}\n{h['text'][:_RAG_CHUNK_MAX_CHARS]}"
+            f"[{cid}] {h.get('act_number') or h['source']}"
+            f"{' · ' + h['article'] if h.get('article') else ''}\n"
+            f"{_trim_norm_text(h['text'], _RAG_CHUNK_MAX_CHARS)}"
             for cid, h in chunk_ids.items()
         )
         if not context_block:
@@ -369,6 +547,11 @@ async def run_legal_analysis(
             finding["_источник_подтверждён"] = matched_chunk is not None
             if matched_chunk:
                 finding["_источник_файл"] = matched_chunk["source"]
+            # Номер статьи проверяем отдельно от ID фрагмента: модель может
+            # сослаться на реальный фрагмент, но назвать при этом не ту статью.
+            finding["_норма_статус"] = _verify_article_reference(
+                str(finding.get("ссылка_на_норму", "")), top_chunks
+            )
             finding["_часть"] = idx
         parts_findings.append([f for f in findings if isinstance(f, dict)])
 
@@ -377,6 +560,29 @@ async def run_legal_analysis(
             summaries.append(summary)
 
     merged_findings = _merge_findings(parts_findings)
+    summary = _merge_summaries(summaries)
+
+    # Финальный проход по документу ЦЕЛИКОМ. Поразделный разбор в принципе не
+    # способен увидеть свойства всего договора: главный вывод ручного эталона —
+    # «раздел Ответственность содержит санкции только против Подрядчика, у
+    # Заказчика их нет ни одной» — не выводится ни из одной отдельной части.
+    # Полный текст в окно не влезает, поэтому на вход идёт не он, а извлечённые
+    # РЕГЭКСПОМ оглавление и карта санкций (выдумать пункт по ним нельзя) плюс
+    # сжатые находки.
+    if len(parts) > 1 and merged_findings:
+        if task:
+            task.progress = "Свожу картину по договору целиком"
+            task.percent = base_percent + int(span_percent * 0.95)
+        try:
+            final = await _final_pass(text, merged_findings, task)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Финальный проход не удался: %s", e)
+        else:
+            if isinstance(final.get("сводка"), dict):
+                summary = _merge_summaries([summary, final["сводка"]])
+            conclusions = final.get("системные_выводы")
+            if isinstance(conclusions, list) and conclusions:
+                summary["системные_выводы"] = [str(c) for c in conclusions if str(c).strip()]
 
     # Quote-anchoring: цитата проверяется по ПОЛНОМУ тексту договора, а не по
     # той части, из которой пришла, — так offset остаётся валидным для всего
@@ -390,7 +596,33 @@ async def run_legal_analysis(
 
     return {
         "находки": merged_findings,
-        "сводка": _merge_summaries(summaries),
+        "сводка": summary,
         "_rag_sources": sorted(rag_sources),
         "_частей": len(parts),
     }
+
+
+async def _final_pass(text: str, findings: list[dict], task: Task | None) -> dict:
+    """Один дешёвый вызов по всему договору: системные перекосы и сводка.
+
+    Модели передаётся не текст договора (не влезет), а его скелет: оглавление и
+    карта санкций, извлечённые регэкспом из ПОЛНОГО текста. Цитат не просим —
+    они уже собраны и проверены на предыдущем шаге.
+    """
+    outline = _build_outline(text)
+    sanctions = _build_sanction_map(text)
+    user_msg = (
+        "ОГЛАВЛЕНИЕ ДОГОВОРА:\n"
+        + "\n".join(outline[:120])
+        + "\n\nКАРТА САНКЦИЙ (кто упомянут в пунктах про неустойки/штрафы/убытки):\n"
+        + "\n".join(sanctions[:60])
+        + "\n\nНАЙДЕННЫЕ РИСКИ:\n"
+        + _condense_findings(findings, 3000)
+    )
+    return await llm.chat_json(
+        system=load_prompt("legal_summary"),
+        user=user_msg,
+        num_ctx=config.LLM_NUM_CTX_LEGAL,
+        num_predict=config.LLM_NUM_PREDICT_LEGAL_PART,
+        on_delta=make_progress_counter(task, config.LLM_NUM_PREDICT_LEGAL_PART, 95, 5),
+    )

@@ -128,15 +128,74 @@ async def test_run_legal_analysis_splits_and_merges(monkeypatch: pytest.MonkeyPa
         }
 
     monkeypatch.setattr(legal.llm, "chat_json", fake_chat_json)
-    monkeypatch.setattr(legal, "retrieve_many", lambda queries, top_k=None: [[] for _ in queries])
+    monkeypatch.setattr(
+        legal, "retrieve_many", lambda queries, top_k=None, where=None: [[] for _ in queries]
+    )
 
     # Договор заведомо больше одного окна.
     text = "Пункт договора об ответственности сторон. " * 3000
     result = await legal.run_legal_analysis(text)
 
-    assert len(calls) > 1, "длинный договор обязан уйти несколькими запросами"
-    assert result["_частей"] == len(calls)
-    assert len(result["находки"]) == len(calls)
+    # Частей несколько + ОДИН финальный проход по договору целиком: он видит
+    # системные перекосы, невыводимые из отдельной части.
+    assert len(calls) > 2, "длинный договор обязан уйти несколькими запросами"
+    assert result["_частей"] == len(calls) - 1
+    assert len(result["находки"]) == result["_частей"]
+    final_call = calls[-1]
+    assert "ОГЛАВЛЕНИЕ ДОГОВОРА" in final_call
+    assert "КАРТА САНКЦИЙ" in final_call
     # Каждый запрос обязан нести системный промпт и не превышать окно.
     for user_msg in calls:
         assert legal._estimate_tokens(user_msg) <= config.LLM_NUM_CTX_LEGAL
+
+
+# --- Финальный проход: скелет договора извлекается регэкспом, не моделью ---
+
+_CONTRACT = """1. ПРЕДМЕТ ДОГОВОРА
+1.1. Подрядчик выполняет работы по техническому обслуживанию.
+
+3. ЦЕНА И ПОРЯДОК РАСЧЕТОВ
+3.6. Заказчик оплачивает работы в течение 60 календарных дней.
+
+6. ОТВЕТСТВЕННОСТЬ СТОРОН
+6.1. За несвоевременное выполнение работ Подрядчик уплачивает Заказчику неустойку 2% за каждый день просрочки.
+6.2. За некачественный ремонт Подрядчик уплачивает Заказчику штраф 20% стоимости работ.
+6.7. Заказчик вправе взыскать с Подрядчика убытки в полном размере сверх неустойки.
+"""
+
+
+def test_outline_extracted_from_real_structure() -> None:
+    outline = legal._build_outline(_CONTRACT)
+    joined = "\n".join(outline)
+    assert "1 ПРЕДМЕТ ДОГОВОРА" in joined
+    assert "6 ОТВЕТСТВЕННОСТЬ СТОРОН" in joined
+    assert "3.6 Заказчик оплачивает" in joined
+
+
+def test_sanction_map_finds_all_penalties() -> None:
+    """Карта санкций — прямой источник пропущенного системного вывода:
+    все санкции в разделе 6 наложены на Подрядчика."""
+    sanctions = legal._build_sanction_map(_CONTRACT)
+    assert len(sanctions) == 3
+    joined = "\n".join(sanctions)
+    assert "п. 6.1" in joined
+    assert "п. 6.2" in joined
+    assert "п. 6.7" in joined
+    # В каждом пункте про санкции фигурирует Подрядчик.
+    assert all("Подрядчик" in s for s in sanctions)
+
+
+def test_sanction_map_ignores_clauses_without_penalties() -> None:
+    sanctions = legal._build_sanction_map(_CONTRACT)
+    assert not any("1.1" in s for s in sanctions)
+    assert not any("ПРЕДМЕТ" in s for s in sanctions)
+
+
+def test_condense_findings_respects_budget() -> None:
+    findings = [
+        {"критичность": "красный", "в_чём_риск": "риск " * 40, "ссылка_на_норму": "ст. 333 ГК РФ"}
+        for _ in range(20)
+    ]
+    condensed = legal._condense_findings(findings, 500)
+    assert len(condensed) <= 700  # бюджет + длина последней строки
+    assert "красный" in condensed
