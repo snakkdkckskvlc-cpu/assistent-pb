@@ -40,7 +40,9 @@ def main() -> int:
     from fire_safety_backend.infrastructure.parsers import extract_text
     from fire_safety_rag.indexer import build_index
 
-    corpus_dir = args.dir or (Path(__file__).resolve().parent.parent / "packages" / "rag" / "corpus")
+    corpus_dir = args.dir or (
+        Path(__file__).resolve().parent.parent / "packages" / "rag" / "corpus"
+    )
     if not corpus_dir.exists():
         print(f"Папка не найдена: {corpus_dir}", file=sys.stderr)
         return 1

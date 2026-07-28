@@ -51,6 +51,9 @@
       const byType = stats.by_type || {};
       const parts = [];
 
+      if (result._source_warning) {
+        parts.push(`<div class="verdict">⚠ ${escapeHtml(result._source_warning)}</div>`);
+      }
       parts.push(`<h3>Сводка</h3>`);
       parts.push(`<p>Найдено ошибок: <b>${stats.total_errors ?? errors.length}</b>`);
       if (Object.keys(byType).length) {

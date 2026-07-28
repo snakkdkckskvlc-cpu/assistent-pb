@@ -65,6 +65,10 @@
       const summary = result["сводка"] || {};
       const parts = [];
 
+      if (result._source_warning) {
+        parts.push(`<div class="verdict">⚠ ${escapeHtml(result._source_warning)}</div>`);
+      }
+
       // Sort: red → yellow → green
       const rank = { "красный": 0, "жёлтый": 1, "желтый": 1, "зелёный": 2, "зеленый": 2 };
       findings.sort((a, b) => (rank[a["критичность"]?.toLowerCase()] ?? 3) - (rank[b["критичность"]?.toLowerCase()] ?? 3));

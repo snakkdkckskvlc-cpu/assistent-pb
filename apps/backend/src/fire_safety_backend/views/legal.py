@@ -6,7 +6,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from ..infrastructure.queue import queue
 from ..pipelines import legal as pipelines
-from ..services import text_from_input
+from ..services import text_from_input_with_warning
 
 router = APIRouter(prefix="/api", tags=["legal"])
 
@@ -16,11 +16,18 @@ async def api_legal(
     file: UploadFile | None = File(default=None),
     text: str | None = Form(default=None),
 ) -> dict:
-    content = await text_from_input(file, text)
+    content, source_warning = await text_from_input_with_warning(file, text)
     if not content.strip():
         raise HTTPException(status_code=400, detail="Пустой текст договора")
-    task = await queue.submit(
-        "legal",
-        lambda t: pipelines.run_legal_analysis(content, task=t),
-    )
+
+    async def run(task) -> dict:
+        result = await pipelines.run_legal_analysis(content, task=task)
+        # Текст со скана мог приехать с ошибками распознавания — пользователь
+        # должен это видеть рядом с находками, иначе непонятно, почему цитата
+        # из договора не совпадает с бумагой дословно.
+        if source_warning and isinstance(result, dict):
+            result["_source_warning"] = source_warning
+        return result
+
+    task = await queue.submit("legal", run)
     return {"task_id": task.id}

@@ -1,4 +1,4 @@
 from . import addressees
-from .uploads import text_from_input
+from .uploads import text_from_input, text_from_input_with_warning
 
-__all__ = ["text_from_input", "addressees"]
+__all__ = ["addressees", "text_from_input", "text_from_input_with_warning"]
