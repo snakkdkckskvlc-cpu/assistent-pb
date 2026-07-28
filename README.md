@@ -44,8 +44,9 @@ tests/samples/      Демо-документы для ручного тести
 python3.13 -m venv venv
 venv/bin/pip install -e apps/backend -e apps/desktop -e packages/rag  # или: uv sync --all-packages --dev
 
-# Индексация корпуса законов (первый раз тянет эмбед-модель ~1.3 ГБ)
-PYTHONPATH=packages/rag/src venv/bin/python -m fire_safety_rag.indexer
+# Индексация корпуса законов — .txt/.docx/.pdf (сканы через OCR) из packages/rag/corpus/
+# (первый раз тянет эмбед-модель ~1.3 ГБ)
+PYTHONPATH=apps/backend/src:packages/rag/src venv/bin/python scripts/index_corpus.py
 
 # Опционально: архив реальных писем компании как образцы стиля для генерации
 # (архив в git не попадает — коммерческие данные; путь укажите свой)

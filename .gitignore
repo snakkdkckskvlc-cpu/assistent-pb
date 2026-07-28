@@ -32,6 +32,7 @@ data/app.db
 data/app.db-shm
 data/app.db-wal
 data/llm_model.txt
+data/documents/
 
 # Сборки
 build/**/*.app/

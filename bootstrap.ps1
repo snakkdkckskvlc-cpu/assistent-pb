@@ -440,11 +440,15 @@ Ok "Python dependencies installation completed"
 # ================================================================
 
 Section "7/8 Indexing regulatory database"
-$docsDir = Join-Path $root "data\documents"
-if (-not (Test-Path $docsDir)) {
-    New-Item -ItemType Directory -Path $docsDir -Force | Out-Null
+# packages\rag\corpus — тот же путь, что и config.CORPUS_DIR по умолчанию, и
+# уже в .gitignore как приватные данные. Раньше здесь проверялась папка
+# data\documents, а индексатор при этом читал packages\rag\corpus — то есть
+# документы, положенные по инструкции, никогда не индексировались.
+$corpusDir = Join-Path $root "packages\rag\corpus"
+if (-not (Test-Path $corpusDir)) {
+    New-Item -ItemType Directory -Path $corpusDir -Force | Out-Null
 }
-$docCount = (Get-ChildItem $docsDir -File -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
+$docCount = (Get-ChildItem $corpusDir -File -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
 Write-Host "  Documents found: $docCount" -ForegroundColor Gray
 
 if ($docCount -gt 0) {
@@ -452,7 +456,7 @@ if ($docCount -gt 0) {
     Push-Location $root
     try {
         $env:PYTHONPATH = "$root\apps\backend\src;$root\packages\rag\src"
-        & $venvPython -m fire_safety_rag.indexer
+        & $venvPython (Join-Path $root "scripts\index_corpus.py")
         if ($LASTEXITCODE -eq 0) { Ok "Corpus indexed" }
     } catch {
         Warn "Indexing error: $($_.Exception.Message)"
@@ -460,7 +464,7 @@ if ($docCount -gt 0) {
         Pop-Location
     }
 } else {
-    Warn "No documents to index. Skipping."
+    Warn "No documents to index. Skipping. Put law texts (.txt/.docx/.pdf) into packages\rag\corpus\ and rerun."
 }
 
 # ================================================================
