@@ -17,9 +17,20 @@ __pycache__/
 # получает пустой корпус и RAG ничего не находит: он живёт только у того,
 # кто его добавил, что бессмысленно для приложения, которое должны ставить
 # другие люди. Приватность самого репозитория (private) — отдельная защита.
+#
+# ВНИМАНИЕ: список ниже — перечисление ПОФАЙЛОВО, и оно уже один раз молча
+# подвело: Гражданский кодекс, КоАП и ППР-1479 лежали в корпусе локально, но
+# в git не попали, и на свежей установке юр. анализ договоров работал вообще
+# без ГК РФ — своего главного источника. Добавляя документ в корпус,
+# обязательно добавьте строку сюда; проверка — `scripts/check_corpus.py`
+# (падает, если файл корпуса не отслеживается git).
 packages/rag/corpus/**
 !packages/rag/corpus/.gitkeep
 !packages/rag/corpus/_meta.json
+!packages/rag/corpus/GK_RF_part1_dogovor.txt
+!packages/rag/corpus/GK_RF_part2_podryad_usluga.txt
+!packages/rag/corpus/KoAP_20.4_administrativnaya_otvetstvennost.txt
+!packages/rag/corpus/PPR-1479_pravila_protivopozharnogo_rezhima.txt
 !packages/rag/corpus/69-FZ_o_pozharnoy_bezopasnosti.pdf
 !packages/rag/corpus/123-FZ_tekhnicheskiy_reglament_pb.txt
 !packages/rag/corpus/PPR_1479_2020-12-31_neaktualno.pdf
