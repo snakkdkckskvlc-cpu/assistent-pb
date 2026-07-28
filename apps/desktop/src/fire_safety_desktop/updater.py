@@ -112,6 +112,23 @@ def _reinstall_dependencies(root: Path) -> bool:
     return True
 
 
+def _reindex_corpus(root: Path) -> bool:
+    """Индексатор сам пропускает уже проиндексированные файлы (по хэшу) —
+    безопасно гонять на каждое обновление: если новых/изменённых документов
+    в corpus/ нет, это просто быстрая проверка хэшей. Без этого шага
+    обновление законов в репозитории (напр. свежая редакция СП) доезжало бы
+    до уже установленных копий в виде файлов, но не в виде фактов, которые
+    находит поиск — RAG продолжал бы отвечать по старому тексту."""
+    script = root / "scripts" / "index_corpus.py"
+    if not script.exists():
+        return True  # старая версия репозитория без этого скрипта — не блокируем обновление
+    r = _run([sys.executable, str(script)], cwd=root, timeout=APPLY_TIMEOUT_SEC)
+    if r.returncode != 0:
+        log.warning("update: corpus reindex failed: %s", r.stderr)
+        return False
+    return True
+
+
 def check_and_apply_update(root: Path) -> bool:
     """Возвращает True, если обновление применено (вызывающий код должен
     перезапустить приложение, чтобы подхватить новый код)."""
@@ -151,6 +168,9 @@ def check_and_apply_update(root: Path) -> bool:
             # main.py при следующем старте сам покажет понятную ошибку
             # ImportError, если чего-то не хватает, вместо тихого краша.
             log.warning("update: applied code update but dependency reinstall failed")
+
+        if not _reindex_corpus(root):
+            log.warning("update: applied code update but corpus reindex failed")
 
         return True
     except Exception:

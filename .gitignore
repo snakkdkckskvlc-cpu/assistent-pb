@@ -10,10 +10,34 @@ __pycache__/
 .DS_Store
 
 # --- Коммерческая тайна: не публиковать ни при каких условиях ---
-# Корпус нормативных актов (может содержать внутренние правки/выжимки).
-# Публичные ФЗ остаются публичными, но в этом репо мы их не выкладываем.
+# Корпус нормативных актов по умолчанию игнорируется (мало ли кто уронит
+# сюда реальный архив компании), но конкретные публичные документы —
+# федеральные законы, своды правил и открыто публикуемые НЛМК документы —
+# явно разрешены ниже. Без этого свежая установка (bootstrap.ps1/git clone)
+# получает пустой корпус и RAG ничего не находит: он живёт только у того,
+# кто его добавил, что бессмысленно для приложения, которое должны ставить
+# другие люди. Приватность самого репозитория (private) — отдельная защита.
 packages/rag/corpus/**
 !packages/rag/corpus/.gitkeep
+!packages/rag/corpus/_meta.json
+!packages/rag/corpus/69-FZ_o_pozharnoy_bezopasnosti.pdf
+!packages/rag/corpus/123-FZ_tekhnicheskiy_reglament_pb.txt
+!packages/rag/corpus/PPR_1479_2020-12-31_neaktualno.pdf
+!packages/rag/corpus/SP1.13130.2020_evakuatsiya.pdf
+!packages/rag/corpus/SP2.13130.2009_ognestoykost.txt
+!packages/rag/corpus/SP3.13130.2009_soue.txt
+!packages/rag/corpus/SP4.13130.2013_ogranichenie_rasprostraneniya.pdf
+!packages/rag/corpus/SP5.13130.2009_aps_apt.txt
+!packages/rag/corpus/SP6.13130.2021_elektroustanovki.txt
+!packages/rag/corpus/SP7.13130.2009_otoplenie_ventilyatsiya.txt
+!packages/rag/corpus/SP8.13130.2009_naruzhnoe_vodosnabzhenie.txt
+!packages/rag/corpus/SP9.13130.2009_ognetushiteli.txt
+!packages/rag/corpus/SP10.13130.2020_vnutrenniy_vodoprovod.txt
+!packages/rag/corpus/SP484.1311500.2020_signalizatsiya.docx
+!packages/rag/corpus/NLMK_Dogovor_postavka_kratkiy.docx
+!packages/rag/corpus/NLMK_Soglashenie_EDO.docx
+!packages/rag/corpus/NLMK_Polozhenie_propusknoy_rezhim.pdf
+!packages/rag/corpus/NLMK_Katalog_praktik_bezopasnost.pdf
 
 # Фирменные бланки писем компании (реквизиты, ИНН, подписанты).
 apps/backend/src/fire_safety_backend/resources/templates/**
