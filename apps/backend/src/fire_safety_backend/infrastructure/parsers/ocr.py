@@ -38,18 +38,37 @@ def ocr_image(path: Path) -> str:
         return pytesseract.image_to_string(img, lang=config.TESSERACT_LANG)
 
 
-def ocr_pdf(path: Path) -> str:
-    """Рендерит PDF-страницы в изображения и прогоняет через Tesseract.
-
-    Требует установленный poppler (для pdf2image).
-    """
-    pytesseract, _ = _load_tesseract()
+def _convert_from_path(path: Path, *, first_page: int | None = None, last_page: int | None = None):
     try:
         from pdf2image import convert_from_path
     except ImportError as e:
         raise OCRNotAvailable("pdf2image не установлен") from e
+    return convert_from_path(str(path), dpi=250, first_page=first_page, last_page=last_page)
 
-    pages = convert_from_path(str(path), dpi=250)
+
+def ocr_pdf_page(path: Path, page_number: int) -> str:
+    """OCR ОДНОЙ страницы PDF (нумерация с 1).
+
+    Нужен для смешанных PDF, где часть страниц набрана текстом, а часть —
+    сканы: гнать через OCR весь файл ради двух страниц незачем (OCR ~2 сек
+    на страницу против миллисекунд на чтение готового текстового слоя).
+    """
+    pytesseract, _ = _load_tesseract()
+    pages = _convert_from_path(path, first_page=page_number, last_page=page_number)
+    if not pages:
+        return ""
+    return pytesseract.image_to_string(pages[0], lang=config.TESSERACT_LANG)
+
+
+def ocr_pdf(path: Path) -> str:
+    """Рендерит ВСЕ страницы PDF в изображения и прогоняет через Tesseract.
+
+    Быстрый путь для файлов, где текстового слоя нет вовсе: poppler
+    запускается один раз на весь документ, а не на каждую страницу.
+    Требует установленный poppler (для pdf2image).
+    """
+    pytesseract, _ = _load_tesseract()
+    pages = _convert_from_path(path)
     parts: list[str] = []
     for i, img in enumerate(pages, start=1):
         text = pytesseract.image_to_string(img, lang=config.TESSERACT_LANG)
