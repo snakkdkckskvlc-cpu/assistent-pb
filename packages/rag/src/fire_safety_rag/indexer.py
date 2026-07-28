@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
+import json
 import logging
 import sys
 from collections.abc import Callable
@@ -24,6 +25,8 @@ from .chunking import chunk_sentences
 log = logging.getLogger(__name__)
 
 TextReader = Callable[[Path], str]
+
+SIDECAR_META_FILENAME = "_meta.json"
 
 
 def _default_text_reader(path: Path) -> str:
@@ -42,6 +45,25 @@ def _file_hash(path: Path) -> str:
         for block in iter(lambda: f.read(65536), b""):
             h.update(block)
     return h.hexdigest()[:16]
+
+
+def _load_sidecar_metadata(corpus_dir: Path) -> dict[str, dict]:
+    """Необязательный corpus/_meta.json — вручную сопровождаемые метаданные
+    на конкретный файл (doc_type, act_number, effective_date и т.п.).
+
+    Так документы можно фильтровать/сортировать по типу и актуальности без
+    попытки автоматически распарсить их из текста/имени файла — для
+    юридического корпуса точность важнее автоматизации, это заполняется
+    руками при добавлении документа. Формат: {"имя_файла.pdf": {...}}.
+    """
+    meta_path = corpus_dir / SIDECAR_META_FILENAME
+    if not meta_path.exists():
+        return {}
+    try:
+        return json.loads(meta_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning("Не удалось прочитать %s: %s", meta_path, e)
+        return {}
 
 
 def build_index(
@@ -74,7 +96,12 @@ def build_index(
     existing = collection.get(include=["metadatas"])
     indexed_hashes = {m.get("file_hash") for m in existing.get("metadatas", []) if m}
 
-    files = [p for p in corpus_dir.rglob("*") if p.is_file() and not p.name.startswith(".")]
+    sidecar_meta = _load_sidecar_metadata(corpus_dir)
+    files = [
+        p
+        for p in corpus_dir.rglob("*")
+        if p.is_file() and not p.name.startswith(".") and p.name != SIDECAR_META_FILENAME
+    ]
     stats = {"files_total": len(files), "files_indexed": 0, "chunks_added": 0, "skipped": 0}
 
     for path in files:
@@ -100,8 +127,10 @@ def build_index(
 
             chunks = chunk_sentences(text, config.CHUNK_TOKENS, config.CHUNK_OVERLAP)
             ids = [f"{fh}_{i}" for i in range(len(chunks))]
+            extra_meta = sidecar_meta.get(path.name, {})
             metadatas = [
-                {"source": path.name, "chunk_idx": i, "file_hash": fh} for i in range(len(chunks))
+                {"source": path.name, "chunk_idx": i, "file_hash": fh, **extra_meta}
+                for i in range(len(chunks))
             ]
             collection.add(documents=chunks, ids=ids, metadatas=metadatas)
             stats["files_indexed"] += 1
