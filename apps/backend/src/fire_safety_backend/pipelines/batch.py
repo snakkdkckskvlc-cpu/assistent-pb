@@ -20,7 +20,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from .. import config
-from ..infrastructure.parsers import extract_text
+from ..infrastructure.parsers import extract_text_with_meta
 from ..services.classify import classify_document
 from .legal import run_legal_analysis
 
@@ -45,7 +45,9 @@ async def run_batch(file_paths: list[Path], task: Task | None = None) -> dict:
         item: dict = {"файл": path.name}
 
         try:
-            text = await asyncio.to_thread(extract_text, path)
+            text, extraction = await asyncio.to_thread(extract_text_with_meta, path)
+            if extraction.warning:
+                item["предупреждение"] = extraction.warning
         except Exception as e:
             log.warning("Батч: не удалось прочитать %s: %s", path.name, e)
             item.update({"тип": "не распознан", "пропущен": True, "причина": str(e)})

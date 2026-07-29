@@ -15,18 +15,30 @@ import contextlib
 import hashlib
 import json
 import logging
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
 
 from . import config
-from .chunking import chunk_sentences
+from .chunking import chunk_by_articles, chunk_sentences
 
 log = logging.getLogger(__name__)
 
 TextReader = Callable[[Path], str]
 
 SIDECAR_META_FILENAME = "_meta.json"
+
+# Типы документов со статейной/пунктовой разметкой — их режем по границам
+# структурных единиц, а не по количеству слов (см. chunk_by_articles).
+_ARTICLE_STRUCTURED_TYPES = {"federal_law", "government_decree", "sp", "gost", "code"}
+
+# Префикс, которого требует multilingual-e5-large для индексируемых фрагментов
+# (запросы идут с «query: », см. retriever.py). Модель обучена с этими
+# префиксами; без них качество поиска заметно ниже. ВАЖНО: менять префиксы
+# можно только вместе с полной переиндексацией — старые векторы, построенные
+# без префикса, несопоставимы с новыми запросами.
+_PASSAGE_PREFIX = "passage: "
 
 
 def _default_text_reader(path: Path) -> str:
@@ -37,6 +49,64 @@ def _default_text_reader(path: Path) -> str:
         f"Файл {path.name}: расширение {path.suffix} не поддерживается стандартным "
         f"reader. Передайте `text_reader` явно (например, парсеры backend)."
     )
+
+
+def _strip_scraper_boilerplate(text: str) -> str:
+    """Срезает навигационное меню сайта-источника из начала документа.
+
+    Тексты СП сняты со сборников законодательства, и в начале файла остаётся
+    меню сайта: «Законодательство РФ / Кодексы РФ в действующей редакции /
+    АПК РФ / Водный кодекс РФ / ГК РФ часть 2 / ...». Это семантическая
+    ловушка: запрос про Гражданский кодекс матчится на меню внутри свода
+    правил по пожарной сигнализации, и в контекст уезжает мусор вместо нормы.
+    """
+    marker = re.search(r"^Кодексы РФ в действующей редакции\s*$", text, re.MULTILINE)
+    if not marker:
+        return text
+    # Меню — это плотный список коротких строк-названий кодексов. Считаем его
+    # закончившимся на первой строке, которая на название кодекса не похожа.
+    lines = text[marker.end() :].split("\n")
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if len(stripped.split()) > 6 or stripped.endswith("."):
+            return "\n".join(lines[i:]).strip()
+    return text
+
+
+def _document_header(meta: dict, filename: str) -> str:
+    """Строка вида «СП 5.13130.2009. Установки пожарной сигнализации…».
+
+    Приписывается к каждому чанку перед эмбеддингом: постатейная нарезка даёт
+    короткие пункты («1.1. Настоящий свод правил разработан…»), в которых нет
+    ни одного признака, по которому их можно найти — из текста не понять, о
+    каком своде правил речь.
+    """
+    parts = [str(meta.get("act_number", "")).strip(), str(meta.get("title", "")).strip()]
+    header = ". ".join(p for p in parts if p)
+    return header or Path(filename).stem.replace("_", " ")
+
+
+def _with_header(chunk_text: str, header: str) -> str:
+    return f"{header}\n{chunk_text}" if header else chunk_text
+
+
+def _chunk_document(text: str, meta: dict) -> list[dict]:
+    """Выбирает стратегию нарезки по типу документа из _meta.json.
+
+    Нормативные акты (ФЗ, ГК, ПП РФ, СП, ГОСТ) режутся по границам статей и
+    пунктов — иначе в один чанк попадает до восьми разных статей, и модель
+    ссылается не на ту. Всё остальное (письма, документы контрагентов, вывод
+    OCR) — прежним sentence-aware чанкером.
+    """
+    doc_type = str(meta.get("doc_type", "")).strip().lower()
+    if doc_type in _ARTICLE_STRUCTURED_TYPES:
+        return chunk_by_articles(_strip_scraper_boilerplate(text), config.CHUNK_TOKENS)
+    return [
+        {"text": c, "article": None}
+        for c in chunk_sentences(text, config.CHUNK_TOKENS, config.CHUNK_OVERLAP)
+    ]
 
 
 def _file_hash(path: Path) -> str:
@@ -125,14 +195,40 @@ def build_index(
                 stats["skipped"] += 1
                 continue
 
-            chunks = chunk_sentences(text, config.CHUNK_TOKENS, config.CHUNK_OVERLAP)
-            ids = [f"{fh}_{i}" for i in range(len(chunks))]
             extra_meta = sidecar_meta.get(path.name, {})
-            metadatas = [
-                {"source": path.name, "chunk_idx": i, "file_hash": fh, **extra_meta}
-                for i in range(len(chunks))
-            ]
-            collection.add(documents=chunks, ids=ids, metadatas=metadatas)
+            pieces = _chunk_document(text, extra_meta)
+            if not pieces:
+                log.warning("Не удалось нарезать: %s", path.name)
+                stats["skipped"] += 1
+                continue
+
+            # Заголовок акта приписывается к тексту чанка перед эмбеддингом.
+            # Без него короткий пункт «1.1. Настоящий свод правил разработан…»
+            # не содержит ни одного признака, по которому его найти: неясно,
+            # какой это свод правил и о чём он вообще.
+            header = _document_header(extra_meta, path.name)
+            documents = [_PASSAGE_PREFIX + _with_header(p["text"], header) for p in pieces]
+            ids = [f"{fh}_{i}" for i in range(len(pieces))]
+            metadatas = []
+            for i, piece in enumerate(pieces):
+                # status проставляется ВСЕГДА, даже если записи в _meta.json нет.
+                # Ретривер отсекает отменённые редакции фильтром {"$ne":
+                # "superseded"}; поведение такого фильтра на документах БЕЗ поля
+                # зависит от версии ChromaDB (в 0.5.23 они проходят, проверено),
+                # и полагаться на это нельзя — иначе однажды после обновления
+                # библиотеки половина корпуса молча исчезнет из выдачи.
+                meta = {
+                    "source": path.name,
+                    "chunk_idx": i,
+                    "file_hash": fh,
+                    "status": "actual",
+                    **extra_meta,
+                }
+                if piece.get("article"):
+                    meta["article"] = piece["article"]
+                metadatas.append(meta)
+            collection.add(documents=documents, ids=ids, metadatas=metadatas)
+            chunks = pieces  # для статистики ниже
             stats["files_indexed"] += 1
             stats["chunks_added"] += len(chunks)
         except Exception as e:

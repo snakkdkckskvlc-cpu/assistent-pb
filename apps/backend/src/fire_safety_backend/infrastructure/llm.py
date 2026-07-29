@@ -105,6 +105,7 @@ async def chat(
         return content
 
     content_parts: list[str] = []
+    prompt_eval_count: int | None = None
     try:
         async with _get_client().stream("POST", url, json=payload) as r:
             r.raise_for_status()
@@ -116,8 +117,26 @@ async def chat(
                 if delta:
                     content_parts.append(delta)
                     on_delta(delta)
+                # Финальный чанк несёт статистику: сколько токенов промпта
+                # Ollama РЕАЛЬНО обработала. Единственный доступный нам способ
+                # узнать, не обрезала ли она вход: при превышении num_ctx она
+                # молча отбрасывает начало запроса (вместе с системным
+                # промптом) и ничего об этом не сообщает.
+                if chunk.get("prompt_eval_count") is not None:
+                    prompt_eval_count = chunk["prompt_eval_count"]
     except httpx.HTTPError as e:
         raise LLMError(f"Ollama request failed: {e}") from e
+
+    effective_ctx = options["num_ctx"]
+    if prompt_eval_count is not None:
+        log.info("LLM prompt: обработано %d токенов из окна %d", prompt_eval_count, effective_ctx)
+        if prompt_eval_count >= effective_ctx * 0.95:
+            log.error(
+                "LLM: промпт (%d токенов) вплотную к окну %d — вход почти наверняка "
+                "обрезан, модель видела не весь запрос",
+                prompt_eval_count,
+                effective_ctx,
+            )
 
     content = "".join(content_parts)
     if not content:

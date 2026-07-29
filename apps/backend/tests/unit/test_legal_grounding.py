@@ -130,3 +130,85 @@ def test_assign_chunk_ids_handles_collision(monkeypatch: pytest.MonkeyPatch) -> 
     assert len(result) == 2, "оба чанка должны попасть в результат, ни один не потерян"
     assert chunks[0] in result.values()
     assert chunks[1] in result.values()
+
+
+# --- Верификация номеров статей (регрессия: ст. 395 вместо ст. 333) ---
+
+
+def test_norm_ref_confirmed_when_article_in_context() -> None:
+    ctx = [
+        {
+            "article": "Статья 333",
+            "text": "Статья 333. Уменьшение неустойки. Если явно несоразмерна…",
+        }
+    ]
+    assert legal_module._verify_article_reference("ст. 333 ГК РФ", ctx) == "подтверждена"
+
+
+def test_norm_ref_flagged_when_article_absent_from_context() -> None:
+    """Замеренный случай: модель сослалась на ст. 395, которой в переданном
+    контексте не было — там была только ст. 333."""
+    ctx = [{"article": "Статья 333", "text": "Статья 333. Уменьшение неустойки."}]
+    assert legal_module._verify_article_reference("статья 395 ГК РФ", ctx) == "не_в_контексте"
+
+
+def test_norm_ref_with_point_prefix_is_confirmed() -> None:
+    ctx = [{"article": "Статья 401", "text": "Статья 401. Основания ответственности."}]
+    assert legal_module._verify_article_reference("п. 2 ст. 401 ГК РФ", ctx) == "подтверждена"
+
+
+def test_norm_ref_not_checked_when_no_number() -> None:
+    ctx = [{"article": "Статья 333", "text": "Статья 333. Уменьшение неустойки."}]
+    assert (
+        legal_module._verify_article_reference("требует проверки юристом", ctx) == "не_проверялась"
+    )
+    assert legal_module._verify_article_reference("", ctx) == "не_проверялась"
+
+
+def test_norm_ref_matches_sp_numbering() -> None:
+    ctx = [{"article": "5.1.2", "text": "5.1.2. Извещатели пожарные следует размещать."}]
+    assert legal_module._verify_article_reference("п. 5.1.2 СП 5.13130.2009", ctx) == "подтверждена"
+
+
+def test_norm_ref_empty_context_is_not_confirmed() -> None:
+    assert legal_module._verify_article_reference("ст. 333 ГК РФ", []) == "не_в_контексте"
+
+
+# --- Обрезка норм по границе статьи (регрессия: 39% ст. 333) ---
+
+
+def test_trim_norm_keeps_whole_articles() -> None:
+    """Влезшие статьи отдаются целиком, не влезшая отбрасывается целиком.
+
+    Раньше обрезка шла по счётчику символов и рубила статью на полуслове: из
+    ст. 333 ГК РФ до модели доезжало 39%, обрыв приходился ровно на условие о
+    снижении неустойки для предпринимателей.
+    """
+    # Маркеры латиницей — в русском тексте заголовков они не встречаются,
+    # иначе счёт сбивает буква «а» из самого слова «Статья».
+    text = (
+        "Статья 330. Понятие неустойки\n" + "X" * 400 + "\n"
+        "Статья 333. Уменьшение неустойки\n" + "Y" * 400 + "\n"
+        "Статья 395. Проценты\n" + "Z" * 400
+    )
+    trimmed = legal_module._trim_norm_text(text, 1000)
+
+    assert len(trimmed) <= 1000
+    # Две первые статьи влезли — обе присутствуют полностью.
+    assert trimmed.count("X") == 400
+    assert trimmed.count("Y") == 400
+    # Третья не влезала — отброшена целиком, а не обрезана на полуслове.
+    assert "Статья 395" not in trimmed
+    assert "Z" not in trimmed
+
+
+def test_trim_norm_short_text_unchanged() -> None:
+    text = "Статья 1. Короткая статья"
+    assert legal_module._trim_norm_text(text, 1800) == text
+
+
+def test_trim_norm_without_markup_cuts_on_sentence() -> None:
+    text = "Первое предложение. " * 200
+    trimmed = legal_module._trim_norm_text(text, 500)
+    assert len(trimmed) <= 500
+    assert trimmed.rstrip().endswith(".")

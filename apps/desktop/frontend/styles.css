@@ -256,6 +256,12 @@ th { color: var(--muted); font-weight: 500; font-size: 13px; text-transform: upp
   font-size: 12px;
   color: var(--muted);
 }
+/* Модель назвала статью, которой не было в переданных ей нормах —
+   номер стоит перепроверить (замеренный случай: ст. 395 вместо ст. 333). */
+.finding .norm.unverified {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
 .finding .norm.grounded {
   border-color: var(--green);
   color: var(--green);

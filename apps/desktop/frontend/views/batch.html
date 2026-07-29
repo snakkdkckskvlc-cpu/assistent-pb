@@ -57,6 +57,9 @@
 
     function renderFileItem(item) {
       const parts = [`<h3>📄 ${escapeHtml(item["файл"] || "?")}</h3>`];
+      if (item["предупреждение"]) {
+        parts.push(`<div class="verdict">⚠ ${escapeHtml(item["предупреждение"])}</div>`);
+      }
       if (item["пропущен"]) {
         parts.push(`<p class="hint">Тип: ${escapeHtml(item["тип"] || "?")}. ${escapeHtml(item["причина"] || "Пропущен.")}</p>`);
         return parts.join("\n");

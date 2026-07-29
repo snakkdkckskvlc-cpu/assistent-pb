@@ -14,6 +14,51 @@ from . import config
 
 log = logging.getLogger(__name__)
 
+# multilingual-e5-large обучена с префиксами: индексируемые фрагменты идут как
+# «passage: » (см. indexer.py), запросы — как «query: ». Без них качество
+# поиска заметно ниже. Менять только вместе с полной переиндексацией: векторы,
+# построенные без префикса, несопоставимы с запросами, построенными с ним.
+_QUERY_PREFIX = "query: "
+
+# Редакции, отменённые более новыми (в _meta.json помечены status=superseded),
+# из выдачи исключаются: ссылаться в анализе договора на утративший силу свод
+# правил — хуже, чем не сослаться вовсе.
+_DEFAULT_WHERE = {"status": {"$ne": "superseded"}}
+
+
+def _to_hits(res: dict, index: int) -> list[dict]:
+    """Разбирает ответ ChromaDB в наш формат.
+
+    Кроме text/source/score отдаёт метаданные документа (act_number, article,
+    doc_type, effective_date, status). Раньше они отбрасывались, и потребитель
+    не мог ни отличить действующую редакцию от отменённой, ни проверить, на ту
+    ли статью сослалась модель, — хотя в индексе эти поля есть.
+    Служебный префикс «passage: » при выдаче снимается: он нужен эмбеддеру,
+    но в промпте модели это шум.
+    """
+    docs = (res.get("documents") or [[]])[index]
+    metas = (res.get("metadatas") or [[]])[index]
+    distances = (res.get("distances") or [[]])[index]
+    hits: list[dict] = []
+    for d, m, dist in zip(docs, metas, distances, strict=True):
+        meta = m or {}
+        text = d or ""
+        if text.startswith("passage: "):
+            text = text[len("passage: ") :]
+        hits.append(
+            {
+                "text": text,
+                "source": meta.get("source", "?"),
+                "score": 1 - dist,
+                "act_number": meta.get("act_number", ""),
+                "article": meta.get("article", ""),
+                "doc_type": meta.get("doc_type", ""),
+                "effective_date": meta.get("effective_date", ""),
+                "status": meta.get("status", ""),
+            }
+        )
+    return hits
+
 
 class Retriever:
     def __init__(self, collection_name: str | None = None) -> None:
@@ -42,37 +87,30 @@ class Retriever:
     def is_ready(self) -> bool:
         return self._collection is not None and self._collection.count() > 0
 
-    def search(self, query: str, top_k: int | None = None) -> list[dict]:
+    def search(self, query: str, top_k: int | None = None, where: dict | None = None) -> list[dict]:
         if not self.is_ready():
             return []
         k = top_k or config.TOP_K
-        res = self._collection.query(query_texts=[query], n_results=k)
-        docs = res.get("documents", [[]])[0]
-        metas = res.get("metadatas", [[]])[0]
-        distances = res.get("distances", [[]])[0]
-        return [
-            {"text": d, "source": m.get("source", "?"), "score": 1 - dist}
-            for d, m, dist in zip(docs, metas, distances, strict=True)
-        ]
+        res = self._collection.query(
+            query_texts=[_QUERY_PREFIX + query],
+            n_results=k,
+            where=where if where is not None else _DEFAULT_WHERE,
+        )
+        return _to_hits(res, index=0)
 
-    def search_many(self, queries: list[str], top_k: int | None = None) -> list[list[dict]]:
+    def search_many(
+        self, queries: list[str], top_k: int | None = None, where: dict | None = None
+    ) -> list[list[dict]]:
         """Батч-версия search(): один round-trip в ChromaDB на несколько запросов."""
         if not self.is_ready() or not queries:
             return [[] for _ in queries]
         k = top_k or config.TOP_K
-        res = self._collection.query(query_texts=queries, n_results=k)
-        docs_lists = res.get("documents", [])
-        metas_lists = res.get("metadatas", [])
-        dist_lists = res.get("distances", [])
-        out: list[list[dict]] = []
-        for docs, metas, distances in zip(docs_lists, metas_lists, dist_lists, strict=True):
-            out.append(
-                [
-                    {"text": d, "source": m.get("source", "?"), "score": 1 - dist}
-                    for d, m, dist in zip(docs, metas, distances, strict=True)
-                ]
-            )
-        return out
+        res = self._collection.query(
+            query_texts=[_QUERY_PREFIX + q for q in queries],
+            n_results=k,
+            where=where if where is not None else _DEFAULT_WHERE,
+        )
+        return [_to_hits(res, index=i) for i in range(len(queries))]
 
 
 @lru_cache(maxsize=1)
@@ -84,8 +122,10 @@ def retrieve(query: str, top_k: int | None = None) -> list[dict]:
     return _default_retriever().search(query, top_k=top_k)
 
 
-def retrieve_many(queries: list[str], top_k: int | None = None) -> list[list[dict]]:
-    return _default_retriever().search_many(queries, top_k=top_k)
+def retrieve_many(
+    queries: list[str], top_k: int | None = None, where: dict | None = None
+) -> list[list[dict]]:
+    return _default_retriever().search_many(queries, top_k=top_k, where=where)
 
 
 def is_ready() -> bool:

@@ -3,111 +3,185 @@
     "doc_type": "federal_law",
     "act_number": "69-ФЗ",
     "title": "О пожарной безопасности",
-    "effective_date": "2024-08-08"
+    "effective_date": "2024-08-08",
+    "status": "actual"
   },
   "123-FZ_tekhnicheskiy_reglament_pb.txt": {
     "doc_type": "federal_law",
     "act_number": "123-ФЗ",
     "title": "Технический регламент о требованиях пожарной безопасности",
     "effective_date": "2025-07-31",
-    "note": "Текст обрезан при парсинге ближе к концу — не хватает финального раздела/части приложений"
+    "note": "Текст обрезан при парсинге ближе к концу — не хватает финального раздела/части приложений",
+    "status": "actual"
   },
   "PPR_1479_2020-12-31_neaktualno.pdf": {
     "doc_type": "government_decree",
     "act_number": "ПП РФ №1479",
     "title": "Правила противопожарного режима в Российской Федерации",
     "effective_date": "2020-12-31",
-    "note": "Устарело — актуальная редакция от 2025-02-03, не хватает правок за 2021-2025"
+    "note": "Устарело — актуальная редакция от 2025-02-03, не хватает правок за 2021-2025",
+    "status": "superseded",
+    "superseded_by": "ПП РФ №1479 (ред. 2025-02-03)"
   },
   "SP2.13130.2009_ognestoykost.txt": {
     "doc_type": "sp",
     "act_number": "СП 2.13130.2009",
     "title": "Обеспечение огнестойкости объектов защиты",
     "effective_date": "2009-03-25",
-    "note": "Устарело — действует СП 2.13130.2020 (приказ МЧС от 12.03.2020 N 151)"
+    "note": "Устарело — действует СП 2.13130.2020 (приказ МЧС от 12.03.2020 N 151)",
+    "status": "superseded",
+    "superseded_by": "СП 2.13130.2020"
   },
   "SP4.13130.2013_ogranichenie_rasprostraneniya.pdf": {
     "doc_type": "sp",
     "act_number": "СП 4.13130.2013",
     "title": "Ограничение распространения пожара на объектах защиты",
-    "effective_date": "2013-06-24"
+    "effective_date": "2013-06-24",
+    "status": "actual"
   },
   "SP5.13130.2009_aps_apt.txt": {
     "doc_type": "sp",
     "act_number": "СП 5.13130.2009",
     "title": "Установки пожарной сигнализации и пожаротушения автоматические",
     "effective_date": "2009-03-25",
-    "note": "Действует с изм. от 2020-08-31"
+    "note": "Действует с изм. от 2020-08-31",
+    "status": "actual"
   },
   "SP6.13130.2021_elektroustanovki.txt": {
     "doc_type": "sp",
     "act_number": "СП 6.13130.2021",
     "title": "Электроустановки низковольтные. Требования пожарной безопасности",
-    "effective_date": "2021-04-06"
+    "effective_date": "2021-04-06",
+    "status": "actual"
   },
   "SP484.1311500.2020_signalizatsiya.docx": {
     "doc_type": "sp",
     "act_number": "СП 484.1311500.2020",
     "title": "Системы пожарной сигнализации и автоматизация систем противопожарной защиты",
-    "effective_date": "2020-07-31"
+    "effective_date": "2020-07-31",
+    "status": "actual"
   },
   "SP1.13130.2020_evakuatsiya.pdf": {
     "doc_type": "sp",
     "act_number": "СП 1.13130.2020",
     "title": "Эвакуационные пути и выходы",
-    "effective_date": "2020-03-19"
+    "effective_date": "2020-03-19",
+    "status": "actual"
   },
   "SP3.13130.2009_soue.txt": {
     "doc_type": "sp",
     "act_number": "СП 3.13130.2009",
     "title": "Система оповещения и управления эвакуацией людей при пожаре",
     "effective_date": "2009-05-01",
-    "note": "Табличные нормы (таблица 2) пересказаны кратко, не воспроизведены построчно. Готовится замена — СП 3.13130.2026 (приказ МЧС от 26.02.2026 N 133, ещё не вступил в силу)"
+    "note": "Табличные нормы (таблица 2) пересказаны кратко, не воспроизведены построчно. Готовится замена — СП 3.13130.2026 (приказ МЧС от 26.02.2026 N 133, ещё не вступил в силу)",
+    "status": "actual"
   },
   "SP7.13130.2009_otoplenie_ventilyatsiya.txt": {
     "doc_type": "sp",
     "act_number": "СП 7.13130.2009",
     "title": "Отопление, вентиляция и кондиционирование. Противопожарные требования",
     "effective_date": "2009-03-25",
-    "note": "Есть более новая версия СП 7.13130.2013 (приказ МЧС от 21.02.2013 N 116, ред. от 27.03.2025) — загружена версия 2009 года"
+    "note": "Есть более новая версия СП 7.13130.2013 (приказ МЧС от 21.02.2013 N 116, ред. от 27.03.2025) — загружена версия 2009 года",
+    "status": "superseded",
+    "superseded_by": "СП 7.13130.2013"
   },
   "SP8.13130.2009_naruzhnoe_vodosnabzhenie.txt": {
     "doc_type": "sp",
     "act_number": "СП 8.13130.2009",
     "title": "Источники наружного противопожарного водоснабжения",
     "effective_date": "2009-03-25",
-    "note": "Есть более новая версия СП 8.13130.2020 — загружена версия 2009 года"
+    "note": "Есть более новая версия СП 8.13130.2020 — загружена версия 2009 года",
+    "status": "superseded",
+    "superseded_by": "СП 8.13130.2020"
   },
   "SP9.13130.2009_ognetushiteli.txt": {
     "doc_type": "sp",
     "act_number": "СП 9.13130.2009",
     "title": "Техника пожарная. Огнетушители. Требования к эксплуатации",
-    "effective_date": "2009-03-25"
+    "effective_date": "2009-03-25",
+    "status": "actual"
   },
   "SP10.13130.2020_vnutrenniy_vodoprovod.txt": {
     "doc_type": "sp",
     "act_number": "СП 10.13130.2020",
     "title": "Внутренний противопожарный водопровод. Нормы и правила проектирования",
-    "effective_date": "2020-07-27"
+    "effective_date": "2020-07-27",
+    "status": "actual"
   },
   "NLMK_Dogovor_postavka_kratkiy.docx": {
     "doc_type": "nlmk_document",
     "title": "Договор на поставку (краткий) — типовой шаблон НЛМК",
-    "source_url": "https://lipetsk.nlmk.com/ru/about/documents/"
+    "source_url": "https://lipetsk.nlmk.com/ru/about/documents/",
+    "status": "actual"
   },
   "NLMK_Soglashenie_EDO.docx": {
     "doc_type": "nlmk_document",
     "title": "Соглашение об электронном документообороте (НЛМК)",
-    "source_url": "https://lipetsk.nlmk.com/ru/about/documents/"
+    "source_url": "https://lipetsk.nlmk.com/ru/about/documents/",
+    "status": "actual"
   },
   "NLMK_Polozhenie_propusknoy_rezhim.pdf": {
     "doc_type": "nlmk_document",
     "title": "Положение о пропускном и внутриобъектовых режимах (НЛМК)",
-    "source_url": "https://lipetsk.nlmk.com/ru/about/documents/"
+    "source_url": "https://lipetsk.nlmk.com/ru/about/documents/",
+    "status": "actual"
   },
   "NLMK_Katalog_praktik_bezopasnost.pdf": {
     "doc_type": "nlmk_document",
     "title": "Каталог передовых практик для организации безопасного выполнения работ (НЛМК, для подрядчиков)",
-    "source_url": "https://lipetsk.nlmk.com/ru/about/documents/"
+    "source_url": "https://lipetsk.nlmk.com/ru/about/documents/",
+    "status": "actual"
+  },
+  "GK_RF_part1_dogovor.txt": {
+    "doc_type": "code",
+    "act_number": "ГК РФ ч.1",
+    "title": "Гражданский кодекс РФ, часть первая (ключевые статьи по договорной работе)",
+    "effective_date": "2025-01-01",
+    "status": "actual"
+  },
+  "GK_RF_part2_podryad_usluga.txt": {
+    "doc_type": "code",
+    "act_number": "ГК РФ ч.2",
+    "title": "Гражданский кодекс РФ, часть вторая (подряд и возмездное оказание услуг)",
+    "effective_date": "2025-01-01",
+    "status": "actual"
+  },
+  "KoAP_20.4_administrativnaya_otvetstvennost.txt": {
+    "doc_type": "code",
+    "act_number": "КоАП РФ ст. 20.4",
+    "title": "Нарушение требований пожарной безопасности",
+    "effective_date": "2025-01-01",
+    "status": "actual"
+  },
+  "PPR-1479_pravila_protivopozharnogo_rezhima.txt": {
+    "doc_type": "government_decree",
+    "act_number": "ПП РФ №1479",
+    "title": "Правила противопожарного режима в РФ (ключевые пункты)",
+    "effective_date": "2025-02-03",
+    "status": "actual"
+  },
+  "FZ-123_tekhregl_PB.txt": {
+    "doc_type": "federal_law",
+    "status": "superseded",
+    "superseded_by": "123-FZ_tekhnicheskiy_reglament_pb.txt",
+    "note": "Конспект; полный текст — 123-FZ_tekhnicheskiy_reglament_pb.txt"
+  },
+  "FZ-69_pozharnaya_bezopasnost.txt": {
+    "doc_type": "federal_law",
+    "status": "superseded",
+    "superseded_by": "69-FZ_o_pozharnoy_bezopasnosti.pdf",
+    "note": "Конспект; полный текст — 69-FZ_o_pozharnoy_bezopasnosti.pdf"
+  },
+  "SP-3.13130_opoveshcheniye_evakuatsiya.txt": {
+    "doc_type": "federal_law",
+    "status": "superseded",
+    "superseded_by": "SP3.13130.2009_soue.txt",
+    "note": "Конспект; полный текст — SP3.13130.2009_soue.txt"
+  },
+  "SP-4.13130_ogranichenie_pozhara.txt": {
+    "doc_type": "federal_law",
+    "status": "superseded",
+    "superseded_by": "SP4.13130.2013_ogranichenie_rasprostraneniya.pdf",
+    "note": "Конспект; полный текст — SP4.13130.2013_ogranichenie_rasprostraneniya.pdf"
   }
 }

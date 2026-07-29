@@ -79,7 +79,12 @@ def index_letters(letters: Iterable[tuple[str, str]], reset: bool = False) -> di
         if doc_id in existing_ids:
             stats["skipped_dup"] += 1
             continue
-        collection.add(documents=[text], ids=[doc_id], metadatas=[{"source": name}])
+        # status="actual" — по той же причине, что и в indexer.py: ретривер
+        # фильтрует отменённые редакции, и документ без этого поля не должен
+        # зависеть от версии ChromaDB, чтобы попасть в выдачу.
+        collection.add(
+            documents=[text], ids=[doc_id], metadatas=[{"source": name, "status": "actual"}]
+        )
         existing_ids.add(doc_id)
         stats["indexed"] += 1
 

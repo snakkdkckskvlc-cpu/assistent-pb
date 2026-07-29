@@ -26,11 +26,11 @@ def test_mixed_pdf_ocrs_only_scan_pages(monkeypatch: pytest.MonkeyPatch) -> None
     _mock_pages(monkeypatch, ["А" * 200, "", "Б" * 200])
     ocr_calls: list[int] = []
 
-    def fake_ocr_page(path: Path, page_number: int) -> str:
+    def fake_ocr_page(path: Path, page_number: int) -> tuple[str, float]:
         ocr_calls.append(page_number)
-        return "распознанный текст страницы 2"
+        return "распознанный текст страницы 2", 88.0
 
-    monkeypatch.setattr(parsers, "ocr_pdf_page", fake_ocr_page)
+    monkeypatch.setattr(parsers, "ocr_pdf_page_with_confidence", fake_ocr_page)
 
     result = parsers._extract_pdf_with_ocr_fallback(Path("dummy.pdf"))
 
@@ -47,11 +47,11 @@ def test_junk_text_layer_page_treated_as_scan(monkeypatch: pytest.MonkeyPatch) -
     _mock_pages(monkeypatch, ["В" * 300, "Scanned by CamScanner"])
     ocr_calls: list[int] = []
 
-    def fake_ocr_page(path: Path, page_number: int) -> str:
+    def fake_ocr_page(path: Path, page_number: int) -> tuple[str, float]:
         ocr_calls.append(page_number)
-        return "реальное содержимое страницы"
+        return "реальное содержимое страницы", 88.0
 
-    monkeypatch.setattr(parsers, "ocr_pdf_page", fake_ocr_page)
+    monkeypatch.setattr(parsers, "ocr_pdf_page_with_confidence", fake_ocr_page)
 
     result = parsers._extract_pdf_with_ocr_fallback(Path("dummy.pdf"))
 
@@ -65,8 +65,8 @@ def test_fully_digital_pdf_never_calls_ocr(monkeypatch: pytest.MonkeyPatch) -> N
     def boom(*args, **kwargs):
         raise AssertionError("OCR не должен вызываться для цифрового PDF")
 
-    monkeypatch.setattr(parsers, "ocr_pdf_page", boom)
-    monkeypatch.setattr(parsers, "ocr_pdf", boom)
+    monkeypatch.setattr(parsers, "ocr_pdf_page_with_confidence", boom)
+    monkeypatch.setattr(parsers, "ocr_pdf_with_confidence", boom)
 
     result = parsers._extract_pdf_with_ocr_fallback(Path("dummy.pdf"))
     assert result == "Г" * 300 + "\n" + "Д" * 300
@@ -76,12 +76,14 @@ def test_fully_scanned_pdf_uses_bulk_ocr(monkeypatch: pytest.MonkeyPatch) -> Non
     """Скан целиком — один прогон poppler на весь файл, а не постранично
     (постранично он перезапускался бы на каждую страницу)."""
     _mock_pages(monkeypatch, ["", "", ""])
-    monkeypatch.setattr(parsers, "ocr_pdf", lambda path: "весь документ распознан")
+    monkeypatch.setattr(
+        parsers, "ocr_pdf_with_confidence", lambda path: ("весь документ распознан", 91.0)
+    )
 
     def boom(*args, **kwargs):
         raise AssertionError("для полного скана должен использоваться bulk-OCR")
 
-    monkeypatch.setattr(parsers, "ocr_pdf_page", boom)
+    monkeypatch.setattr(parsers, "ocr_pdf_page_with_confidence", boom)
 
     assert parsers._extract_pdf_with_ocr_fallback(Path("dummy.pdf")) == "весь документ распознан"
 
@@ -91,10 +93,10 @@ def test_ocr_failure_marks_gap_instead_of_crashing(monkeypatch: pytest.MonkeyPat
     месте нераспознанной должна остаться явная пометка, а не тишина."""
     _mock_pages(monkeypatch, ["Е" * 300, ""])
 
-    def failing_ocr(path: Path, page_number: int) -> str:
+    def failing_ocr(path: Path, page_number: int) -> tuple[str, float]:
         raise RuntimeError("Tesseract не установлен")
 
-    monkeypatch.setattr(parsers, "ocr_pdf_page", failing_ocr)
+    monkeypatch.setattr(parsers, "ocr_pdf_page_with_confidence", failing_ocr)
 
     result = parsers._extract_pdf_with_ocr_fallback(Path("dummy.pdf"))
     assert "Е" * 300 in result
@@ -104,3 +106,36 @@ def test_ocr_failure_marks_gap_instead_of_crashing(monkeypatch: pytest.MonkeyPat
 def test_empty_pdf_returns_empty_string(monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_pages(monkeypatch, [])
     assert parsers._extract_pdf_with_ocr_fallback(Path("dummy.pdf")) == ""
+
+
+# --- Предупреждение о том, что текст получен OCR (ExtractionMeta) ---
+
+
+def test_meta_without_ocr_gives_no_warning() -> None:
+    meta = parsers.ExtractionMeta(total_pages=5)
+    assert meta.used_ocr is False
+    assert meta.warning == ""
+
+
+def test_meta_full_scan_warns_about_whole_document() -> None:
+    meta = parsers.ExtractionMeta(total_pages=3, ocr_pages=[1, 2, 3], ocr_confidence=80.2)
+    assert "Документ распознан со скана" in meta.warning
+    assert "приемлемое" in meta.warning
+    assert "80%" in meta.warning
+
+
+def test_meta_low_confidence_flagged_as_bad_quality() -> None:
+    meta = parsers.ExtractionMeta(total_pages=2, ocr_pages=[1, 2], ocr_confidence=52.0)
+    assert "низкое" in meta.warning
+
+
+def test_meta_partial_scan_lists_pages() -> None:
+    meta = parsers.ExtractionMeta(total_pages=10, ocr_pages=[4, 7], ocr_confidence=90.0)
+    w = meta.warning
+    assert "Часть страниц" in w
+    assert "4, 7" in w
+
+
+def test_meta_many_ocr_pages_truncates_list() -> None:
+    meta = parsers.ExtractionMeta(total_pages=30, ocr_pages=list(range(1, 15)), ocr_confidence=88.0)
+    assert "и др." in meta.warning
