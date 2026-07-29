@@ -6,7 +6,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from ..infrastructure.queue import queue
 from ..pipelines import spellcheck as pipelines
-from ..services import text_from_input_with_warning
+from ..services.uploads import text_from_input_with_source
 
 router = APIRouter(prefix="/api", tags=["spellcheck"])
 
@@ -16,12 +16,14 @@ async def api_spellcheck(
     file: UploadFile | None = File(default=None),
     text: str | None = Form(default=None),
 ) -> dict:
-    content, source_warning = await text_from_input_with_warning(file, text)
+    # Путь к исходному файлу нужен, чтобы отдать исправленный документ копией
+    # оригинала — с сохранением форматирования, а не простынёй текста.
+    content, source_warning, source_path = await text_from_input_with_source(file, text)
     if not content.strip():
         raise HTTPException(status_code=400, detail="Пустой текст")
 
     async def run(task) -> dict:
-        result = await pipelines.run_spellcheck(content, task=task)
+        result = await pipelines.run_spellcheck(content, task=task, source_path=source_path)
         # Орфография распознанного скана — это в основном ошибки Tesseract,
         # а не автора документа; без пометки пользователь будет «исправлять»
         # то, чего в оригинале нет.

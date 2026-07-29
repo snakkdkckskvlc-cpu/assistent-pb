@@ -83,12 +83,44 @@
         parts.push(`<p style="color:var(--green)"><b>✓ Ошибок не найдено.</b></p>`);
       }
 
+      if (result._docx_path) {
+        // Честно говорим, что именно получит пользователь: правки внутри
+        // копии оригинала (форматирование на месте) или собранный заново
+        // документ — для PDF, сканов и вставленного руками текста.
+        const note = result._docx_is_copy
+          ? "копия исходного документа с внесёнными правками — форматирование сохранено"
+          : "документ собран из исправленного текста: исходное форматирование сохранить не удалось (источник — не DOCX)";
+        parts.push(`<h3>Исправленный документ</h3>
+          <div class="actions">
+            <button class="btn" id="sc-download">📄 Скачать исправленный DOCX</button>
+            <span class="hint" id="sc-download-status"></span>
+          </div>
+          <p class="hint">${escapeHtml(note)}</p>`);
+      }
+
       if (result.corrected_text) {
         parts.push(`<h3>Исправленный текст</h3>`);
         parts.push(`<div class="corrected-text">${escapeHtml(result.corrected_text)}</div>`);
       }
 
       container.innerHTML = parts.join("");
+
+      const dlBtn = document.getElementById("sc-download");
+      if (dlBtn) {
+        dlBtn.addEventListener("click", async () => {
+          const statusEl = document.getElementById("sc-download-status");
+          dlBtn.disabled = true;
+          statusEl.textContent = "";
+          const res = await downloadFile(
+            `/api/download/${encodeURIComponent(result._docx_path)}`,
+            result._docx_path,
+          );
+          dlBtn.disabled = false;
+          if (res && res.ok === false && res.error !== "cancelled") {
+            statusEl.textContent = "Не удалось сохранить: " + res.error;
+          }
+        });
+      }
     }
 
     const fileInput = document.getElementById("file");

@@ -33,17 +33,17 @@ async def _read_limited(file: UploadFile) -> bytes:
     return b"".join(parts)
 
 
-async def text_from_input_with_warning(
+async def text_from_input_with_source(
     file: UploadFile | None, text: str | None
-) -> tuple[str, str]:
-    """Текст из файла/поля + предупреждение о качестве источника.
+) -> tuple[str, str, Path | None]:
+    """Текст + предупреждение о качестве источника + путь к сохранённому файлу.
 
-    Второй элемент — пустая строка, когда текст пришёл из текстового слоя или
-    вставлен руками, и человекочитаемое предупреждение, когда его пришлось
-    распознавать со скана (см. parsers.ExtractionMeta.warning).
+    Путь нужен проверке орфографии: она отдаёт исправленный документ КОПИЕЙ
+    оригинала (с сохранением форматирования), а для этого нужен сам файл, а не
+    только вытащенный из него текст. None — когда текст вставили руками.
     """
     if text and text.strip():
-        return text, ""
+        return text, "", None
     if not file:
         raise HTTPException(
             status_code=400,
@@ -60,7 +60,20 @@ async def text_from_input_with_warning(
         content, meta = await asyncio.to_thread(extract_text_with_meta, dest)
     except UnsupportedFormatError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return content, meta.warning
+    return content, meta.warning, dest
+
+
+async def text_from_input_with_warning(
+    file: UploadFile | None, text: str | None
+) -> tuple[str, str]:
+    """Текст из файла/поля + предупреждение о качестве источника.
+
+    Второй элемент — пустая строка, когда текст пришёл из текстового слоя или
+    вставлен руками, и человекочитаемое предупреждение, когда его пришлось
+    распознавать со скана (см. parsers.ExtractionMeta.warning).
+    """
+    content, warning, _ = await text_from_input_with_source(file, text)
+    return content, warning
 
 
 async def text_from_input(file: UploadFile | None, text: str | None) -> str:

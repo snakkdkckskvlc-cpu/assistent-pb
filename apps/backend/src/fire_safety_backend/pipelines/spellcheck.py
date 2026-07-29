@@ -10,9 +10,12 @@ from fire_safety_rag import chunk_sentences
 
 from .. import config
 from ..infrastructure import languagetool, llm
+from ..infrastructure.generators.corrected_docx import build_corrected_docx
 from ._prompts import load_prompt, make_progress_counter
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ..infrastructure.queue import Task
 
 log = logging.getLogger(__name__)
@@ -56,7 +59,9 @@ def _dedup_errors(errors: list[dict]) -> list[dict]:
     return deduped
 
 
-async def run_spellcheck(text: str, task: Task | None = None) -> dict:
+async def run_spellcheck(
+    text: str, task: Task | None = None, source_path: Path | None = None
+) -> dict:
     prompt = load_prompt("spellcheck")
     glossary_terms = _load_glossary_terms()
     if glossary_terms:
@@ -112,16 +117,33 @@ async def run_spellcheck(text: str, task: Task | None = None) -> dict:
         corrected_parts.append(result.get("corrected_text", chunk))
 
     all_errors = _dedup_errors(all_errors)
+    corrected_text = "\n\n".join(corrected_parts)
 
-    return {
+    out: dict = {
         "errors": all_errors,
-        "corrected_text": "\n\n".join(corrected_parts),
+        "corrected_text": corrected_text,
         "stats": {
             "total_errors": len(all_errors),
             "by_type": _count_by_type(all_errors),
             "chunks_processed": len(chunks),
         },
     }
+
+    # Исправленный документ для скачивания. Генерация не должна ронять всю
+    # проверку: даже если файл собрать не удалось, найденные ошибки и текст
+    # пользователю уже полезны.
+    if task:
+        task.progress = "Готовлю исправленный документ"
+    try:
+        docx_path, edited_copy = await asyncio.to_thread(
+            build_corrected_docx, corrected_text, all_errors, source_path
+        )
+        out["_docx_path"] = docx_path.name
+        out["_docx_is_copy"] = edited_copy
+    except Exception:
+        log.exception("Не удалось подготовить исправленный документ")
+
+    return out
 
 
 def _count_by_type(errors: list[dict]) -> dict[str, int]:
