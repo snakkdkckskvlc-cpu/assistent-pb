@@ -38,10 +38,15 @@
       batch: "📦 Пакетная проверка",
     };
 
+    // Результат подставляется в innerHTML, поэтому «непонятную дату» отдаём
+    // экранированной: строка приходит из БД, а туда её пишет пайплайн, и
+    // полагаться на её формат при выводе в HTML не стоит.
     function fmtWhen(iso) {
       if (!iso) return "—";
       const d = new Date(iso);
-      return isNaN(d) ? iso : d.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" });
+      return isNaN(d)
+        ? escapeHtml(iso)
+        : d.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" });
     }
 
     function fmtDuration(sec) {

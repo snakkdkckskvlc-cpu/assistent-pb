@@ -10,6 +10,28 @@ from fastapi import HTTPException, UploadFile
 from .. import config
 from ..infrastructure.parsers import UnsupportedFormatError, extract_text_with_meta
 
+_READ_CHUNK = 1024 * 1024
+
+
+async def _read_limited(file: UploadFile) -> bytes:
+    """Читает файл кусками, обрываясь на превышении потолка.
+
+    Именно кусками, а не `await file.read()`: тот загрузит в память всё, что
+    прислали, — и проверять размер ПОСЛЕ этого уже поздно, память съедена.
+    """
+    parts: list[bytes] = []
+    total = 0
+    while chunk := await file.read(_READ_CHUNK):
+        total += len(chunk)
+        if total > config.MAX_UPLOAD_BYTES:
+            limit_mb = config.MAX_UPLOAD_BYTES / 1024 / 1024
+            raise HTTPException(
+                status_code=413,
+                detail=f"Файл больше {limit_mb:.0f} МБ — такие документы не обрабатываются",
+            )
+        parts.append(chunk)
+    return b"".join(parts)
+
 
 async def text_from_input_with_warning(
     file: UploadFile | None, text: str | None
@@ -30,7 +52,8 @@ async def text_from_input_with_warning(
     # Path(...).name защищает от path traversal через file.filename.
     safe_name = Path(file.filename).name if file.filename else "upload"
     dest = config.UPLOAD_DIR / safe_name
-    dest.write_bytes(await file.read())
+    payload = await _read_limited(file)
+    dest.write_bytes(payload)
     try:
         # extract_text может запускать OCR (Tesseract) — тяжёлая блокирующая
         # операция, уводим с event loop.
