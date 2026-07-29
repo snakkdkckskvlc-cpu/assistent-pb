@@ -38,7 +38,21 @@ jobs:
           uv run mypy apps/backend/src packages/rag/src || true
         # mypy warnings пока не блокирующие — постепенно добавляем типы
 
-      - name: Pytest · smoke + unit
+      - name: Корпус · файлы ↔ git ↔ метаданные
+        # .gitignore перечисляет публикуемые документы ПОФАЙЛОВО, и забыть
+        # строку — значит тихо не довезти документ до пользователя (так уже
+        # терялся ГК РФ). Без этого шага проверка существует, но не
+        # запускается, и отказ остаётся тихим. Сверку с индексом (--index)
+        # тут не гоняем: в CI нет собранной ChromaDB.
         env:
           PYTHONPATH: apps/backend/src:packages/rag/src
+        run: uv run python scripts/check_corpus.py
+
+      - name: Pytest · smoke + unit
+        env:
+          # apps/desktop/src — ради тестов предохранителей автообновления
+          # (apps/desktop/tests): они гоняют настоящий git на временных
+          # репозиториях и проверяют, что обновление не съедает
+          # несохранённую работу.
+          PYTHONPATH: apps/backend/src:packages/rag/src:apps/desktop/src
         run: uv run pytest -q --rootdir=.

@@ -14,24 +14,6 @@
     "note": "Текст обрезан при парсинге ближе к концу — не хватает финального раздела/части приложений",
     "status": "actual"
   },
-  "PPR_1479_2020-12-31_neaktualno.pdf": {
-    "doc_type": "government_decree",
-    "act_number": "ПП РФ №1479",
-    "title": "Правила противопожарного режима в Российской Федерации",
-    "effective_date": "2020-12-31",
-    "note": "Устарело — актуальная редакция от 2025-02-03, не хватает правок за 2021-2025",
-    "status": "superseded",
-    "superseded_by": "ПП РФ №1479 (ред. 2025-02-03)"
-  },
-  "SP2.13130.2009_ognestoykost.txt": {
-    "doc_type": "sp",
-    "act_number": "СП 2.13130.2009",
-    "title": "Обеспечение огнестойкости объектов защиты",
-    "effective_date": "2009-03-25",
-    "note": "Устарело — действует СП 2.13130.2020 (приказ МЧС от 12.03.2020 N 151)",
-    "status": "superseded",
-    "superseded_by": "СП 2.13130.2020"
-  },
   "SP4.13130.2013_ogranichenie_rasprostraneniya.pdf": {
     "doc_type": "sp",
     "act_number": "СП 4.13130.2013",
@@ -75,24 +57,6 @@
     "effective_date": "2009-05-01",
     "note": "Табличные нормы (таблица 2) пересказаны кратко, не воспроизведены построчно. Готовится замена — СП 3.13130.2026 (приказ МЧС от 26.02.2026 N 133, ещё не вступил в силу)",
     "status": "actual"
-  },
-  "SP7.13130.2009_otoplenie_ventilyatsiya.txt": {
-    "doc_type": "sp",
-    "act_number": "СП 7.13130.2009",
-    "title": "Отопление, вентиляция и кондиционирование. Противопожарные требования",
-    "effective_date": "2009-03-25",
-    "note": "Есть более новая версия СП 7.13130.2013 (приказ МЧС от 21.02.2013 N 116, ред. от 27.03.2025) — загружена версия 2009 года",
-    "status": "superseded",
-    "superseded_by": "СП 7.13130.2013"
-  },
-  "SP8.13130.2009_naruzhnoe_vodosnabzhenie.txt": {
-    "doc_type": "sp",
-    "act_number": "СП 8.13130.2009",
-    "title": "Источники наружного противопожарного водоснабжения",
-    "effective_date": "2009-03-25",
-    "note": "Есть более новая версия СП 8.13130.2020 — загружена версия 2009 года",
-    "status": "superseded",
-    "superseded_by": "СП 8.13130.2020"
   },
   "SP9.13130.2009_ognetushiteli.txt": {
     "doc_type": "sp",
@@ -156,32 +120,42 @@
   "PPR-1479_pravila_protivopozharnogo_rezhima.txt": {
     "doc_type": "government_decree",
     "act_number": "ПП РФ №1479",
-    "title": "Правила противопожарного режима в РФ (ключевые пункты)",
+    "title": "Правила противопожарного режима в РФ (конспект ключевых пунктов)",
     "effective_date": "2025-02-03",
-    "status": "actual"
-  },
-  "FZ-123_tekhregl_PB.txt": {
-    "doc_type": "federal_law",
     "status": "superseded",
-    "superseded_by": "123-FZ_tekhnicheskiy_reglament_pb.txt",
-    "note": "Конспект; полный текст — 123-FZ_tekhnicheskiy_reglament_pb.txt"
+    "superseded_by": "PPR-1479_polnyy_tekst.txt",
+    "note": "Заменён полным текстом PPR-1479_polnyy_tekst.txt"
   },
-  "FZ-69_pozharnaya_bezopasnost.txt": {
-    "doc_type": "federal_law",
-    "status": "superseded",
-    "superseded_by": "69-FZ_o_pozharnoy_bezopasnosti.pdf",
-    "note": "Конспект; полный текст — 69-FZ_o_pozharnoy_bezopasnosti.pdf"
+  "SP2.13130.2020_ognestoykost.txt": {
+    "doc_type": "sp",
+    "act_number": "СП 2.13130.2020",
+    "title": "Обеспечение огнестойкости объектов защиты",
+    "effective_date": "2025-11-06",
+    "status": "actual",
+    "note": "Приказ МЧС от 12.03.2020 N 151, ред. от 06.11.2025"
   },
-  "SP-3.13130_opoveshcheniye_evakuatsiya.txt": {
-    "doc_type": "federal_law",
-    "status": "superseded",
-    "superseded_by": "SP3.13130.2009_soue.txt",
-    "note": "Конспект; полный текст — SP3.13130.2009_soue.txt"
+  "SP7.13130.2013_otoplenie_ventilyatsiya.txt": {
+    "doc_type": "sp",
+    "act_number": "СП 7.13130.2013",
+    "title": "Отопление, вентиляция и кондиционирование. Требования пожарной безопасности",
+    "effective_date": "2025-03-27",
+    "status": "actual",
+    "note": "Приказ МЧС от 21.02.2013 N 116, ред. от 27.03.2025. Содержит раздел 7 «Противодымная вентиляция»"
   },
-  "SP-4.13130_ogranichenie_pozhara.txt": {
-    "doc_type": "federal_law",
-    "status": "superseded",
-    "superseded_by": "SP4.13130.2013_ogranichenie_rasprostraneniya.pdf",
-    "note": "Конспект; полный текст — SP4.13130.2013_ogranichenie_rasprostraneniya.pdf"
+  "SP8.13130.2020_naruzhnoe_vodosnabzhenie.txt": {
+    "doc_type": "sp",
+    "act_number": "СП 8.13130.2020",
+    "title": "Наружное противопожарное водоснабжение. Требования пожарной безопасности",
+    "effective_date": "2023-12-25",
+    "status": "actual",
+    "note": "Приказ МЧС от 30.03.2020 N 225, ред. от 25.12.2023"
+  },
+  "PPR-1479_polnyy_tekst.txt": {
+    "doc_type": "government_decree",
+    "act_number": "ПП РФ №1479",
+    "title": "Правила противопожарного режима в РФ (полный текст)",
+    "effective_date": "2025-02-03",
+    "status": "actual",
+    "note": "Ред. от 03.02.2025 N 90. Полный текст всех 24 разделов и приложений"
   }
 }

@@ -29,6 +29,6 @@ fire-safety-desktop = { workspace = true }
 fire-safety-rag = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["apps/backend/tests", "packages/rag/tests"]
+testpaths = ["apps/backend/tests", "apps/desktop/tests", "packages/rag/tests"]
 asyncio_mode = "auto"
 addopts = "-q --strict-markers"
