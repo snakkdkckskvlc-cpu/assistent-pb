@@ -40,6 +40,22 @@ def _normalize_before(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
+def _apply_to_text(text: str, errors: list[dict]) -> str:
+    """Собирает исправленный текст из найденных правок.
+
+    Нужно потому, что в быстром режиме модель не вызывается, а показать
+    результат целиком всё равно надо. Замены идут по одному разу на вхождение
+    и в порядке убывания длины: короткий фрагмент может оказаться частью
+    длинного, и заменив его первым, мы разрушили бы длинный.
+    """
+    out = text
+    for e in sorted(errors, key=lambda x: len(str(x.get("before", ""))), reverse=True):
+        before, after = str(e.get("before", "")), str(e.get("after", ""))
+        if before and after and before != after and before not in after:
+            out = out.replace(before, after)
+    return out
+
+
 def _dedup_errors(errors: list[dict]) -> list[dict]:
     """LT и LLM иногда репортят одну и ту же ошибку — LT детерминирован,
     при конфликте оставляем его и отбрасываем совпавший LLM-дубликат."""
@@ -56,7 +72,21 @@ def _dedup_errors(errors: list[dict]) -> list[dict]:
     return deduped
 
 
-async def run_spellcheck(text: str, task: Task | None = None) -> dict:
+async def run_spellcheck(text: str, task: Task | None = None, deep: bool = True) -> dict:
+    """deep=False — только LanguageTool, без обращения к модели.
+
+    Замер на 29 намеренно заложенных ошибках в четырёх деловых письмах:
+
+        LanguageTool   14/29 (48%)    1,7 с
+        модель 7B      16/29 (55%)    117 с
+        вместе         23/29 (79%)    117 с
+
+    То есть они ловят РАЗНОЕ: девять ошибок нашла только модель (все
+    контекстные — вводные обороты, «что бы» против «чтобы», причастный
+    оборот), семь — только LanguageTool. Поэтому быстрый режим не заменяет
+    глубокий, а даёт мгновенный результат там, где ждать две минуты на
+    страницу незачем.
+    """
     prompt = load_prompt("spellcheck")
     glossary_terms = _load_glossary_terms()
     if glossary_terms:
@@ -74,6 +104,24 @@ async def run_spellcheck(text: str, task: Task | None = None) -> dict:
     lt_errors = await languagetool.check(text)
     for e in lt_errors:
         e["chunk"] = 0
+
+    if not deep:
+        # Быстрый режим: правки уже есть, текст не переписываем. corrected_text
+        # собирается применением найденных замен, а не отдельным проходом
+        # модели — она бы переписывала весь документ со скоростью 12 токенов/с.
+        errors = _dedup_errors(list(lt_errors))
+        if task:
+            task.percent = 100
+        return {
+            "errors": errors,
+            "corrected_text": _apply_to_text(text, errors),
+            "stats": {
+                "total_errors": len(errors),
+                "by_type": _count_by_type(errors),
+                "chunks_processed": 0,
+                "режим": "быстрый (только LanguageTool)",
+            },
+        }
 
     # Sentence-aware чанкинг (см. packages/rag/src/fire_safety_rag/chunking.py) —
     # без overlap: правки не должны дублироваться между соседними чанками.

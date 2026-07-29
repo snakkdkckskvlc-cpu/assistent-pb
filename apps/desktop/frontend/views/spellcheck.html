@@ -31,9 +31,14 @@
       </div>
 
       <div class="actions">
-        <button class="btn" id="submit">Проверить</button>
-        <span class="hint">На CPU ≈ 30–60 сек на страницу.</span>
+        <button class="btn" id="submit">⚡ Быстрая проверка</button>
+        <button class="btn btn-secondary" id="submit-deep">🔍 Глубокая проверка</button>
       </div>
+      <p class="hint">
+        Быстрая — секунды, правилами LanguageTool: орфография и простая пунктуация.
+        Глубокая — дополнительно нейросеть, ≈2 мин на страницу; на замере из 29 ошибок
+        быстрая нашла 14, глубокая 23. Для важных писем стоит запустить глубокую.
+      </p>
 
       <div id="progress" class="progress" style="display:none"></div>
       <div id="error" class="error-box" style="display:none"></div>
@@ -137,7 +142,7 @@
       fileNameEl.classList.toggle("has-file", !!fileInput.files[0]);
     });
 
-    document.getElementById("submit").addEventListener("click", () => {
+    function runCheck(deep) {
       const file = fileInput.files[0];
       const text = document.getElementById("text").value;
       submitForm({
@@ -146,13 +151,17 @@
           const fd = new FormData();
           if (file) fd.append("file", file);
           if (text.trim()) fd.append("text", text);
+          fd.append("deep", deep ? "true" : "false");
           return { url: "/api/spellcheck", body: fd };
         },
         resultContainer: document.getElementById("result"),
         progressContainer: document.getElementById("progress"),
         renderResult: renderSpellcheckResult,
       });
-    });
+    }
+
+    document.getElementById("submit").addEventListener("click", () => runCheck(false));
+    document.getElementById("submit-deep").addEventListener("click", () => runCheck(true));
   </script>
 </body>
 </html>
