@@ -12,8 +12,31 @@ if TYPE_CHECKING:
     from ..infrastructure.queue import Task
 
 
+NEGATIVE_SUFFIX = "_negative"
+
+
+def negative_prompt_path(name: str):
+    """Файл с негативными примерами, собранными из отзывов 👎.
+
+    Отдельный файл, а не дописывание в конец основного промпта: скрипт
+    scripts/update_prompts_from_feedback.py запускается многократно, и правка
+    исходного legal.txt накапливала бы примеры без возможности откатиться, а
+    заодно ломала бы git-историю самого промпта. Здесь файл переписывается
+    целиком, его видно в diff отдельно, и удаление возвращает прежнее
+    поведение.
+    """
+    return config.PROMPTS_DIR / f"{name}{NEGATIVE_SUFFIX}.txt"
+
+
 def load_prompt(name: str) -> str:
-    return (config.PROMPTS_DIR / f"{name}.txt").read_text(encoding="utf-8")
+    """Основной промпт плюс негативные примеры из отзывов, если они собраны."""
+    text = (config.PROMPTS_DIR / f"{name}.txt").read_text(encoding="utf-8")
+    negative = negative_prompt_path(name)
+    if negative.exists():
+        extra = negative.read_text(encoding="utf-8").strip()
+        if extra:
+            text = f"{text.rstrip()}\n\n{extra}\n"
+    return text
 
 
 def make_progress_counter(

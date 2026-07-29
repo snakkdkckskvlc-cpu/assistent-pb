@@ -69,7 +69,11 @@ CREATE TABLE IF NOT EXISTS feedback (
     function TEXT NOT NULL,
     task_id TEXT NOT NULL,
     rating TEXT NOT NULL,
-    comment TEXT NOT NULL DEFAULT ''
+    comment TEXT NOT NULL DEFAULT '',
+    -- Что именно модель выдала, когда пользователь нажал 👎. Без этого
+    -- комментарий «плохо разобрал ответственность» ни к чему не привязан и
+    -- разбирать его через месяц не по чему.
+    bad_output TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS task_history (
@@ -87,8 +91,28 @@ CREATE TABLE IF NOT EXISTS task_history (
 """
 
 
+# Столбцы, добавленные к уже существующим таблицам. CREATE TABLE IF NOT EXISTS
+# существующую таблицу НЕ трогает, поэтому у пользователей с рабочей базой
+# новые поля появятся только через ALTER TABLE.
+_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    (
+        "feedback",
+        "bad_output",
+        "ALTER TABLE feedback ADD COLUMN bad_output TEXT NOT NULL DEFAULT ''",
+    ),
+)
+
+
+def _apply_migrations(conn) -> None:
+    for table, column, statement in _MIGRATIONS:
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(statement)
+
+
 def init_db() -> None:
     """Создаёт таблицы (идемпотентно). Доменные сиды — см. seed_defaults()."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
         conn.executescript(_SCHEMA)
+        _apply_migrations(conn)
