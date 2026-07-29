@@ -7,13 +7,19 @@
 # в venv и приложение упадёт с ModuleNotFoundError.
 #
 # Версии намеренно НЕ закреплены (в отличие от pyproject.toml каждого
-# пакета): закреплённая chromadb==0.5.23 тянет chroma-hnswlib==0.7.6, для
-# которой на чистой Windows часто нет готового wheel — сборка из исходников
-# требует Visual Studio Build Tools, которых обычно нет. Свежие версии
-# chromadb такой проблемы не имеют.
+# пакета) — КРОМЕ chromadb: закреплённая chromadb==0.5.23 тянет
+# chroma-hnswlib==0.7.6, для которой на чистой Windows часто нет готового
+# wheel (сборка из исходников требует Visual Studio Build Tools, которых
+# обычно нет) — поэтому версию не пинили вовсе. Но packages/rag/prebuilt_chroma/
+# (готовая база в git — см. fire_safety_rag.seed) записана конкретной
+# версией chromadb, и её on-disk формат не гарантированно читается более
+# новыми версиями библиотеки. 1.5.9 — версия, которой прогнан индексатор
+# при сборке текущего prebuilt_chroma; ставится через готовый wheel, без
+# проблемы chroma-hnswlib. Если меняете версию — пересоберите
+# prebuilt_chroma этой же версией (см. packages/rag/prebuilt_chroma/README.md).
 numpy
 nltk
-chromadb
+chromadb==1.5.9
 langchain
 torch
 transformers

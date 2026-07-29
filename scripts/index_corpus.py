@@ -45,6 +45,17 @@ def main() -> int:
         print(f"Папка не найдена: {corpus_dir}", file=sys.stderr)
         return 1
 
+    # Заселение готовым индексом — только для стандартной установки (без
+    # --dir на свою папку) и без --reset (--reset и так пересоздаёт с нуля,
+    # заселять его перед этим бессмысленно). Сам build_index ниже — не
+    # no-op: он всё равно пересчитает эмбеддинги для документов, которых
+    # нет в prebuilt_chroma (например, добавленных пользователем вручную).
+    if args.dir is None and not args.reset:
+        from fire_safety_rag.seed import ensure_seeded
+
+        if ensure_seeded():
+            print("Публичный корпус заселён из готового индекса (без пересчёта эмбеддингов).")
+
     print(f"Индексирую {corpus_dir} (первый раз может грузить embedding-модель)...")
     stats = build_index(corpus_dir=corpus_dir, reset=args.reset, text_reader=extract_text)
     print(f"Готово: {stats}")
