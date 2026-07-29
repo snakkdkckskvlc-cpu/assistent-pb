@@ -104,7 +104,7 @@ def _chunk_document(text: str, meta: dict) -> list[dict]:
     if doc_type in _ARTICLE_STRUCTURED_TYPES:
         return chunk_by_articles(_strip_scraper_boilerplate(text), config.CHUNK_TOKENS)
     return [
-        {"text": c, "article": None}
+        {"text": c, "article": None, "chapter": None}
         for c in chunk_sentences(text, config.CHUNK_TOKENS, config.CHUNK_OVERLAP)
     ]
 
@@ -226,6 +226,8 @@ def build_index(
                 }
                 if piece.get("article"):
                     meta["article"] = piece["article"]
+                if piece.get("chapter"):
+                    meta["chapter"] = piece["chapter"]
                 metadatas.append(meta)
             collection.add(documents=documents, ids=ids, metadatas=metadatas)
             chunks = pieces  # для статистики ниже

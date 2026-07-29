@@ -5,6 +5,7 @@ from pathlib import Path
 from .docx_parser import extract_docx
 from .ocr import (
     ocr_image,
+    ocr_image_with_confidence,
     ocr_pdf,
     ocr_pdf_page,
     ocr_pdf_page_with_confidence,
@@ -175,5 +176,6 @@ __all__ = [
     "extract_text_with_meta",
     "ocr_image",
     "ocr_pdf",
+    "ocr_image_with_confidence",
     "ocr_pdf_page",
 ]

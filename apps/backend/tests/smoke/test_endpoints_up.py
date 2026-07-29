@@ -39,11 +39,13 @@ def _mock_pipeline_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path) -> No
     from fire_safety_backend.pipelines import legal as pipelines_legal
     from fire_safety_backend.pipelines import letter as pipelines_letter
 
-    monkeypatch.setattr(
-        pipelines_legal,
-        "retrieve_many",
-        lambda queries, top_k=None, where=None: [[] for _ in queries],
-    )
+    # Мокать нужно ОБА пути: пайплайн сначала зовёт гибридный поиск и только
+    # при пустом результате откатывается на векторный. Оставь retrieve_hybrid
+    # живым — тест пойдёт в настоящий ChromaDB.
+    for name in ("retrieve_hybrid", "retrieve_many"):
+        monkeypatch.setattr(
+            pipelines_legal, name, lambda queries, top_k=None, where=None: [[] for _ in queries]
+        )
     monkeypatch.setattr(pipelines_letter, "retrieve_letters", lambda query, top_k=2: [])
 
     # Генератор DOCX: просто создаём файл-заглушку
@@ -177,6 +179,7 @@ def test_legal_grounds_citations_against_retrieved_chunks(
             [] for _ in queries[1:]
         ]
 
+    monkeypatch.setattr(pipelines_legal, "retrieve_hybrid", fake_retrieve_many)
     monkeypatch.setattr(pipelines_legal, "retrieve_many", fake_retrieve_many)
 
     async def fake_chat_json(system: str, user: str, **kwargs) -> dict:

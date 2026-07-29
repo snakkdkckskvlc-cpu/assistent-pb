@@ -1,0 +1,135 @@
+{
+  "_комментарий": [
+    "Список документов ПАО «НЛМК» для загрузки в корпус RAG (scripts/fetch_nlmk_docs.py).",
+    "Отбор: только то, что относится к работе ПОДРЯДНОЙ организации на площадке",
+    "комбината — пожарная безопасность, работы повышенной опасности, требования",
+    "к подрядчикам. Кадровые, корпоративные и потребительские документы НЛМК",
+    "(устав, дивидендная политика, коллективный договор, отчёты о качестве",
+    "обслуживания) в анализе договоров подряда бесполезны и в список не входят.",
+    "",
+    "FILE_ID разрешены HEAD-запросами к download_file.php 2026-07-29; в поле",
+    "«file» записано имя, на которое увёл редирект, — по нему видно, что",
+    "скачается, и заметно, если НЛМК подменит документ под тем же ID.",
+    "",
+    "Видеоинструктажи (FILE_ID 162281 — 203 МБ, 162378 — 619 МБ) и архивы",
+    "приложений (.zip/.7z) сюда не включены: текста для поиска в них нет.",
+    "",
+    "Пополнять руками: обходить каталог скриптом нельзя, см. докстринг",
+    "fetch_nlmk_docs.py."
+  ],
+  "documents": [
+    {
+      "file_id": 129581,
+      "title": "Справочник по охране труда, промышленной безопасности и охране окружающей среды для работников подрядных организаций (НЛМК)",
+      "file": "NLMK_Spravochnik-OTPB.pdf"
+    },
+    {
+      "file_id": 129641,
+      "title": "Положение по управлению безопасностью работников подрядных организаций (НЛМК)",
+      "file": "Polozhenie-po-upravleniyu-bezopasnostyu-rabotnikov-podryadnykh-organizatsiy.pdf"
+    },
+    {
+      "file_id": 147357,
+      "title": "СТО 05757665-HS-116-0136-2022 «Порядок работы с подрядными организациями на территории ПАО НЛМК»",
+      "file": "STO-05757665_HS_116_0136_2022-_Poryadok-raboty-s-PO-na-territorii-PAO-NLMK_.pdf"
+    },
+    {
+      "file_id": 129619,
+      "title": "Порядок проведения проверок (НЛМК)",
+      "file": "Poryadok-provedeniya-proverok.pdf"
+    },
+    {
+      "file_id": 130188,
+      "title": "Требования к организации строительных площадок (НЛМК)",
+      "file": "Trebovaniya-k-organizatsii-stroitelnykh-ploshchadok.pdf"
+    },
+
+    {
+      "file_id": 129636,
+      "title": "СТО «Управление пожарной безопасностью» (НЛМК)",
+      "file": "STO-Upravlenie-pozharnoy-bezopasnostyu.pdf"
+    },
+    {
+      "file_id": 131200,
+      "title": "СТО 05757665-HSE-116-0116-2021 «Организация безопасного проведения огневых работ» (НЛМК)",
+      "file": "STO-05757665_HSE_116_0116_2021.pdf"
+    },
+    {
+      "file_id": 131201,
+      "title": "Положение о первичных средствах пожаротушения (НЛМК)",
+      "file": "Polozhenie-o-pervichnykh-sredstvakh-pozharotusheniya.pdf"
+    },
+    {
+      "file_id": 129638,
+      "title": "Положение о системе управления промышленной безопасностью и охраной труда (НЛМК)",
+      "file": "Polozhenie-o-sisteme-upravleniya-PB-i-OT.pdf"
+    },
+    {
+      "file_id": 129620,
+      "title": "План мероприятий по локализации и ликвидации последствий аварий (НЛМК)",
+      "file": "Plan-meropriyatiy-po-lokalizatsii-i-likvidatsii-posledstviy-avariy.pdf"
+    },
+    {
+      "file_id": 128118,
+      "title": "План ликвидации аварий на гидротехнических сооружениях ПАО НЛМК (2020)",
+      "file": "PLA-GTS-NLMK-2020.pdf"
+    },
+
+    {
+      "file_id": 129639,
+      "title": "Производство работ повышенной опасности (НЛМК)",
+      "file": "Proizvodstvo-rabot-povyshennoy-opasnosti.pdf"
+    },
+    {
+      "file_id": 129637,
+      "title": "СТО «Производство работ на высоте» (НЛМК)",
+      "file": "STO-Proizvodstvo-rabot-na-vysote.pdf"
+    },
+    {
+      "file_id": 148106,
+      "title": "Положение по работам на высоте (НЛМК)",
+      "file": "Polozhenie-po-rabotam-na-vysote.pdf"
+    },
+    {
+      "file_id": 129632,
+      "title": "СТО «Организация и безопасное проведение газоопасных работ» (НЛМК)",
+      "file": "STO-Organizatsiya-i-bezopasnoe-provedenie-gazoopasnykh-rabot.pdf"
+    },
+    {
+      "file_id": 129627,
+      "title": "Бирочная система (наряды-допуски на работы с электрооборудованием, НЛМК)",
+      "file": "Birochnaya-sistema.pdf"
+    },
+    {
+      "file_id": 138968,
+      "title": "Порядок производства работ на кабельных линиях в ПАО НЛМК",
+      "file": "Poryadok-proizvodstva-rabot-na-KL-v-PAO-NLMK.pdf"
+    },
+    {
+      "file_id": 129626,
+      "title": "Идентификация опасностей и оценка рисков (НЛМК)",
+      "file": "Identifikatsiya-opasnostey-i-otsenka-riskov.pdf"
+    },
+    {
+      "file_id": 129625,
+      "title": "Положение по оповещению, регистрации и расследованию происшествий (НЛМК)",
+      "file": "Polozhenie-po-opoveshcheniyu_-registratsii-i-rassledovaniyu-proisshestviy.docx"
+    },
+    {
+      "file_id": 129623,
+      "title": "Положение о производственном контроле (НЛМК)",
+      "file": "Polozhenie-o-proizvodstvennom-kontrole.pdf"
+    },
+
+    {
+      "file_id": 162572,
+      "title": "Пример проекта производства работ (ППР) — образец НЛМК",
+      "file": "Primer-PPR.pdf"
+    },
+    {
+      "file_id": 162571,
+      "title": "Пример проекта производства работ на высоте (ППРв) — образец НЛМК",
+      "file": "Primer-PPRV.pdf"
+    }
+  ]
+}

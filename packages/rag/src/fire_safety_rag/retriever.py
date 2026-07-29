@@ -52,6 +52,7 @@ def _to_hits(res: dict, index: int) -> list[dict]:
                 "score": 1 - dist,
                 "act_number": meta.get("act_number", ""),
                 "article": meta.get("article", ""),
+                "chapter": meta.get("chapter", ""),
                 "doc_type": meta.get("doc_type", ""),
                 "effective_date": meta.get("effective_date", ""),
                 "status": meta.get("status", ""),

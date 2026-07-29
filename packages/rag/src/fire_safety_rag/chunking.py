@@ -53,6 +53,26 @@ _ARTICLE_BOUNDARY = re.compile(
 )
 
 
+# Заголовок главы/раздела. В отличие от статьи, глава не образует чанк — она
+# только помечает, к какому разделу акта относятся идущие за ней статьи, и
+# уезжает в метаданные: «Статья 333» сама по себе не говорит, что это глава 23
+# «Обеспечение исполнения обязательств».
+_CHAPTER_BOUNDARY = re.compile(
+    r"^[ \t]*((?:Глава|ГЛАВА|Раздел|РАЗДЕЛ)\s+[IVXLCDM\d]+(?:\.\d+)*)",
+    re.MULTILINE,
+)
+
+
+def _chapter_at(chapters: list[tuple[int, str]], position: int) -> str | None:
+    """Последняя глава, начавшаяся до указанной позиции в тексте."""
+    found = None
+    for start, label in chapters:
+        if start > position:
+            break
+        found = label
+    return found
+
+
 def _split_sentences(text: str) -> list[str]:
     return [s for s in nltk.tokenize.sent_tokenize(text, language="russian") if s.strip()]
 
@@ -86,8 +106,12 @@ def chunk_by_articles(text: str, max_words: int) -> list[dict]:
         return []
 
     matches = list(_ARTICLE_BOUNDARY.finditer(text))
+    chapters = [(m.start(), " ".join(m.group(1).split())) for m in _CHAPTER_BOUNDARY.finditer(text)]
     if not matches:
-        return [{"text": c, "article": None} for c in chunk_sentences(text, max_words)]
+        return [
+            {"text": c, "article": None, "chapter": chapters[0][1] if chapters else None}
+            for c in chunk_sentences(text, max_words)
+        ]
 
     out: list[dict] = []
 
@@ -95,7 +119,10 @@ def chunk_by_articles(text: str, max_words: int) -> list[dict]:
     # номера статьи у него нет.
     preamble = text[: matches[0].start()].strip()
     if preamble:
-        out.extend({"text": c, "article": None} for c in chunk_sentences(preamble, max_words))
+        out.extend(
+            {"text": c, "article": None, "chapter": None}
+            for c in chunk_sentences(preamble, max_words)
+        )
 
     for i, m in enumerate(matches):
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
@@ -103,10 +130,14 @@ def chunk_by_articles(text: str, max_words: int) -> list[dict]:
         if not body:
             continue
         label = " ".join(m.group(1).split()).rstrip(".")
+        chapter = _chapter_at(chapters, m.start())
         if len(body.split()) <= max_words:
-            out.append({"text": body, "article": label})
+            out.append({"text": body, "article": label, "chapter": chapter})
         else:
-            out.extend({"text": c, "article": label} for c in chunk_sentences(body, max_words))
+            out.extend(
+                {"text": c, "article": label, "chapter": chapter}
+                for c in chunk_sentences(body, max_words)
+            )
     return out
 
 

@@ -9,7 +9,7 @@ import re
 import string
 from typing import TYPE_CHECKING
 
-from fire_safety_rag import chunk_sentences, retrieve_many
+from fire_safety_rag import chunk_sentences, retrieve_hybrid, retrieve_many
 
 from .. import config
 from ..infrastructure import llm
@@ -91,6 +91,29 @@ def _norm_filter_for(part: str) -> dict:
         ]
     }
 
+
+# Порог «нормы под этот пункт не нашлись». Считается по СЫРЫМ баллам, а не по
+# итоговому score гибрида: score нормализован ВНУТРИ одной выдачи (лучший
+# лексический кандидат всегда получает свой максимум), поэтому между запросами
+# он несравним — у осмысленного запроса и у бессмысленного топовый score
+# одинаковый.
+#
+# Замер на живом индексе (3334 чанка) — максимумы по выдаче:
+#     реальные куски договора      косинус 0.814–0.865, BM25 69–110
+#     точный запрос по существу    косинус 0.849–0.884, BM25 8–37
+#     заведомая чушь               косинус 0.000–0.807, BM25 0–13
+# Отсюда пороги ниже. Честная граница применимости: на ДЛИННЫХ бессмысленных
+# запросах косинус доходит до 0.807 при пороге 0.80, то есть такой случай флаг
+# уже не ловит. Он рассчитан на грубый отказ — корпус не проиндексирован,
+# фильтр отсёк всё, документ вообще из другой области, — а не на тонкую
+# нерелевантность. Тонкую ловит проверка ссылок на статьи (_норма_статус).
+#
+# Предложенный порог 0.25 применить нельзя: у multilingual-e5-large косинусы
+# лежат в полосе 0.75–0.91, ниже 0.25 не опускается вообще ничего, и флаг не
+# сработал бы никогда.
+_RAG_MIN_VECTOR_SCORE = 0.80
+_RAG_MIN_BM25_SCORE = 20.0
+_NO_RELEVANT_NORMS = "(релевантные нормы не найдены)"
 
 # Запас на разметку ролей, служебные токены и погрешность оценки.
 _SAFETY_TOKENS = 300
@@ -270,6 +293,26 @@ def _escalate_severity(finding: dict) -> None:
             finding["критичность"] = "красный"
             finding["_критичность_повышена"] = f"разовый штраф {m.group(1)} % от стоимости"
             return
+
+
+def _is_low_confidence(chunks: list[dict]) -> bool:
+    """Ни один найденный фрагмент не тянет ни по смыслу, ни по словам.
+
+    Требуется провал ОБОИХ сигналов сразу: у гибридного поиска они закрывают
+    разные дыры. Пункт, перефразированный своими словами, находит только
+    вектор (BM25 = 0); ссылка на «ст. 333» — наоборот, только BM25 (косинус в
+    полосе шума). Считать низкой уверенностью провал одного из них значило бы
+    выбрасывать нормы ровно в тех случаях, ради которых гибрид и вводился.
+    """
+    if not chunks:
+        return True
+    best_vector = max((float(c.get("vector_score", 0.0)) for c in chunks), default=0.0)
+    best_bm25 = max((float(c.get("bm25_score", 0.0)) for c in chunks), default=0.0)
+    # Старый ретривер сырых баллов не отдаёт — там судить не по чему, и
+    # объявлять низкую уверенность на пустом месте нельзя.
+    if not any("vector_score" in c or "bm25_score" in c for c in chunks):
+        return False
+    return best_vector < _RAG_MIN_VECTOR_SCORE and best_bm25 < _RAG_MIN_BM25_SCORE
 
 
 def _normalize_quote(quote: str) -> str:
@@ -508,6 +551,7 @@ async def run_legal_analysis(
     parts_findings: list[list[dict]] = []
     summaries: list[dict] = []
     rag_sources: set[str] = set()
+    rag_low_confidence_parts = 0
 
     for idx, part in enumerate(parts, start=1):
         part_base = base_percent + int(span_percent * (idx - 1) / len(parts))
@@ -521,12 +565,21 @@ async def run_legal_analysis(
         # ответственность нужны ст. 333/394 ГК РФ, для приёмки — другие. Раньше
         # выборка была общая на весь договор и к конкретному разделу подходила
         # хуже.
-        hits = await asyncio.to_thread(
-            retrieve_many,
-            [part[:1500], "ответственность неустойка штраф убытки"],
-            _RAG_CHUNKS_PER_PART,
-            _norm_filter_for(part),
-        )
+        queries = [part[:1500], "ответственность неустойка штраф убытки"]
+        norm_filter = _norm_filter_for(part)
+        # Гибрид (вектор + BM25) — основной путь. Замер, зачем: на запросе про
+        # несоразмерную неустойку чистый вектор возвращал СП по сигнализации, а
+        # BM25 находил ГК РФ ст. 333 первой с отрывом вчетверо.
+        hits = await asyncio.to_thread(retrieve_hybrid, queries, _RAG_CHUNKS_PER_PART, norm_filter)
+        if not any(hits):
+            # Гибрид молчит — например, rank_bm25 не установлен или лексический
+            # индекс не собрался. Прежний чисто векторный поиск рабочий, и
+            # остаться совсем без нормативной базы хуже, чем искать только по
+            # смыслу.
+            log.info("Гибридный поиск пуст — откатываюсь на векторный")
+            hits = await asyncio.to_thread(
+                retrieve_many, queries, _RAG_CHUNKS_PER_PART, norm_filter
+            )
         context_chunks: list[dict] = []
         seen_keys: set[str] = set()
         for group in hits:
@@ -537,12 +590,23 @@ async def run_legal_analysis(
                     context_chunks.append(h)
         context_chunks.sort(key=lambda h: h.get("score", 0), reverse=True)
         top_chunks = context_chunks[:_RAG_CHUNKS_PER_PART]
-        rag_sources.update(h["source"] for h in top_chunks)
 
         # Короткий ID на чанк — модель цитирует его в "источник_фрагмента",
         # а мы после ответа проверяем, что ID реально был среди отданных в
         # контекст, а не выдуман (grounded-цитирование, см. docstring
         # generate_short_id выше).
+        # Найденное слабо и по смыслу, и по словам — отдавать это модели вредно:
+        # она сошлётся на подсунутый мусор как на норму, а проверка ссылок
+        # такую ссылку потом честно подтвердит (фрагмент-то был в контексте).
+        part_low_confidence = _is_low_confidence(top_chunks)
+        if part_low_confidence:
+            log.info("Часть %d: релевантных норм не нашлось — контекст не передаю", idx)
+            top_chunks = []
+            rag_low_confidence_parts += 1
+        # Источники отмечаем ПОСЛЕ отбраковки: показывать в отчёте документ,
+        # который мы сами признали нерелевантным и модели не отдали, нельзя.
+        rag_sources.update(h["source"] for h in top_chunks)
+
         chunk_ids = _assign_chunk_ids(top_chunks)
         context_block = "\n\n".join(
             f"[{cid}] {h.get('act_number') or h['source']}"
@@ -552,7 +616,9 @@ async def run_legal_analysis(
         )
         if not context_block:
             context_block = (
-                "(нормативная база не подключена — сошлись на общие знания законодательства РФ)"
+                _NO_RELEVANT_NORMS
+                if part_low_confidence
+                else "(нормативная база не подключена — сошлись на общие знания законодательства РФ)"
             )
 
         part_note = (
@@ -681,6 +747,11 @@ async def run_legal_analysis(
         "находки": merged_findings,
         "сводка": summary,
         "_rag_sources": sorted(rag_sources),
+        # True — хотя бы для одной части нормативная база не дала ничего
+        # релевантного, и модель по этой части опиралась на общие знания.
+        # Ссылки на нормы в таких находках стоит перепроверять руками.
+        "_rag_low_confidence": rag_low_confidence_parts > 0,
+        "_rag_частей_без_норм": rag_low_confidence_parts,
         "_частей": len(parts),
     }
 

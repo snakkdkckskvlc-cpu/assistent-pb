@@ -70,6 +70,15 @@ LLM_NUM_PREDICT_LETTER = 1500
 # --- OCR ---
 TESSERACT_CMD = os.environ.get("TESSERACT_CMD")  # None → авто из PATH
 TESSERACT_LANG = "rus+eng"
+# EasyOCR — необязательная замена Tesseract. Ставится отдельно
+# (`pip install easyocr`), тянет torch, работает на CPU. Если пакет не
+# установлен, всё продолжает работать на Tesseract.
+USE_EASYOCR = os.environ.get("USE_EASYOCR", "1") not in {"0", "false", "False"}
+EASYOCR_LANGS = ("ru", "en")
+# Ниже этой уверенности распознанный фрагмент заменяется на [?]. Показать
+# явную дыру честнее, чем подсунуть в договор правдоподобное, но выдуманное
+# слово: юрист увидит [?] и сверится с бумагой, а «г. Линецк» пропустит.
+EASYOCR_MIN_CONFIDENCE = float(os.environ.get("EASYOCR_MIN_CONFIDENCE", "0.6"))
 
 # --- LanguageTool (офлайн-проверка грамматики/пунктуации, доп. к LLM) ---
 # Отдельный локальный процесс (tools/languagetool/start.sh), не часть backend'а —

@@ -58,11 +58,11 @@ def _mock_llm_and_rag(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
 
     from fire_safety_backend.pipelines import legal as pipelines_legal
 
-    monkeypatch.setattr(
-        pipelines_legal,
-        "retrieve_many",
-        lambda queries, top_k=None, where=None: [[] for _ in queries],
-    )
+    # И гибридный, и векторный путь — иначе тест уйдёт в настоящий ChromaDB.
+    for name in ("retrieve_hybrid", "retrieve_many"):
+        monkeypatch.setattr(
+            pipelines_legal, name, lambda queries, top_k=None, where=None: [[] for _ in queries]
+        )
 
     from fire_safety_backend import config
 

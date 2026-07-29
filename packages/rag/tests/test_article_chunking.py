@@ -106,3 +106,41 @@ def test_preamble_before_first_article_is_kept() -> None:
 def test_empty_text() -> None:
     assert chunk_by_articles("", 500) == []
     assert chunk_by_articles("   \n  ", 500) == []
+
+
+# --- Глава/раздел в метаданных ----------------------------------------------
+
+
+def test_chapter_is_attached_to_following_articles() -> None:
+    """«Статья 333» сама по себе не говорит, что это глава 23 «Обеспечение
+    исполнения обязательств» — номер главы нужен в метаданных."""
+    text = (
+        "Глава 22. Исполнение обязательств\n"
+        "Статья 309. Общие положения\nТекст.\n\n"
+        "Глава 23. Обеспечение исполнения обязательств\n"
+        "Статья 330. Понятие неустойки\nТекст.\n\n"
+        "Статья 333. Уменьшение неустойки\nТекст.\n"
+    )
+    by_article = {c["article"]: c["chapter"] for c in chunk_by_articles(text, 500) if c["article"]}
+    assert by_article["Статья 309"] == "Глава 22"
+    assert by_article["Статья 330"] == "Глава 23"
+    # Глава действует до следующего заголовка, а не только на одну статью.
+    assert by_article["Статья 333"] == "Глава 23"
+
+
+def test_roman_numeral_sections_recognised() -> None:
+    text = "Раздел III. Общие положения\nСтатья 1. Первая\nТекст.\n"
+    chunks = [c for c in chunk_by_articles(text, 500) if c["article"]]
+    assert chunks[0]["chapter"] == "Раздел III"
+
+
+def test_article_before_any_chapter_has_no_chapter() -> None:
+    text = "Статья 1. Первая\nТекст.\n\nГлава 2. Вторая глава\nСтатья 5. Пятая\nТекст.\n"
+    by_article = {c["article"]: c["chapter"] for c in chunk_by_articles(text, 500) if c["article"]}
+    assert by_article["Статья 1"] is None
+    assert by_article["Статья 5"] == "Глава 2"
+
+
+def test_chapter_key_present_even_without_markup() -> None:
+    """Потребитель не должен проверять наличие ключа."""
+    assert all("chapter" in c for c in chunk_by_articles("Просто текст без разметки.", 500))

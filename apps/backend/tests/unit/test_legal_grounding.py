@@ -291,3 +291,42 @@ def test_finding_without_quote_survives() -> None:
     f = {"критичность": "жёлтый"}
     legal_module._escalate_severity(f)
     assert f["критичность"] == "жёлтый"
+
+
+# --- Флаг «релевантных норм не найдено» -------------------------------------
+# Пороги взяты из замера на живом индексе (3334 чанка): реальные куски договора
+# дают косинус 0.814–0.865 и BM25 69–110, заведомая чушь — 0.000–0.807 и 0–13.
+
+
+def _chunk(vector: float, bm25: float) -> dict:
+    return {"text": "норма", "source": "a.txt", "vector_score": vector, "bm25_score": bm25}
+
+
+def test_low_confidence_when_both_signals_are_weak() -> None:
+    assert legal_module._is_low_confidence([_chunk(0.767, 8.4)]) is True
+
+
+def test_not_low_confidence_when_only_lexical_matches() -> None:
+    """Ровно случай ст. 333: косинус в полосе шума, зато точное совпадение по
+    словам. Выбросить такую норму значило бы обнулить смысл гибридного поиска."""
+    assert legal_module._is_low_confidence([_chunk(0.789, 43.1)]) is False
+
+
+def test_not_low_confidence_when_only_vector_matches() -> None:
+    """Обратный случай: пункт перефразирован, общих слов с нормой нет."""
+    assert legal_module._is_low_confidence([_chunk(0.865, 0.0)]) is False
+
+
+def test_low_confidence_on_empty_result() -> None:
+    assert legal_module._is_low_confidence([]) is True
+
+
+def test_old_retriever_output_is_not_flagged() -> None:
+    """У чанков без сырых баллов (векторный ретривер, fallback) судить не по
+    чему — объявлять низкую уверенность на пустом месте нельзя."""
+    assert legal_module._is_low_confidence([{"text": "норма", "source": "a.txt"}]) is False
+
+
+def test_best_chunk_decides_not_the_first() -> None:
+    weak_then_strong = [_chunk(0.77, 1.0), _chunk(0.90, 0.0)]
+    assert legal_module._is_low_confidence(weak_then_strong) is False

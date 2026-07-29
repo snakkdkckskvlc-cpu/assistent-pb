@@ -131,6 +131,9 @@ async def test_run_legal_analysis_splits_and_merges(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(
         legal, "retrieve_many", lambda queries, top_k=None, where=None: [[] for _ in queries]
     )
+    monkeypatch.setattr(
+        legal, "retrieve_hybrid", lambda queries, top_k=None, where=None: [[] for _ in queries]
+    )
 
     # Договор заведомо больше одного окна.
     text = "Пункт договора об ответственности сторон. " * 3000
@@ -221,6 +224,9 @@ async def test_final_pass_timeout_does_not_lose_findings(monkeypatch: pytest.Mon
     monkeypatch.setattr(legal.llm, "chat_json", fake_chat_json)
     monkeypatch.setattr(
         legal, "retrieve_many", lambda queries, top_k=None, where=None: [[] for _ in queries]
+    )
+    monkeypatch.setattr(
+        legal, "retrieve_hybrid", lambda queries, top_k=None, where=None: [[] for _ in queries]
     )
     monkeypatch.setattr(legal, "_FINAL_PASS_TIMEOUT_SEC", 0.2)
 
