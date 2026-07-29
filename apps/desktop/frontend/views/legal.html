@@ -101,8 +101,13 @@
           normBadge = "✓ ";
           normHint = "Номер статьи найден в переданных нормах";
         }
+        // Уровень, поднятый программой по цифрам из пункта, а не выставленный
+        // моделью, — показываем причину, чтобы юрист мог с ней не согласиться.
+        const raised = f["_критичность_повышена"]
+          ? ` <span class="crit-raised" title="Критичность повышена автоматически по расчёту">▲ ${escapeHtml(f["_критичность_повышена"])}</span>`
+          : "";
         parts.push(`<div class="finding ${cls}">
-          <div class="crit-label">${critLabel(f["критичность"])}</div>
+          <div class="crit-label">${critLabel(f["критичность"])}${raised}</div>
           <blockquote>${escapeHtml(f["цитата_из_договора"] || "")}${quoteWarn}</blockquote>
           <div><b>Риск:</b> ${escapeHtml(f["в_чём_риск"] || "")}</div>
           <div class="redline"><b>Правка:</b> ${escapeHtml(f["предложение_правки"] || "")}</div>

@@ -212,3 +212,82 @@ def test_trim_norm_without_markup_cuts_on_sentence() -> None:
     trimmed = legal_module._trim_norm_text(text, 500)
     assert len(trimmed) <= 500
     assert trimmed.rstrip().endswith(".")
+
+
+# --- Автоматическое повышение критичности -----------------------------------
+# Регрессия на живой прогон договора ДГ-1010-1548-05-26: модель поставила
+# «жёлтый» 18 находкам из 19, включая неустойку 2 % за день просрочки и штраф
+# 20 % от стоимости. Красных не было ни одной, хотя в ручном разборе они есть.
+
+
+def _finding(quote: str, crit: str = "жёлтый") -> dict:
+    return {"критичность": crit, "цитата_из_договора": quote}
+
+
+def test_daily_penalty_above_threshold_becomes_red() -> None:
+    f = _finding(
+        "За несвоевременное выполнение работ Подрядчик уплачивает Заказчику "
+        "неустойку в размере 2% за каждый день просрочки от суммы договора."
+    )
+    legal_module._escalate_severity(f)
+    assert f["критичность"] == "красный"
+    assert "730" in f["_критичность_повышена"]  # 2 % в день = 730 % годовых
+
+
+def test_daily_penalty_with_comma_decimal_and_calendar_day() -> None:
+    f = _finding("пеня в размере 0,5 % за каждый календарный день просрочки")
+    legal_module._escalate_severity(f)
+    assert f["критичность"] == "красный"
+
+
+def test_ordinary_daily_penalty_stays_with_model() -> None:
+    """0,1 % в день — обычная договорная ставка, повышать её нельзя."""
+    f = _finding("неустойку в размере 0,1 % за каждый день просрочки")
+    legal_module._escalate_severity(f)
+    assert f["критичность"] == "жёлтый"
+    assert "_критичность_повышена" not in f
+
+
+def test_fixed_fine_above_threshold_becomes_red() -> None:
+    f = _finding(
+        "Заказчик вправе требовать уплаты штрафа в размере 20 % от стоимости уступленных прав"
+    )
+    legal_module._escalate_severity(f)
+    assert f["критичность"] == "красный"
+    assert "20" in f["_критичность_повышена"]
+
+
+def test_small_fine_is_not_escalated() -> None:
+    f = _finding("Подрядчик уплачивает штраф в размере 5 % от стоимости работ")
+    legal_module._escalate_severity(f)
+    assert f["критичность"] == "жёлтый"
+
+
+def test_escalation_never_downgrades() -> None:
+    """Правило работает только вверх: «красный» от модели остаётся красным
+    даже там, где цифр в цитате нет вовсе."""
+    f = _finding("Ответственность Подрядчика не ограничена", crit="красный")
+    legal_module._escalate_severity(f)
+    assert f["критичность"] == "красный"
+    assert "_критичность_повышена" not in f
+
+
+def test_percent_without_day_marker_is_not_a_daily_rate() -> None:
+    """«Аванс 30 % от цены договора» — это не ставка неустойки."""
+    f = _finding("Заказчик выплачивает аванс в размере 30 % от цены договора.")
+    legal_module._escalate_severity(f)
+    assert f["критичность"] == "жёлтый"
+
+
+def test_percent_in_another_sentence_does_not_leak_into_daily_rate() -> None:
+    """Точка обрывает поиск: процент из одного предложения не должен
+    склеиваться со словами «за каждый день» из следующего."""
+    f = _finding("Аванс составляет 30 %. Работы сдаются за каждый день по акту.")
+    legal_module._escalate_severity(f)
+    assert f["критичность"] == "жёлтый"
+
+
+def test_finding_without_quote_survives() -> None:
+    f = {"критичность": "жёлтый"}
+    legal_module._escalate_severity(f)
+    assert f["критичность"] == "жёлтый"

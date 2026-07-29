@@ -231,6 +231,9 @@ th { color: var(--muted); font-weight: 500; font-size: 13px; text-transform: upp
 .finding.crit-red .crit-label { color: var(--red); }
 .finding.crit-yellow .crit-label { color: var(--yellow); }
 .finding.crit-green .crit-label { color: var(--green); }
+/* Причина автоматического повышения уровня — приглушённо, чтобы не спорила с
+   самим уровнем, но была видна: это утверждение программы, а не модели. */
+.finding .crit-raised { font-weight: 400; font-size: 12px; color: var(--muted); }
 .finding blockquote {
   margin: 8px 0;
   padding: 8px 12px;
