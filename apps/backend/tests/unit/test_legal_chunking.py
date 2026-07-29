@@ -199,3 +199,33 @@ def test_condense_findings_respects_budget() -> None:
     condensed = legal._condense_findings(findings, 500)
     assert len(condensed) <= 700  # бюджет + длина последней строки
     assert "красный" in condensed
+
+
+async def test_final_pass_timeout_does_not_lose_findings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Зависший финальный проход не должен утаскивать за собой весь результат.
+
+    Регрессия с живого прогона: этот вызов завис и держал задачу 5.7 часа
+    сверх 40 минут основного разбора — read-таймаут httpx считает паузу МЕЖДУ
+    байтами и при медленной потоковой генерации не срабатывает никогда.
+    """
+    import asyncio
+
+    async def fake_chat_json(system: str, user: str, **kwargs) -> dict:
+        if "ОГЛАВЛЕНИЕ ДОГОВОРА" in user:
+            await asyncio.sleep(60)  # финальный проход «завис»
+        return {
+            "находки": [{"критичность": "красный", "цитата_из_договора": f"п. {len(user)}"}],
+            "сводка": {"плюсы_для_компании": [], "минусы_для_компании": [], "общий_вывод": "ok"},
+        }
+
+    monkeypatch.setattr(legal.llm, "chat_json", fake_chat_json)
+    monkeypatch.setattr(
+        legal, "retrieve_many", lambda queries, top_k=None, where=None: [[] for _ in queries]
+    )
+    monkeypatch.setattr(legal, "_FINAL_PASS_TIMEOUT_SEC", 0.2)
+
+    result = await legal.run_legal_analysis("Пункт договора об ответственности. " * 3000)
+
+    # Находки частей на месте, несмотря на провалившийся финальный проход.
+    assert result["находки"]
+    assert "системные_выводы" not in (result["сводка"] or {})

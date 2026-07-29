@@ -95,6 +95,11 @@ def _norm_filter_for(part: str) -> dict:
 # Запас на разметку ролей, служебные токены и погрешность оценки.
 _SAFETY_TOKENS = 300
 
+# Потолок на финальный проход по договору. Ориентир: одна часть договора на
+# этом железе считается 2.5–3 минуты, и финальный запрос заметно меньше их по
+# объёму, так что 10 минут — это уже втрое больше ожидаемого.
+_FINAL_PASS_TIMEOUT_SEC = 600
+
 
 def _estimate_tokens(text: str) -> int:
     return int(len(text) / _CHARS_PER_TOKEN)
@@ -574,7 +579,20 @@ async def run_legal_analysis(
             task.progress = "Свожу картину по договору целиком"
             task.percent = base_percent + int(span_percent * 0.95)
         try:
-            final = await _final_pass(text, merged_findings, task)
+            # Жёсткий предел по времени. На живом прогоне этот вызов однажды
+            # завис и держал задачу 5.7 часа сверх 40 минут основного разбора:
+            # read-таймаут httpx считает паузу МЕЖДУ байтами, а в потоковом
+            # режиме медленная генерация его не превышает никогда. Финальный
+            # проход — приятное дополнение, а не обязательная часть, поэтому
+            # лучше остаться без него, чем без результата вообще.
+            final = await asyncio.wait_for(
+                _final_pass(text, merged_findings, task), timeout=_FINAL_PASS_TIMEOUT_SEC
+            )
+        except TimeoutError:
+            log.warning(
+                "Финальный проход не уложился в %d сек — отдаём результат без системных выводов",
+                _FINAL_PASS_TIMEOUT_SEC,
+            )
         except Exception as e:  # noqa: BLE001
             log.warning("Финальный проход не удался: %s", e)
         else:
