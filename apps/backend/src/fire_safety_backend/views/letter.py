@@ -38,4 +38,12 @@ async def api_letter_render(fields: LetterFields) -> dict:
         await asyncio.to_thread(build_letter_docx, fields.model_dump(), output_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Не удалось собрать DOCX: {e}") from e
-    return {"docx_path": filename}
+    # Без бланка письмо уходит контрагенту без реквизитов, ИНН и банковских
+    # данных — то есть как обычный текст, а не официальный документ компании.
+    # Файл при этом создаётся и открывается, поэтому сказать об этом надо
+    # ЯВНО и до отправки: иначе разницу замечают, только сравнив письма
+    # вручную (так и случилось, когда шаблон пропал).
+    return {
+        "docx_path": filename,
+        "letterhead_missing": not config.LETTERHEAD_TEMPLATE.exists(),
+    }

@@ -185,7 +185,9 @@ def _wait_backend(url: str, timeout: int = 90) -> bool:
                 return True
         except Exception:
             pass
-        time.sleep(0.5)
+        # Шаг опроса заметен на глаз: backend поднимается за ~2 c, и при шаге
+        # 0.5 c окно в среднем ждало ещё четверть секунды уже готовый сервер.
+        time.sleep(0.15)
     return False
 
 

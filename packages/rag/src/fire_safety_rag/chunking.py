@@ -22,13 +22,34 @@ resources/nltk_data, сеть не нужна), затем жадно упако
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from pathlib import Path
-
-import nltk
+from typing import Any
 
 _NLTK_DATA_DIR = Path(__file__).resolve().parent / "resources" / "nltk_data"
-if str(_NLTK_DATA_DIR) not in nltk.data.path:
-    nltk.data.path.insert(0, str(_NLTK_DATA_DIR))
+
+
+@lru_cache(maxsize=1)
+def _nltk() -> Any:
+    """nltk импортируется ЛЕНИВО — при первой разбивке текста, не при старте.
+
+    `import nltk` выполняет nltk/__init__.py, который через
+    nltk.collocations → nltk.metrics.association подтягивает scipy.stats.
+    Замерено: 2.8 c, из них ~1.5 c приходится на scipy — при том, что
+    чанкеру нужна ровно одна функция, sent_tokenize, и ни collocations, ни
+    метрики он не использует. Целевой `from nltk.tokenize import ...` не
+    помогает: пакетный __init__ всё равно исполняется.
+
+    Этот модуль импортируется по цепочке из fire_safety_backend.main, поэтому
+    2.8 c платились при КАЖДОМ запуске приложения — 40% времени до появления
+    окна. Теперь они платятся при первой обработке документа, где на фоне
+    минут работы модели незаметны.
+    """
+    import nltk
+
+    if str(_NLTK_DATA_DIR) not in nltk.data.path:
+        nltk.data.path.insert(0, str(_NLTK_DATA_DIR))
+    return nltk
 
 
 # Границы структурных единиц нормативных актов. Разметка отличается по типу
@@ -73,7 +94,7 @@ _ARTICLE_BOUNDARY = re.compile(
 
 
 def _split_sentences(text: str) -> list[str]:
-    return [s for s in nltk.tokenize.sent_tokenize(text, language="russian") if s.strip()]
+    return [s for s in _nltk().tokenize.sent_tokenize(text, language="russian") if s.strip()]
 
 
 def _split_long_sentence(sentence: str, max_words: int) -> list[str]:
