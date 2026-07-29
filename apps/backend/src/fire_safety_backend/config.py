@@ -41,6 +41,65 @@ def _default_llm_model() -> str:
     return "qwen2.5:7b-instruct"
 
 
+def _total_ram_gb() -> float:
+    """Сколько всего ОЗУ на машине. 0.0 — определить не удалось."""
+    try:
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9
+    except (ValueError, OSError, AttributeError):
+        pass
+    try:  # Windows
+        import ctypes
+
+        class _MemStatus(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        status = _MemStatus()
+        status.dwLength = ctypes.sizeof(_MemStatus)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
+        return status.ullTotalPhys / 1e9
+    except Exception:  # noqa: BLE001 — на не-Windows это просто не сработает
+        return 0.0
+
+
+def _auto_num_ctx_legal() -> int:
+    """Окно юр. анализа под фактическую память машины.
+
+    Зачем автоматически. Одна и та же сборка ставится и на машину
+    разработчика (8 ГБ), и на боевой сервер (Ryzen 5 5600, 128 ГБ). Жёсткое
+    значение под слабую машину обесценивает сильную, а под сильную — вешает
+    слабую: замерено, что на 8 ГБ при окне 16384 KV-кэш вытеснил всё в swap
+    (7 ГБ свопа при 8 ГБ памяти) и анализ замедлился примерно в восемь раз.
+
+    Расчёт памяти: сама модель ~5 ГБ (7B в Q4_K_M) плюс KV-кэш, у qwen2.5-7B
+    это ~56 КБ на токен окна, то есть 32768 ≈ +1,8 ГБ. Плюс запас на ОС и
+    остальное приложение. Пороги ниже с этим запасом и выставлены.
+
+    Значение можно переопределить переменной LLM_NUM_CTX_LEGAL — автоподбор
+    тогда не применяется вовсе.
+    """
+    ram = _total_ram_gb()
+    if ram <= 0:
+        return 8192  # не смогли определить — берём заведомо безопасное
+    if ram >= 64:
+        # Договор на 17 страниц влезает одним запросом, дробление не нужно.
+        return 32768
+    if ram >= 32:
+        return 16384
+    if ram >= 12:
+        return 12288
+    return 8192
+
+
 # --- LLM (Ollama) ---
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 LLM_MODEL = os.environ.get("LLM_MODEL") or _default_llm_model()
@@ -51,14 +110,14 @@ LLM_NUM_CTX = int(os.environ.get("LLM_NUM_CTX", "4096"))
 # (17 страниц ≈ 16 000 токенов), поэтому pipelines/legal.py режет его на части
 # ПО ЭТОМУ ЗНАЧЕНИЮ.
 #
-# 8192 — намеренно скромно. Пробовали 16384: на машине с 8 ГБ ОЗУ KV-кэш
-# вытеснил всё в swap (7 ГБ свопа при 8 ГБ памяти), и анализ замедлился
-# примерно в восемь раз — одна часть считалась больше 20 минут вместо пары.
-# Поднимать это значение имеет смысл ТОЛЬКО если на сервере действительно есть
-# свободная память (ориентир: ~60 КБ на токен окна, т.е. 16384 ≈ +1 ГБ сверх
-# самой модели). Больше окно — меньше частей и меньше накладных расходов на
-# повторную отправку промпта; на корректность не влияет никак.
-LLM_NUM_CTX_LEGAL = int(os.environ.get("LLM_NUM_CTX_LEGAL", "8192"))
+# Значение подбирается ПО ФАКТИЧЕСКОЙ ПАМЯТИ машины — см. _auto_num_ctx_legal.
+# Раньше здесь стояло жёсткое 8192, выбранное под 8 ГБ машины разработчика, и
+# боевой сервер со 128 ГБ работал в том же тесном режиме: договор дробился на
+# восемь частей вместо одной, а платим мы за каждый ВЫДАННЫЙ токен (замер на
+# этом железе: чтение промпта 165–260 токенов/с, генерация 11–12,5).
+# Восемь частей по 1800 токенов ответа — это 14 400 токенов генерации вместо
+# 3 500 при одном запросе, то есть примерно вчетверо дольше на ровном месте.
+LLM_NUM_CTX_LEGAL = int(os.environ.get("LLM_NUM_CTX_LEGAL", "0")) or _auto_num_ctx_legal()
 LLM_NUM_PREDICT_SPELLCHECK = 1500
 LLM_NUM_PREDICT_LEGAL = 3500
 # Резерв под ответ на ОДНУ часть договора. Меньше общего LLM_NUM_PREDICT_LEGAL:

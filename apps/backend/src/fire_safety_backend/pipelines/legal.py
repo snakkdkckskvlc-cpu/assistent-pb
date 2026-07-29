@@ -548,6 +548,13 @@ async def run_legal_analysis(
         config.LLM_NUM_CTX_LEGAL,
     )
 
+    # Резерв под ответ. Когда договор влез целиком (большое окно на сервере),
+    # находки по всему документу должны уместиться в ОДИН ответ — урезанного
+    # «на часть» резерва тут не хватит, и разбор оборвётся на середине.
+    part_num_predict = (
+        config.LLM_NUM_PREDICT_LEGAL if len(parts) == 1 else config.LLM_NUM_PREDICT_LEGAL_PART
+    )
+
     parts_findings: list[list[dict]] = []
     summaries: list[dict] = []
     rag_sources: set[str] = set()
@@ -656,10 +663,10 @@ async def run_legal_analysis(
             system=prompt,
             user=user_msg,
             num_ctx=config.LLM_NUM_CTX_LEGAL,
-            num_predict=config.LLM_NUM_PREDICT_LEGAL_PART,
+            num_predict=part_num_predict,
             on_delta=make_progress_counter(
                 task,
-                config.LLM_NUM_PREDICT_LEGAL_PART,
+                part_num_predict,
                 base_percent=part_base,
                 span_percent=part_span,
             ),

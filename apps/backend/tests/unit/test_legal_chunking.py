@@ -235,3 +235,61 @@ async def test_final_pass_timeout_does_not_lose_findings(monkeypatch: pytest.Mon
     # Находки частей на месте, несмотря на провалившийся финальный проход.
     assert result["находки"]
     assert "системные_выводы" not in (result["сводка"] or {})
+
+
+# --- Автоподбор окна под память машины --------------------------------------
+# Раньше окно было жёстко 8192 — под 8 ГБ машины разработчика. Боевой сервер со
+# 128 ГБ работал в том же тесном режиме: договор дробился на восемь частей
+# вместо одной, а платим мы за каждый ВЫДАННЫЙ токен (замер: чтение промпта
+# 165–260 токенов/с, генерация 11–12,5).
+
+
+def test_auto_window_grows_with_ram() -> None:
+    from fire_safety_backend import config as config_module
+
+    assert config_module._auto_num_ctx_legal.__doc__  # функция на месте
+    sizes = {}
+    for ram, expected in ((8, 8192), (16, 12288), (32, 16384), (128, 32768)):
+        sizes[ram] = expected
+    # Проверяем саму лестницу порогов через подмену измерителя памяти.
+    import pytest as _pytest
+
+    for ram, expected in sizes.items():
+        with _pytest.MonkeyPatch.context() as mp:
+            mp.setattr(config_module, "_total_ram_gb", lambda ram=ram: float(ram))
+            assert config_module._auto_num_ctx_legal() == expected, f"{ram} ГБ"
+
+
+def test_auto_window_falls_back_when_ram_unknown() -> None:
+    """Не смогли определить память — берём заведомо безопасное значение, а не
+    самое большое: на слабой машине большое окно уводит всё в swap."""
+    import pytest as _pytest
+    from fire_safety_backend import config as config_module
+
+    with _pytest.MonkeyPatch.context() as mp:
+        mp.setattr(config_module, "_total_ram_gb", lambda: 0.0)
+        assert config_module._auto_num_ctx_legal() == 8192
+
+
+def test_single_part_gets_the_full_answer_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Когда договор влез целиком, находки по ВСЕМУ документу должны уместиться
+    в один ответ — урезанного «на часть» резерва не хватит."""
+    import asyncio
+
+    calls: list[dict] = []
+
+    async def fake_chat_json(system: str, user: str, **kwargs) -> dict:
+        calls.append(kwargs)
+        return {"находки": [], "сводка": {}}
+
+    monkeypatch.setattr(legal.llm, "chat_json", fake_chat_json)
+    monkeypatch.setattr(
+        legal, "retrieve_hybrid", lambda queries, top_k=None, where=None: [[] for _ in queries]
+    )
+    monkeypatch.setattr(
+        legal, "retrieve_many", lambda queries, top_k=None, where=None: [[] for _ in queries]
+    )
+
+    asyncio.run(legal.run_legal_analysis("Короткий договор в одну часть."))
+    assert len(calls) == 1, "короткий текст не должен дробиться"
+    assert calls[0]["num_predict"] == config.LLM_NUM_PREDICT_LEGAL

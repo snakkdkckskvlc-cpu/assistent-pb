@@ -127,7 +127,8 @@
       const today = new Date().toLocaleDateString("ru-RU");
       container.innerHTML = `
         <h3>📄 Официальное письмо (на бланке ПожСервис)</h3>
-        <p class="hint">Поля ниже — редактируемые: поправьте текст перед скачиванием, если нужно. В DOCX попадёт то, что видите здесь.</p>
+        <p class="hint">Документ на фирменном бланке уже готов — с шапкой, реквизитами и логотипом.
+        Поля ниже редактируемые: поправьте текст, и при скачивании бланк соберётся заново с вашими правками.</p>
         <div class="letterhead-preview">
           <div class="letterhead-requisites">${LETTERHEAD_REQUISITES}</div>
           <div class="letterhead-dateline">${escapeHtml(today)} № ______________ · На №________ от ______________</div>

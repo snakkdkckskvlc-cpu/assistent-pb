@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 
 from fastapi import APIRouter, HTTPException
@@ -13,6 +14,8 @@ from ..infrastructure.queue import queue
 from ..models import LetterFields, LetterRequest
 from ..pipelines import letter as pipelines
 
+log = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api", tags=["letter"])
 
 
@@ -20,10 +23,26 @@ router = APIRouter(prefix="/api", tags=["letter"])
 async def api_letter(req: LetterRequest) -> dict:
     if not req.draft.strip():
         raise HTTPException(status_code=400, detail="Пустой набросок")
-    task = await queue.submit(
-        "letter",
-        lambda t: pipelines.run_letter(req.draft, req.addressee_type, task=t),
-    )
+
+    async def run(task) -> dict:
+        result = await pipelines.run_letter(req.draft, req.addressee_type, task=task)
+        # Копия фирменного бланка собирается СРАЗУ, вместе с текстом письма, а
+        # не после нажатия «Скачать». Пользователю нужен документ на бланке —
+        # набор текстовых полей это ещё не письмо, и до кнопки было неочевидно,
+        # что бланк вообще будет. Сборка идёт без обращения к модели и занимает
+        # доли секунды; при правке полей в интерфейсе документ пересобирается
+        # через /api/letter/render.
+        if isinstance(result, dict):
+            filename = f"letter_{uuid.uuid4().hex[:12]}.docx"
+            try:
+                await asyncio.to_thread(build_letter_docx, result, config.OUTPUT_DIR / filename)
+            except Exception as e:  # noqa: BLE001 — текст письма ценен и без файла
+                log.warning("Не удалось собрать бланк письма: %s", e)
+            else:
+                result["_docx_path"] = filename
+        return result
+
+    task = await queue.submit("letter", run)
     return {"task_id": task.id}
 
 

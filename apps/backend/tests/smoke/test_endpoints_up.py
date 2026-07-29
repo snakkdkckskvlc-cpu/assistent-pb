@@ -111,8 +111,9 @@ def test_legal_accepts_text(client: TestClient) -> None:
 
 
 def test_letter_accepts_draft(client: TestClient) -> None:
-    # run_letter() отдаёт только текстовые поля — DOCX здесь не собирается,
-    # интерфейс показывает поля редактируемыми и собирает DOCX отдельным
+    # Копия фирменного бланка собирается СРАЗУ вместе с текстом письма:
+    # пользователю нужен документ на бланке, а набор текстовых полей — это
+    # ещё не письмо. При правке полей в интерфейсе документ пересобирается
     # запросом на /api/letter/render (см. test_letter_render_* ниже).
     r = client.post(
         "/api/letter",
@@ -125,7 +126,7 @@ def test_letter_accepts_draft(client: TestClient) -> None:
     payload = result["result"]
     assert payload["тема"] == "test"
     assert payload["тело"] == "Тестовое письмо."
-    assert "_docx_path" not in payload
+    assert payload["_docx_path"].endswith(".docx"), "бланк должен собираться сразу"
     assert "email" not in payload
 
 

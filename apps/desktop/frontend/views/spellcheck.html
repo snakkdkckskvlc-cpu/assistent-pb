@@ -83,12 +83,51 @@
         parts.push(`<p style="color:var(--green)"><b>✓ Ошибок не найдено.</b></p>`);
       }
 
+      // Главное действие — забрать СВОЙ документ с исправлениями: шрифты,
+      // отступы и таблицы на месте, изменены только слова с ошибками.
+      // Оригинал не тронут, это отдельная копия.
+      if (result._docx_path) {
+        const rep = result["_docx_отчёт"] || {};
+        const notFound = (rep["не_найдено"] || []).length;
+        const notes = [];
+        if (rep["применено"]) notes.push(`внесено правок: ${rep["применено"]}`);
+        if (notFound) notes.push(`не удалось найти в документе: ${notFound}`);
+        parts.push(`<h3>Исправленный документ</h3>
+          <p class="hint">Это копия вашего файла — оформление, шрифты и таблицы сохранены,
+          изменены только слова с ошибками. Оригинал не тронут.${notes.length ? " " + escapeHtml(notes.join(", ")) + "." : ""}</p>
+          <div class="actions">
+            <button class="btn" id="sc-download" data-path="${escapeHtml(result._docx_path)}">📄 Скачать исправленный документ</button>
+            <span class="hint" id="sc-download-status"></span>
+          </div>`);
+      }
+
       if (result.corrected_text) {
         parts.push(`<h3>Исправленный текст</h3>`);
         parts.push(`<div class="corrected-text">${escapeHtml(result.corrected_text)}</div>`);
       }
 
       container.innerHTML = parts.join("");
+
+      const dl = document.getElementById("sc-download");
+      if (dl) {
+        dl.addEventListener("click", async () => {
+          const statusEl = document.getElementById("sc-download-status");
+          dl.disabled = true;
+          statusEl.textContent = "Сохраняю…";
+          try {
+            const name = dl.dataset.path;
+            statusEl.textContent = "";
+            const res = await downloadFile(`/api/download/${encodeURIComponent(name)}`, name);
+            if (res && res.ok === false && res.error !== "cancelled") {
+              statusEl.textContent = "Не удалось сохранить: " + res.error;
+            }
+          } catch (e) {
+            statusEl.textContent = "Не удалось скачать: " + e.message;
+          } finally {
+            dl.disabled = false;
+          }
+        });
+      }
     }
 
     const fileInput = document.getElementById("file");
