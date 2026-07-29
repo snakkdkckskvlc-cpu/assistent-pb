@@ -105,3 +105,4 @@ tools/languagetool/LanguageTool-*/
 # запуска, не общий контент. Модельные GGUF-файлы — тоже (~5 ГБ каждый).
 scripts/benchmark_results.json
 scripts/modelfiles/*.gguf
+data/eval_results.json
