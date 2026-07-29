@@ -71,6 +71,8 @@ async def chat(
     }
     if num_predict is not None:
         options["num_predict"] = num_predict
+    if config.LLM_NUM_THREAD is not None:
+        options["num_thread"] = config.LLM_NUM_THREAD
     payload: dict[str, Any] = {
         "model": config.LLM_MODEL,
         "stream": on_delta is not None,
@@ -79,6 +81,14 @@ async def chat(
             {"role": "user", "content": user},
         ],
         "options": options,
+        # Ollama по умолчанию выгружает модель через 5 минут простоя, и
+        # следующий запрос заново читает ~5 ГБ с диска. Замерено на боевой
+        # конфигурации: холодный запрос 9.3 c против 1.2 c тёплого — восемь
+        # секунд впустую. Для офисного инструмента, которым пользуются
+        # несколько раз в день, «холодным» оказывается почти каждый запрос.
+        # Держать модель в памяти дешевле любой другой оптимизации: на
+        # целевом сервере 128 ГБ ОЗУ, модель занимает около 5 ГБ.
+        "keep_alive": config.LLM_KEEP_ALIVE,
     }
     if json_mode:
         payload["format"] = "json"
