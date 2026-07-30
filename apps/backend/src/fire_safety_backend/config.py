@@ -26,6 +26,11 @@ UPLOAD_DIR = DATA_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR = DATA_DIR / "outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
+# Расшифрованные копии документов на время обработки. Именно ЗДЕСЬ, а не в
+# системном %TEMP%: открытая копия договора не должна оставаться там, куда не
+# дотягивается автоочистка (services/retention.py).
+WORK_DIR = DATA_DIR / "tmp"
+WORK_DIR.mkdir(exist_ok=True)
 
 
 def _default_llm_model() -> str:
@@ -118,3 +123,28 @@ SPELLCHECK_CHUNK_WORDS = 300
 # укладывает backend без внятного сообщения. 64 МБ с запасом покрывают
 # реальные документы: договор на 17 страниц со сканами — единицы мегабайт.
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(64 * 1024 * 1024)))
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+# --- Защита данных на диске ---
+# Через приложение проходят договоры контрагентов и письма компании, а
+# разграничения доступа нет: кто получил файлы — получил все документы.
+# Поэтому uploads/outputs хранятся зашифрованными Windows DPAPI (см.
+# infrastructure/dpapi.py и infrastructure/secure_files.py). Выключать имеет
+# смысл только при отладке.
+ENCRYPT_AT_REST = _env_flag("ENCRYPT_AT_REST", True)
+
+# Сколько дней жить загруженным и сгенерированным файлам. Шифрование не
+# спасает от кода, запущенного под этой же учётной записью Windows, — а вот
+# отсутствие файла спасает. Скачанное пользователем лежит там, куда он его
+# сохранил, и очисткой не затрагивается. 0 — не удалять ничего.
+DATA_RETENTION_DAYS = int(os.environ.get("DATA_RETENTION_DAYS", "7"))
+# Как часто проверять сроки, пока приложение открыто. Раз в 6 часов: рабочий
+# день длиннее, чем интервал, поэтому долгую сессию очистка тоже накрывает.
+DATA_RETENTION_SWEEP_SEC = int(os.environ.get("DATA_RETENTION_SWEEP_SEC", str(6 * 60 * 60)))

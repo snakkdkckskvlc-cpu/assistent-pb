@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from docx import Document
 
 from ... import config
+from .. import secure_files
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -145,6 +146,13 @@ def _plain_docx(corrected_text: str, dest: Path) -> Path:
     return dest
 
 
+def _plain_result(corrected_text: str, dest: Path) -> tuple[Path, bool]:
+    """Простой DOCX по логическому пути, с шифрованием на диске."""
+    with secure_files.encrypted_output(dest) as writable:
+        _plain_docx(corrected_text, writable)
+    return dest, False
+
+
 def build_corrected_docx(
     corrected_text: str,
     errors: list[dict],
@@ -155,6 +163,10 @@ def build_corrected_docx(
     Второй элемент — True, если удалось поправить копию оригинала (значит
     форматирование на месте), и False, если документ собран заново из текста.
     Интерфейсу это нужно, чтобы честно сказать пользователю, что он получит.
+
+    `source_path` — ЛОГИЧЕСКИЙ путь загруженного файла (без `.enc`): из него
+    берутся имя результата и расширение, а сам файл читается через
+    расшифрованную копию.
     """
     out_name = "документ"
     if source_path is not None:
@@ -163,19 +175,27 @@ def build_corrected_docx(
 
     is_docx = source_path is not None and source_path.suffix.lower() == ".docx"
     if not is_docx:
-        return _plain_docx(corrected_text, dest), False
+        return _plain_result(corrected_text, dest)
 
     pairs = _replacements(errors)
     try:
-        shutil.copyfile(source_path, dest)
-        doc = Document(str(dest))
-        total = sum(_apply_to_paragraph(p, pairs) for p in _iter_paragraphs(doc))
-        doc.save(str(dest))
+        with secure_files.encrypted_output(dest) as writable:
+            # Копия делается с расшифрованной копии оригинала: на диске
+            # оригинал лежит зашифрованным, а python-docx умеет только файл.
+            with secure_files.plaintext(source_path) as readable:
+                shutil.copyfile(readable, writable)
+            doc = Document(str(writable))
+            total = sum(_apply_to_paragraph(p, pairs) for p in _iter_paragraphs(doc))
+            doc.save(str(writable))
+    except secure_files.StorageUnprotected:
+        # Не «нестандартный DOCX», а отказ хранилища — простой документ тут
+        # тоже сохранить не удастся, и подменять причину в логе незачем.
+        raise
     except Exception:
         # Порченный/нестандартный DOCX не должен лишать пользователя
         # исправленного текста — отдаём хотя бы простой документ.
         log.exception("Не удалось поправить копию %s — отдаю простой DOCX", source_path)
-        return _plain_docx(corrected_text, dest), False
+        return _plain_result(corrected_text, dest)
 
     log.info("Исправленный документ: %s (замен: %d)", dest.name, total)
     return dest, True

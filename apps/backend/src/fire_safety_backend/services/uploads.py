@@ -8,16 +8,20 @@ from pathlib import Path
 from fastapi import HTTPException, UploadFile
 
 from .. import config
+from ..infrastructure import secure_files
 from ..infrastructure.parsers import UnsupportedFormatError, extract_text_with_meta
 
 _READ_CHUNK = 1024 * 1024
 
 
-async def _read_limited(file: UploadFile) -> bytes:
+async def read_limited(file: UploadFile) -> bytes:
     """Читает файл кусками, обрываясь на превышении потолка.
 
     Именно кусками, а не `await file.read()`: тот загрузит в память всё, что
     прислали, — и проверять размер ПОСЛЕ этого уже поздно, память съедена.
+
+    Публичная: тем же потолком обязана пользоваться пакетная проверка
+    (views/batch.py) — она принимает до 20 файлов за раз.
     """
     parts: list[bytes] = []
     total = 0
@@ -41,6 +45,10 @@ async def text_from_input_with_source(
     Путь нужен проверке орфографии: она отдаёт исправленный документ КОПИЕЙ
     оригинала (с сохранением форматирования), а для этого нужен сам файл, а не
     только вытащенный из него текст. None — когда текст вставили руками.
+
+    Отдаётся ЛОГИЧЕСКИЙ путь (`data/uploads/договор.docx`), даже если на диске
+    лежит `договор.docx.enc`: получатель берёт из него `stem` и `suffix` —
+    имя для результата и выбор парсера.
     """
     if text and text.strip():
         return text, "", None
@@ -51,16 +59,25 @@ async def text_from_input_with_source(
         )
     # Path(...).name защищает от path traversal через file.filename.
     safe_name = Path(file.filename).name if file.filename else "upload"
-    dest = config.UPLOAD_DIR / safe_name
-    payload = await _read_limited(file)
-    dest.write_bytes(payload)
+    logical = config.UPLOAD_DIR / safe_name
+    payload = await read_limited(file)
+    try:
+        secure_files.store(logical, payload)
+    except secure_files.StorageUnprotected as e:
+        # Шифрование обещано, но не работает. Отказываемся принимать документ,
+        # а не кладём его на диск открытым текстом.
+        raise HTTPException(status_code=500, detail=str(e)) from e
     try:
         # extract_text может запускать OCR (Tesseract) — тяжёлая блокирующая
-        # операция, уводим с event loop.
-        content, meta = await asyncio.to_thread(extract_text_with_meta, dest)
+        # операция, уводим с event loop. Работает по расшифрованной копии:
+        # OCR и pdfplumber умеют только настоящий файл на диске.
+        with secure_files.plaintext(logical) as readable:
+            content, meta = await asyncio.to_thread(extract_text_with_meta, readable)
     except UnsupportedFormatError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return content, meta.warning, dest
+    except secure_files.DecryptError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return content, meta.warning, logical
 
 
 async def text_from_input_with_warning(

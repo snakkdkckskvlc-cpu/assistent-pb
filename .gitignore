@@ -63,6 +63,8 @@ tester_db/
 data/chroma/
 data/uploads/
 data/outputs/
+# Расшифрованные копии документов на время обработки (см. secure_files.py)
+data/tmp/
 data/app.db
 data/app.db-shm
 data/app.db-wal

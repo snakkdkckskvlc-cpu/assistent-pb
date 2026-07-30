@@ -9,11 +9,13 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import pytest
 from docx import Document
 from fire_safety_backend import config
+from fire_safety_backend.infrastructure import secure_files
 from fire_safety_backend.infrastructure.generators.corrected_docx import (
     _replacements,
     build_corrected_docx,
@@ -24,6 +26,19 @@ from fire_safety_backend.infrastructure.generators.corrected_docx import (
 def _isolated_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "OUTPUT_DIR", tmp_path / "out")
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # WORK_DIR тоже во временный каталог: там генератор пишет открытый файл
+    # до шифрования, и в рабочую data/tmp это уезжать не должно.
+    monkeypatch.setattr(config, "WORK_DIR", tmp_path / "work")
+    config.WORK_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _open(logical: Path) -> Document:
+    """Открывает результат, расшифровывая при необходимости.
+
+    В data/outputs документ лежит зашифрованным (secure_files), поэтому
+    `Document(str(path))` его больше не откроет — и не должен.
+    """
+    return Document(io.BytesIO(secure_files.load(logical)))
 
 
 _ERRORS = [
@@ -52,7 +67,7 @@ def _source(tmp_path: Path) -> Path:
 def test_corrections_applied_in_body(tmp_path: Path) -> None:
     out, is_copy = build_corrected_docx("неважно", _ERRORS, _source(tmp_path))
     assert is_copy is True
-    text = "\n".join(p.text for p in Document(str(out)).paragraphs)
+    text = "\n".join(p.text for p in _open(out).paragraphs)
     assert "ответственность" in text
     assert "ответственость" not in text
     assert "в течение трёх дней" in text
@@ -61,7 +76,7 @@ def test_corrections_applied_in_body(tmp_path: Path) -> None:
 def test_corrections_applied_inside_tables(tmp_path: Path) -> None:
     """В договорах и приказах часть текста живёт в таблицах."""
     out, _ = build_corrected_docx("неважно", _ERRORS, _source(tmp_path))
-    cell = Document(str(out)).tables[0].rows[0].cells[1].text
+    cell = _open(out).tables[0].rows[0].cells[1].text
     assert "согласно графику" in cell
     assert "согласно графика" not in cell
 
@@ -69,7 +84,7 @@ def test_corrections_applied_inside_tables(tmp_path: Path) -> None:
 def test_heading_and_table_styles_survive(tmp_path: Path) -> None:
     """Ради этого фича и делается копией, а не новым файлом."""
     out, _ = build_corrected_docx("неважно", _ERRORS, _source(tmp_path))
-    doc = Document(str(out))
+    doc = _open(out)
     assert doc.paragraphs[0].style.name == "Heading 1"
     assert len(doc.tables) == 1
     assert doc.tables[0].style.name == "Table Grid"
@@ -82,7 +97,7 @@ def test_bold_survives_when_correction_fits_one_run(tmp_path: Path) -> None:
     примениться БЕЗ слияния run'ов.
     """
     out, _ = build_corrected_docx("неважно", _ERRORS, _source(tmp_path))
-    para = Document(str(out)).paragraphs[1]
+    para = _open(out).paragraphs[1]
     assert any(r.bold and "в течение" in (r.text or "") for r in para.runs)
 
 
@@ -97,7 +112,7 @@ def test_correction_split_across_runs_is_applied(tmp_path: Path) -> None:
 
     out, is_copy = build_corrected_docx("неважно", _ERRORS, path)
     assert is_copy is True
-    assert "ответственность" in Document(str(out)).paragraphs[0].text
+    assert "ответственность" in _open(out).paragraphs[0].text
 
 
 def test_original_file_is_not_modified(tmp_path: Path) -> None:
@@ -115,13 +130,13 @@ def test_non_docx_source_falls_back_to_plain_document(tmp_path: Path) -> None:
     pdf.write_bytes(b"%PDF-1.4 not a real pdf")
     out, is_copy = build_corrected_docx("Исправленный текст документа.", _ERRORS, pdf)
     assert is_copy is False
-    assert "Исправленный текст документа." in Document(str(out)).paragraphs[0].text
+    assert "Исправленный текст документа." in _open(out).paragraphs[0].text
 
 
 def test_pasted_text_without_source_still_gives_document(tmp_path: Path) -> None:
     out, is_copy = build_corrected_docx("Первая строка.\nВторая строка.", [], None)
     assert is_copy is False
-    texts = [p.text for p in Document(str(out)).paragraphs]
+    texts = [p.text for p in _open(out).paragraphs]
     assert "Первая строка." in texts
     assert "Вторая строка." in texts
 
@@ -132,13 +147,13 @@ def test_broken_docx_does_not_lose_the_result(tmp_path: Path) -> None:
     fake.write_bytes(b"PK\x03\x04 not a real docx")
     out, is_copy = build_corrected_docx("Исправленный текст.", _ERRORS, fake)
     assert is_copy is False
-    assert "Исправленный текст." in Document(str(out)).paragraphs[0].text
+    assert "Исправленный текст." in _open(out).paragraphs[0].text
 
 
 def test_document_without_errors_is_still_a_valid_copy(tmp_path: Path) -> None:
     out, is_copy = build_corrected_docx("неважно", [], _source(tmp_path))
     assert is_copy is True
-    assert Document(str(out)).paragraphs[0].style.name == "Heading 1"
+    assert _open(out).paragraphs[0].style.name == "Heading 1"
 
 
 class TestReplacementPairs:
