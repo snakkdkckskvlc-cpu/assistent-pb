@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from . import config
-from .infrastructure import languagetool, llm, secure_files
+from .infrastructure import languagetool, llm, netguard, secure_files
 from .infrastructure.db import init_db
 from .infrastructure.queue import queue
 from .services import addressees as addressee_service
@@ -40,6 +40,17 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 log = logging.getLogger(__name__)
+
+# Запрет выхода в интернет включается НА ИМПОРТЕ этого модуля, а не в
+# lifespan. Две причины. Первая: офлайн-флаги huggingface_hub читаются им при
+# импорте, а RAG подгружается лениво уже после старта — выставить их надо
+# заранее. Вторая: это единственная точка, через которую проходят оба способа
+# запуска — и десктопное окно, и `uvicorn fire_safety_backend.main:app`.
+#
+# Скрипты (scripts/index_corpus.py, index_letters.py, warm_models.py) этот
+# модуль НЕ импортируют, поэтому им сеть остаётся: первая загрузка модели
+# эмбеддингов идёт из интернета.
+netguard.install()
 
 
 async def _record_task_history(task) -> None:

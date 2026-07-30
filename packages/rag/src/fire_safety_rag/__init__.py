@@ -1,12 +1,13 @@
 from .chunking import chunk_sentences
 from .hybrid_retriever import HybridRetriever, hybrid_ready, retrieve_hybrid
 from .letters import letters_ready, retrieve_letters
-from .retriever import Retriever, is_ready, retrieve, retrieve_many
+from .retriever import Retriever, embed_model_cached, is_ready, retrieve, retrieve_many
 
 __all__ = [
     "HybridRetriever",
     "Retriever",
     "chunk_sentences",
+    "embed_model_cached",
     "hybrid_ready",
     "is_ready",
     "letters_ready",

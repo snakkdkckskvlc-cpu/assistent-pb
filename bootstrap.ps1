@@ -451,6 +451,27 @@ if (-not (Test-Path $corpusDir)) {
 $docCount = (Get-ChildItem $corpusDir -File -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
 Write-Host "  Documents found: $docCount" -ForegroundColor Gray
 
+# Embedding model is downloaded HERE, explicitly, and not as a side effect of
+# indexing. The application is forbidden to use the network at runtime (see
+# apps/backend/.../infrastructure/netguard.py), so a model that is not cached
+# by the time installation ends will never be downloaded - and the regulatory
+# database would silently stay disconnected.
+Write-Host "  Preparing embedding model (~1.3 GB, downloaded once)..." -ForegroundColor Yellow
+Push-Location $root
+try {
+    $env:PYTHONPATH = "$root\apps\backend\src;$root\packages\rag\src"
+    & $venvPython (Join-Path $root "scripts\warm_models.py")
+    if ($LASTEXITCODE -eq 0) {
+        Ok "Embedding model ready"
+    } else {
+        Warn "Embedding model not downloaded. Regulatory database will not work offline. Rerun: python scripts\warm_models.py"
+    }
+} catch {
+    Warn "Embedding model error: $($_.Exception.Message)"
+} finally {
+    Pop-Location
+}
+
 if ($docCount -gt 0) {
     Write-Host "  Indexing corpus (first run will download embedding model ~1.3 GB)..." -ForegroundColor Yellow
     Push-Location $root

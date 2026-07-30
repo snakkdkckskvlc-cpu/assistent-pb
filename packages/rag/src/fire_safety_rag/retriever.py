@@ -8,6 +8,7 @@ backend без тяжёлых RAG-зависимостей на dev-машине
 from __future__ import annotations
 
 import logging
+import os
 from functools import lru_cache
 
 from . import config
@@ -141,3 +142,29 @@ def retrieve_many(
 def is_ready() -> bool:
     """Готовность RAG без пересоздания ретривера (для /api/health)."""
     return _default_retriever().is_ready()
+
+
+def embed_model_cached() -> bool:
+    """Скачана ли модель эмбеддингов в кеш HuggingFace.
+
+    Нужно для внятной диагностики. Приложению запрещён выход в интернет
+    (backend/infrastructure/netguard.py), поэтому модель обязана быть скачана
+    заранее — установщиком или scripts/warm_models.py. Если её нет, ретривер
+    молча уходит в no-op, и «нормативная база не подключена» выглядит точно
+    так же, как «индекс пустой», хотя лечится совсем иначе.
+
+    Проверяется наличие каталога в кеше, а не работоспособность модели:
+    это подсказка пользователю, а не средство защиты.
+    """
+    from pathlib import Path
+
+    slug = "models--" + config.EMBED_MODEL.replace("/", "--")
+    roots: list[Path] = []
+    if hub_cache := os.environ.get("HF_HUB_CACHE"):
+        roots.append(Path(hub_cache))
+    if hf_home := os.environ.get("HF_HOME"):
+        roots.append(Path(hf_home) / "hub")
+    roots.append(Path.home() / ".cache" / "huggingface" / "hub")
+    # Совсем старая раскладка кеша, без подкаталога hub/.
+    roots.append(Path.home() / ".cache" / "huggingface")
+    return any((root / slug).is_dir() for root in roots)
