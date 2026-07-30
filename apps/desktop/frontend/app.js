@@ -6,6 +6,14 @@ async function updateHealth() {
   try {
     const r = await fetch("/api/health");
     const data = await r.json();
+    // Сломанное шифрование важнее остальных статусов: в этом состоянии
+    // приложение отказывается сохранять документы, и узнать об этом из
+    // ошибки посреди работы — хуже, чем увидеть заранее.
+    if (data.security && data.security.encryption_broken) {
+      el.textContent = "⚠ Шифрование не работает — документы не сохраняются";
+      el.className = "status err";
+      return;
+    }
     if (data.ok) {
       const rag = data.rag_ready ? " · нормативная база подключена" : " · нормативная база не подключена";
       const lt = data.languagetool_ready ? " · LanguageTool подключен" : "";

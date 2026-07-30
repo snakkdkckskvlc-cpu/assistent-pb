@@ -25,6 +25,22 @@
       <div id="error" class="error-box" style="display:none"></div>
       <div id="list" class="result"></div>
     </div>
+
+    <div class="section">
+      <h2>🔒 Защита данных</h2>
+      <p class="hint">
+        Загруженные документы и готовые файлы лежат в рабочей папке приложения
+        зашифрованными ключом этой учётной записи Windows. Скачанного вами
+        файла это не касается — он лежит там, куда вы его сохранили.
+      </p>
+
+      <div id="security" class="result"></div>
+
+      <div class="actions">
+        <button class="btn secondary" id="purge">Удалить рабочие файлы</button>
+        <span class="hint" id="purge-status"></span>
+      </div>
+    </div>
   </main>
 
   <script src="/static/app.js"></script>
@@ -86,6 +102,62 @@
       }
     }
 
+    // --- Защита данных ---
+
+    // Значения приходят из нашего же backend'а, но выводятся через escapeHtml
+    // по общему правилу проекта: в HTML не уходит ничего неэкранированного.
+    function chip(cls, text) {
+      return `<span class="chip ${cls}">${escapeHtml(text)}</span>`;
+    }
+
+    function encryptionRow(s) {
+      if (s.encryption === "dpapi") return chip("ok", "включено") + ` ${escapeHtml(s.encryption_reason)}`;
+      if (s.encryption_broken) {
+        return chip("bad", "не работает") +
+          ` ${escapeHtml(s.encryption_reason)} — документы не сохраняются, обработка будет отклонена`;
+      }
+      return chip("warn", "выключено") + ` ${escapeHtml(s.encryption_reason)}`;
+    }
+
+    function bitlockerRow(state) {
+      if (state === "on") return chip("ok", "включено");
+      if (state === "off") {
+        return chip("bad", "выключено") +
+          " — база истории и архив писем на диске лежат открытым текстом";
+      }
+      return chip("warn", "не удалось проверить") +
+        " — нужны права администратора. Проверить вручную: <code>manage-bde -status</code>";
+    }
+
+    function retentionRow(days) {
+      if (days > 0) return chip("ok", `${days} дн.`) + " — потом файлы удаляются сами";
+      return chip("warn", "бессрочно") + " — рабочие файлы накапливаются, пока их не удалить вручную";
+    }
+
+    async function loadSecurity() {
+      const box = document.getElementById("security");
+      try {
+        const r = await fetch("/api/health");
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const s = (await r.json()).security;
+        if (!s) throw new Error("backend не сообщил состояние защиты");
+        box.innerHTML = `
+          <table>
+            <tbody>
+              <tr><td>Шифрование документов</td><td>${encryptionRow(s)}</td></tr>
+              <tr><td>Шифрование диска (BitLocker)</td><td>${bitlockerRow(s.bitlocker)}</td></tr>
+              <tr><td>Срок хранения рабочих файлов</td><td>${retentionRow(s.retention_days)}</td></tr>
+            </tbody>
+          </table>`;
+      } catch (e) {
+        box.innerHTML = "";
+        const p = document.createElement("p");
+        p.className = "hint";
+        p.textContent = `Не удалось получить состояние защиты: ${e.message || e}`;
+        box.appendChild(p);
+      }
+    }
+
     document.getElementById("refresh").addEventListener("click", loadHistory);
     document.getElementById("clear").addEventListener("click", async () => {
       if (!confirm("Удалить всю историю задач?")) return;
@@ -93,7 +165,29 @@
       loadHistory();
     });
 
+    document.getElementById("purge").addEventListener("click", async () => {
+      const msg = "Удалить все загруженные и сгенерированные файлы из рабочей папки?\n\n" +
+        "Скачанные вами документы не тронутся. Ссылки «скачать» у прошлых задач перестанут работать.";
+      if (!confirm(msg)) return;
+      const btn = document.getElementById("purge");
+      const status = document.getElementById("purge-status");
+      btn.disabled = true;
+      status.textContent = "Удаляю…";
+      try {
+        const r = await fetch("/api/data/purge", { method: "POST" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const s = await r.json();
+        const mb = (s.freed_bytes / 1024 / 1024).toFixed(1);
+        status.textContent = `Удалено файлов: загруженных ${s.uploads}, готовых ${s.outputs}. Освобождено ${mb} МБ.`;
+      } catch (e) {
+        status.textContent = `Не удалось: ${e.message || e}`;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
     loadHistory();
+    loadSecurity();
   </script>
 </body>
 </html>
