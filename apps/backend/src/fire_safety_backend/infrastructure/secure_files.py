@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from .. import config
-from . import dpapi
+from . import dpapi, file_access
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -209,6 +209,9 @@ def store(logical: Path, data: bytes) -> Path:
             f"Файл не сохранён: шифрование недоступно ({st.reason}). "
             "Документы не сохраняются открытым текстом."
         )
+    # Приложение пишет только в свою рабочую папку. Проверка ДО mkdir: иначе
+    # отклонённая запись успеет создать каталог в чужом месте.
+    file_access.assert_writable(logical)
     logical.parent.mkdir(parents=True, exist_ok=True)
 
     p = protector()
@@ -281,6 +284,9 @@ def encrypted_output(logical: Path) -> Iterator[Path]:
             f"Файл не сохранён: шифрование недоступно ({st.reason}). "
             "Документы не сохраняются открытым текстом."
         )
+    # Проверяем ЗДЕСЬ, а не только внутри store(): при выключенном шифровании
+    # генератор пишет прямо по этому пути, и store() не вызывается вовсе.
+    file_access.assert_writable(logical)
     logical.parent.mkdir(parents=True, exist_ok=True)
     if protector() is None:
         yield logical

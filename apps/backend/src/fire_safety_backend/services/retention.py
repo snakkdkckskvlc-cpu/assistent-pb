@@ -25,6 +25,7 @@ import time
 from typing import TYPE_CHECKING
 
 from .. import config
+from ..infrastructure import file_access
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -48,7 +49,13 @@ def _entry_size(entry: Path) -> int:
 
 
 def _remove(entry: Path) -> int:
-    """Удаляет файл или каталог, возвращает освобождённый объём."""
+    """Удаляет файл или каталог, возвращает освобождённый объём.
+
+    Проверка границ здесь, а не только в вызывающем коде: это единственная
+    точка, где приложение вообще что-то удаляет, и ошибка в подсчёте путей
+    выше не должна превращаться в удаление чужих файлов.
+    """
+    file_access.assert_writable(entry)
     size = _entry_size(entry)
     if entry.is_dir():
         shutil.rmtree(entry)
