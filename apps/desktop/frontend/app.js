@@ -15,7 +15,12 @@ async function updateHealth() {
       return;
     }
     if (data.ok) {
-      const rag = data.rag_ready ? " · нормативная база подключена" : " · нормативная база не подключена";
+      // Когда база не подключена, backend сообщает ПРИЧИНУ (нескачанная модель
+      // эмбеддингов лечится совсем не так, как пустой индекс) — показываем её,
+      // а не одинаковое «не подключена» на оба случая.
+      const rag = data.rag_ready
+        ? " · нормативная база подключена"
+        : ` · ${data.rag_warning || "нормативная база не подключена"}`;
       const lt = data.languagetool_ready ? " · LanguageTool подключен" : "";
       el.textContent = `● ${data.ollama.model} готова${rag}${lt}`;
       el.className = "status ok";

@@ -134,6 +134,28 @@
       return chip("warn", "бессрочно") + " — рабочие файлы накапливаются, пока их не удалить вручную";
     }
 
+    function networkRow(s) {
+      if (s.network !== "loopback") {
+        return chip("bad", "разрешён") +
+          ` ${escapeHtml(s.network_reason)} — приложение может обращаться в интернет`;
+      }
+      const n = s.network_blocked_attempts || 0;
+      if (!n) return chip("ok", "запрещён") + " — за эту сессию наружу не обращалось";
+      // Список показываем: «пыталось выйти» без «куда» бесполезно.
+      const where = (s.network_blocked_targets || []).map(escapeHtml).join(", ");
+      return chip("warn", "запрещён") +
+        ` — отклонено попыток: ${n}${where ? ` (${where})` : ""}`;
+    }
+
+    function integrityRow(state) {
+      if (state === "ok") return chip("ok", "не изменён");
+      if (state === "changed") {
+        return chip("bad", "ИЗМЕНЁН") +
+          " — файлы программы отличаются от выпущенных. Восстановить: <code>git reset --hard origin/main</code>";
+      }
+      return chip("warn", "не проверить") + " — нет файла контрольных сумм integrity.json";
+    }
+
     async function loadSecurity() {
       const box = document.getElementById("security");
       try {
@@ -147,6 +169,8 @@
               <tr><td>Шифрование документов</td><td>${encryptionRow(s)}</td></tr>
               <tr><td>Шифрование диска (BitLocker)</td><td>${bitlockerRow(s.bitlocker)}</td></tr>
               <tr><td>Срок хранения рабочих файлов</td><td>${retentionRow(s.retention_days)}</td></tr>
+              <tr><td>Выход в интернет</td><td>${networkRow(s)}</td></tr>
+              <tr><td>Код программы</td><td>${integrityRow(s.code_integrity)}</td></tr>
             </tbody>
           </table>`;
       } catch (e) {
