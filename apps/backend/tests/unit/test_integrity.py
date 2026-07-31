@@ -33,10 +33,10 @@ def _tree(root: Path) -> Path:
         "scripts/index_corpus.py": "print('ok')\n",
         "bootstrap.ps1": "Write-Host 'install'\n",
         "requirements-runtime.txt": "fastapi\n",
+        "apps/backend/src/fire_safety_backend/resources/templates/letterhead.docx": "бланк\n",
         # Не должно попасть в манифест:
         "apps/backend/tests/unit/test_x.py": "def test_x(): pass\n",
         "apps/backend/src/fire_safety_backend/__pycache__/config.cpython-312.pyc": "мусор\n",
-        "apps/backend/src/fire_safety_backend/resources/templates/letterhead.docx": "бланк\n",
         "packages/rag/corpus/69-fz.txt": "текст закона\n",
         "data/uploads/договор.docx": "документ\n",
     }
@@ -71,14 +71,20 @@ def test_covers_prompts(tmp_path: Path) -> None:
     assert "apps/backend/src/fire_safety_backend/resources/prompts/legal.txt" in covered
 
 
+def test_covers_letterhead(tmp_path: Path) -> None:
+    """В бланке банковские реквизиты, и он лежит в git — значит поставляется
+    вместе с кодом. Подмена счёта в исходящем письме — классическая схема
+    мошенничества, поэтому правка бланка обязана быть видна."""
+    covered = {p.as_posix() for p in integrity.iter_covered(_tree(tmp_path))}
+    assert "apps/backend/src/fire_safety_backend/resources/templates/letterhead.docx" in covered
+
+
 def test_excludes_what_would_cause_false_alarms(tmp_path: Path) -> None:
     covered = {p.as_posix() for p in integrity.iter_covered(_tree(tmp_path))}
     # Каждое исключение по делу: pyc создаётся при запуске, тесты на работу не
-    # влияют, корпус и data — данные, а letterhead.docx в git не попадает и
-    # живёт только на машине сотрудника.
+    # влияют, корпус и data — данные, а не код.
     assert not any("__pycache__" in c for c in covered)
     assert not any("/tests/" in c for c in covered)
-    assert not any("letterhead" in c for c in covered)
     assert not any(c.startswith("packages/rag/corpus") for c in covered)
     assert not any(c.startswith("data/") for c in covered)
 
@@ -140,14 +146,28 @@ def test_added_file_is_detected(tmp_path: Path) -> None:
     assert report.extra == ["apps/backend/src/fire_safety_backend/подсадной.py"]
 
 
-def test_editing_excluded_file_is_not_a_change(tmp_path: Path) -> None:
-    """Пользователь ставит свой фирменный бланк — это не правка кода."""
+def test_substituted_letterhead_is_detected(tmp_path: Path) -> None:
+    """Главный смысл включения бланка в манифест: подменённые банковские
+    реквизиты в письме заказчику не должны уйти молча."""
     root = _tree(tmp_path)
     _build_and_save(root)
     (root / "apps/backend/src/fire_safety_backend/resources/templates/letterhead.docx").write_text(
-        "другой бланк\n", encoding="utf-8"
+        "бланк с чужим расчётным счётом\n", encoding="utf-8"
     )
+    report = integrity.verify(root)
+    assert report.ok is False
+    assert report.changed == [
+        "apps/backend/src/fire_safety_backend/resources/templates/letterhead.docx"
+    ]
+
+
+def test_editing_excluded_file_is_not_a_change(tmp_path: Path) -> None:
+    """Рабочие документы пользователя — не код: их появление и правка не имеют
+    отношения к целостности программы."""
+    root = _tree(tmp_path)
+    _build_and_save(root)
     (root / "data/uploads/новый.docx").write_text("документ\n", encoding="utf-8")
+    (root / "packages/rag/corpus/новый-закон.txt").write_text("текст\n", encoding="utf-8")
     assert integrity.verify(root).ok is True
 
 
