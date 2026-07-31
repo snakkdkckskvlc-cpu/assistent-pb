@@ -50,6 +50,14 @@ packages/rag/corpus/**
 !packages/rag/corpus/NLMK_Polozhenie_propusknoy_rezhim.pdf
 !packages/rag/corpus/NLMK_Katalog_praktik_bezopasnost.pdf
 
+# Документы заказчика (домен nlmk). Сама папка разрешается ОТДЕЛЬНОЙ строкой:
+# правило `corpus/**` исключает и каталоги, а в исключённый каталог git не
+# заходит — без этой строки разрешение на файл внутри не сработало бы.
+# Сами документы НЛМК в git не кладём (десятки мегабайт, качаются скриптом
+# fetch_nlmk_docs.py по манифесту), а README нужен — он объясняет, что тут.
+!packages/rag/corpus/nlmk/
+!packages/rag/corpus/nlmk/README.md
+
 # Фирменные бланки писем компании (реквизиты, ИНН, подписанты).
 apps/backend/src/fire_safety_backend/resources/templates/**
 !apps/backend/src/fire_safety_backend/resources/templates/.gitkeep
