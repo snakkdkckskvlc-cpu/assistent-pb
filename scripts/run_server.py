@@ -10,7 +10,7 @@ pywebview, backend слушает 0.0.0.0, и сотрудники открыв�
     python scripts/run_server.py --port 8080
     python scripts/run_server.py --host 127.0.0.1  # только локально, для проверки
 
-Нужен PYTHONPATH=apps/backend/src;packages/rag/src.
+Запускать можно любым python: скрипт сам найдёт venv проекта.
 
 ### Почему ровно один рабочий процесс
 
@@ -37,8 +37,16 @@ import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 for rel in ("apps/backend/src", "packages/rag/src"):
     sys.path.insert(0, str(_REPO_ROOT / rel))
+
+# Скрипт мог быть запущен системным python — тогда зависимостей приложения
+# в нём нет, и импорт ниже упал бы с невнятным ModuleNotFoundError.
+# Перезапускаемся интерпретатором venv.
+from _venv import ensure_venv  # noqa: E402
+
+ensure_venv()
 
 DEFAULT_HOST = "0.0.0.0"  # noqa: S104 — в этом и смысл серверного режима
 DEFAULT_PORT = 8000

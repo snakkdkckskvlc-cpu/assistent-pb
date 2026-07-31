@@ -13,7 +13,7 @@ fire_safety_backend/infrastructure/integrity.py).
     python scripts/build_integrity_manifest.py            # пересобрать
     python scripts/build_integrity_manifest.py --check    # только проверить
 
-Нужен PYTHONPATH=apps/backend/src (как и остальным скриптам).
+Запускать можно любым python: скрипт сам найдёт venv проекта.
 
 В выводе только ASCII-маркеры [OK]/[X]/[!]: консоль Windows в cp1251 падает
 на эмодзи с UnicodeEncodeError.
@@ -26,7 +26,15 @@ import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(_REPO_ROOT / "apps" / "backend" / "src"))
+
+# Скрипт мог быть запущен системным python — тогда зависимостей приложения
+# в нём нет, и импорт ниже упал бы с невнятным ModuleNotFoundError.
+# Перезапускаемся интерпретатором venv.
+from _venv import ensure_venv  # noqa: E402
+
+ensure_venv()
 
 from fire_safety_backend.infrastructure import integrity  # noqa: E402
 

@@ -22,7 +22,15 @@ import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(_REPO_ROOT / "apps" / "backend" / "src"))
+
+# Скрипт мог быть запущен системным python — тогда зависимостей
+# приложения в нём нет, и импорт ниже упал бы с невнятным
+# ModuleNotFoundError. Перезапускаемся интерпретатором venv.
+from _venv import ensure_venv  # noqa: E402
+
+ensure_venv()
 
 from fire_safety_backend import config  # noqa: E402
 from fire_safety_backend.infrastructure import secure_files  # noqa: E402

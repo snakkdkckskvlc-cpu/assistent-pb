@@ -31,6 +31,15 @@ import argparse
 import sys
 from pathlib import Path
 
+# Скрипт мог быть запущен системным python — тогда зависимостей приложения
+# в нём нет, и первый же импорт упал бы с невнятным ModuleNotFoundError.
+# Перезапускаемся интерпретатором venv.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _venv import ensure_venv  # noqa: E402
+
+ensure_venv()
+
+
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = (
     ROOT

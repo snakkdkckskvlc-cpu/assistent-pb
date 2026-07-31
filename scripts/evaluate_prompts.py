@@ -28,6 +28,15 @@ import sys
 import time
 from pathlib import Path
 
+# Скрипт мог быть запущен системным python — тогда зависимостей приложения
+# в нём нет, и первый же импорт упал бы с невнятным ModuleNotFoundError.
+# Перезапускаемся интерпретатором venv.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _venv import ensure_venv  # noqa: E402
+
+ensure_venv()
+
+
 _ROOT = Path(__file__).resolve().parent.parent
 _DATASET = _ROOT / "apps" / "backend" / "tests" / "fixtures" / "contracts"
 _DEFAULT_OUT = _ROOT / "data" / "eval_results.json"

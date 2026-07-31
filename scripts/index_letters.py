@@ -28,6 +28,15 @@ import sys
 import zipfile
 from pathlib import Path, PurePosixPath
 
+# Скрипт мог быть запущен системным python — тогда зависимостей приложения
+# в нём нет, и первый же импорт упал бы с невнятным ModuleNotFoundError.
+# Перезапускаемся интерпретатором venv.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _venv import ensure_venv  # noqa: E402
+
+ensure_venv()
+
+
 log = logging.getLogger("index_letters")
 
 _MIN_CHARS = 200  # короче — обрезок/пустой бланк, не образец стиля
