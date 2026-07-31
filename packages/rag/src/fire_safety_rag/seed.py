@@ -12,7 +12,10 @@ CPU без GPU заново — несколько минут впустую, х
 
 from __future__ import annotations
 
+import gc
 import logging
+import shutil
+import tempfile
 from pathlib import Path
 
 from . import config
@@ -52,9 +55,40 @@ def ensure_seeded(chroma_dir: Path | None = None, prebuilt_dir: Path | None = No
         except Exception:
             pass  # коллекции ещё нет, это ожидаемо на чистой установке
 
-        source = chromadb.PersistentClient(path=str(prebuilt_dir))
-        src_collection = source.get_collection(config.COLLECTION_NAME)
-        data = src_collection.get(include=["embeddings", "documents", "metadatas"])
+        # Читаем из ВРЕМЕННОЙ КОПИИ, а не из самого prebuilt_chroma.
+        #
+        # ChromaDB пишет в файл базы даже когда её только открывают на чтение
+        # (замерено: git отмечает chroma.sqlite3 изменённым после одного лишь
+        # PersistentClient). Эталон лежит в git, а автообновление отказывается
+        # работать на изменённой рабочей копии
+        # (fire_safety_desktop.updater._is_safe_to_update) — то есть первая же
+        # установка НАВСЕГДА отключала обновления, и молча: пользователь видел
+        # бы просто, что новые версии не приходят.
+        #
+        # Копия — 37 МБ один раз за установку, это ничто на фоне индексации.
+        #
+        # Копия кладётся в data/tmp, а не в системный %TEMP%, по практической
+        # причине: ChromaDB держит файлы базы открытыми (mmap), и на Windows
+        # каталог сразу после работы не удаляется. В data/tmp остатки подберёт
+        # автоочистка (backend services/retention.py), в %TEMP% они лежали бы
+        # мусором.
+        work_root = chroma_dir.parent / "tmp"
+        work_root.mkdir(parents=True, exist_ok=True)
+        tmp = Path(tempfile.mkdtemp(prefix="prebuilt_", dir=work_root))
+        try:
+            source_copy = tmp / "chroma"
+            shutil.copytree(prebuilt_dir, source_copy)
+            source = chromadb.PersistentClient(path=str(source_copy))
+            src_collection = source.get_collection(config.COLLECTION_NAME)
+            data = src_collection.get(include=["embeddings", "documents", "metadatas"])
+        finally:
+            # Отпускаем ссылки, чтобы Windows дала удалить файлы; если всё
+            # равно не даст — ignore_errors, ошибка удаления временной копии
+            # не повод срывать заселение.
+            source = src_collection = None
+            gc.collect()
+            shutil.rmtree(tmp, ignore_errors=True)
+
         if not data["ids"]:
             return False
 
