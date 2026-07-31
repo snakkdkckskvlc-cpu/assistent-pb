@@ -116,6 +116,36 @@ def test_missing_manifest_also_blocks(
     assert len(shown) == 1
 
 
+def test_backend_also_refuses_to_start(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Калитка обязана срабатывать и на СЕРВЕРНОМ пути.
+
+    На сервере десктопная обёртка не запускается вовсе — ТЗ переезда прямо
+    велит её не запускать. Пока проверка стояла только в ней, на сервере она не
+    выполнялась бы ни разу, то есть требование «изменённый код не работает» там
+    не действовало.
+    """
+    monkeypatch.delenv(integrity.DEV_BYPASS_ENV, raising=False)
+    monkeypatch.setattr(
+        integrity,
+        "verify",
+        lambda root=None: _report(changed=["apps/backend/src/fire_safety_backend/config.py"]),
+    )
+    problem = integrity.problem_report(tmp_path)
+    assert problem is not None
+    assert "config.py" in problem
+    assert "git reset --hard origin/main" in problem
+
+
+def test_intact_code_gives_no_problem_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv(integrity.DEV_BYPASS_ENV, raising=False)
+    monkeypatch.setattr(
+        integrity, "verify", lambda root=None: integrity.Report(ok=True, reason="Совпало")
+    )
+    assert integrity.problem_report(tmp_path) is None
+
+
 def test_dev_bypass_skips_the_check(
     monkeypatch: pytest.MonkeyPatch, shown: list[str], tmp_path: Path
 ) -> None:

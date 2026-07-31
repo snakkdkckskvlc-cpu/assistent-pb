@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from . import config
-from .infrastructure import languagetool, llm, netguard, secure_files, task_store
+from .infrastructure import integrity, languagetool, llm, netguard, secure_files, task_store
 from .infrastructure.db import init_db
 from .infrastructure.queue import queue
 from .services import addressees as addressee_service
@@ -82,6 +82,15 @@ async def _retention_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Калитка целостности стоит ЗДЕСЬ, а не только в десктопной обёртке:
+    # на сервере обёртка не запускается вовсе (см. docs/07-ops/install-server.md),
+    # и проверка там не выполнилась бы ни разу. Отказ жёсткий — приложение с
+    # изменённым кодом не должно работать. Обход: ASSISTENT_PB_DEV=1.
+    problem = integrity.problem_report()
+    if problem is not None:
+        log.error("Запуск остановлен.\n%s", problem)
+        raise RuntimeError(problem)
+
     init_db()
     addressee_service.seed_defaults()
     # Возобновить прерванные задачи нельзя — работа модели не сохраняется.

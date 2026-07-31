@@ -34,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -43,6 +44,15 @@ log = logging.getLogger(__name__)
 
 MANIFEST_NAME = "integrity.json"
 ALGO = "sha256"
+
+# Обход проверки. Нужен разработке и тестам; он же — обход для того, кто
+# правит код осознанно, и это записано в docs/05-quality/security.md, а не
+# замаскировано.
+DEV_BYPASS_ENV = "ASSISTENT_PB_DEV"
+
+# Сколько расхождений показывать в сообщении: нативное окно Windows не
+# резиновое, а полный список всё равно уходит в лог.
+MAX_SHOWN_PROBLEMS = 10
 
 # Каталоги рантайма и расширения, которые в них считаются кодом.
 _COVERED_DIRS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -208,6 +218,42 @@ def verify(root: Path | None = None) -> Report:
         changed=changed,
         missing=missing,
         extra=extra,
+    )
+
+
+def bypassed() -> bool:
+    return bool(os.environ.get(DEV_BYPASS_ENV, "").strip())
+
+
+def problem_report(root: Path | None = None) -> str | None:
+    """Человекочитаемое описание расхождения или None, если всё в порядке.
+
+    Общая для обоих входов: десктопное окно показывает этот текст в
+    MessageBox, серверный запуск — пишет в лог и отказывается стартовать.
+    Раньше калитка стояла ТОЛЬКО в десктопной обёртке, а на сервере её велено
+    не запускать — то есть проверка не выполнялась бы ни разу.
+    """
+    if bypassed():
+        log.warning("Проверка целостности кода пропущена (%s=1)", DEV_BYPASS_ENV)
+        return None
+
+    report = verify(root)
+    if report.ok:
+        log.info("Целостность кода: %s", report.reason)
+        return None
+
+    problems = report.problems
+    shown = "\n".join(f"  - {p}" for p in problems[:MAX_SHOWN_PROBLEMS])
+    if len(problems) > MAX_SHOWN_PROBLEMS:
+        shown += f"\n  - ... и ещё {len(problems) - MAX_SHOWN_PROBLEMS}"
+    return (
+        f"{report.reason}.\n\n"
+        "Файлы программы отличаются от выпущенных разработчиком.\n\n"
+        f"{shown}\n\n"
+        "Восстановить оригинальные файлы:\n"
+        "    git reset --hard origin/main\n\n"
+        "Если правка внесена намеренно, пересоберите манифест:\n"
+        "    python scripts/build_integrity_manifest.py"
     )
 
 

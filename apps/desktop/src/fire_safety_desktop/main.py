@@ -88,42 +88,32 @@ def _check_update_in_background(root: Path) -> None:
         log.warning("Update check failed", exc_info=True)
 
 
+# Имя переменной живёт в backend: калитка теперь общая для окна и сервера.
 DEV_BYPASS_ENV = "ASSISTENT_PB_DEV"
-_MAX_SHOWN_PROBLEMS = 10
 
 
 def _integrity_gate(root: Path) -> bool:
     """Пускать ли приложение дальше. False — файлы программы изменены.
 
-    Требование заказчика: если код правил не разработчик, приложение не должно
-    работать. Проверяется сверкой с манифестом `integrity.json`
-    (fire_safety_backend/infrastructure/integrity.py).
+    Сама сверка и текст сообщения — в backend
+    (fire_safety_backend/infrastructure/integrity.py::problem_report), потому
+    что на сервере десктопная обёртка не запускается, а проверка нужна и там.
+    Здесь остаётся только показ окна и git-подсказка.
 
     Честно про границу: полностью помешать правке нельзя — кто может изменить
     код, может убрать и этот вызов. Проверка останавливает реальные сценарии:
     «сотрудник поправил», сорванное на середине обновление, побившийся файл.
-    Обход `ASSISTENT_PB_DEV=1` существует для разработки, и он же — обход для
+    Обход ASSISTENT_PB_DEV=1 существует для разработки, и он же — обход для
     того, кто правит код осознанно. См. docs/05-quality/security.md.
 
     Ошибку импорта модуля проверки НЕ глушим: если integrity.py удалили, это
-    само по себе изменение кода, и запускаться нельзя. Исключение поднимется в
-    main(), где его покажет общий обработчик.
+    само по себе изменение кода, и запускаться нельзя.
     """
-    if os.environ.get(DEV_BYPASS_ENV, "").strip():
-        log.warning("Проверка целостности кода пропущена (%s=1)", DEV_BYPASS_ENV)
-        return True
-
     from fire_safety_backend.infrastructure import integrity
 
-    report = integrity.verify(root)
-    if report.ok:
-        log.info("Целостность кода: %s", report.reason)
+    problem = integrity.problem_report(root)
+    if problem is None:
         return True
-
-    problems = report.problems
-    shown = "\n".join(f"  - {p}" for p in problems[:_MAX_SHOWN_PROBLEMS])
-    if len(problems) > _MAX_SHOWN_PROBLEMS:
-        shown += f"\n  - ... и ещё {len(problems) - _MAX_SHOWN_PROBLEMS}"
 
     # Git — дополнение, а не решающий голос: на установке его может не быть
     # вовсе, и блокировать запуск из-за «git не найден» неправильно.
@@ -136,16 +126,7 @@ def _integrity_gate(root: Path) -> bool:
     except Exception:  # pragma: no cover — git может отсутствовать
         pass
 
-    _show_fatal_error(
-        f"{report.reason}.\n\n"
-        "Приложение не запущено: файлы программы отличаются от выпущенных разработчиком.\n\n"
-        f"{shown}\n\n"
-        "Восстановить оригинальные файлы:\n"
-        "    git reset --hard origin/main\n\n"
-        "Если правка внесена намеренно, пересоберите манифест:\n"
-        "    python scripts/build_integrity_manifest.py"
-        f"{git_note}"
-    )
+    _show_fatal_error(f"Приложение не запущено.\n\n{problem}{git_note}")
     return False
 
 
