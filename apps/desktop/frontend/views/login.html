@@ -13,45 +13,62 @@
 
   <main class="hero">
     <h1>Вход</h1>
-    <p class="subtitle">Внутренний инструмент компании. Введите свою учётную запись.</p>
+    <p class="subtitle" id="subtitle">Внутренний инструмент компании.</p>
 
     <form class="section" id="login-form" style="max-width:420px;margin:0 auto;text-align:left">
       <div class="field">
         <label for="login">Логин</label>
-        <input type="text" id="login" name="login" autocomplete="username" autofocus required>
-      </div>
-      <div class="field">
-        <label for="password">Пароль</label>
-        <input type="password" id="password" name="password" autocomplete="current-password" required>
+        <input type="text" id="login" name="login" autocomplete="username" required>
       </div>
       <div class="actions">
-        <button class="btn" type="submit" id="submit">Войти</button>
+        <button class="btn" type="submit" id="submit">Вход</button>
+        <a href="#" id="forget" class="hint" style="display:none">не я</a>
       </div>
       <div id="error" class="error-box" style="display:none"></div>
       <p class="hint" id="no-users" style="display:none">
         На этом сервере ещё нет ни одной учётной записи. Их заводит
-        администратор командой <code>python scripts/add_user.py</code> —
-        пароля по умолчанию намеренно не существует.
+        администратор командой <code>python scripts/add_user.py &lt;логин&gt;</code>.
       </p>
     </form>
   </main>
 
   <script>
     const form = document.getElementById("login-form");
+    const loginInput = document.getElementById("login");
     const errBox = document.getElementById("error");
     const submitBtn = document.getElementById("submit");
+    const forgetLink = document.getElementById("forget");
 
-    // Свежий сервер: учётных записей нет вовсе. Без этой подсказки любой ввод
-    // отвечал бы «неверный логин или пароль», и человек искал бы ошибку в
-    // пароле вместо того, чтобы завести учётную запись.
+    // Ради этого весь вход и переделан: логин, которым входили с этого
+    // компьютера, подставляется сам — сотруднику остаётся нажать кнопку.
+    // Первый раз логин набирается один раз, дальше никогда.
     fetch("/api/auth/me")
       .then(r => r.json())
       .then(d => {
-        if (d && d.any_users === false) {
+        if (!d) return;
+        if (d.any_users === false) {
           document.getElementById("no-users").style.display = "block";
         }
+        if (d.remembered) {
+          loginInput.value = d.remembered;
+          document.getElementById("subtitle").textContent =
+            "Этот компьютер уже знает вас — просто нажмите «Вход».";
+          forgetLink.style.display = "inline";
+          // Фокус на кнопке, а не в поле: нажатие Enter сразу входит.
+          submitBtn.focus();
+        } else {
+          loginInput.focus();
+        }
       })
-      .catch(() => {});
+      .catch(() => loginInput.focus());
+
+    // На общем компьютере подставленный логин коллеги — это приглашение войти
+    // под ним. Отдельная ссылка, чтобы устройство его забыло.
+    forgetLink.addEventListener("click", async (e) => {
+      e.preventDefault();
+      await fetch("/api/auth/forget-device", { method: "POST" });
+      window.location.reload();
+    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -61,10 +78,7 @@
         const r = await fetch("/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            login: document.getElementById("login").value,
-            password: document.getElementById("password").value,
-          }),
+          body: JSON.stringify({ login: loginInput.value }),
         });
         if (!r.ok) {
           const data = await r.json().catch(() => ({}));
@@ -74,7 +88,7 @@
       } catch (err) {
         errBox.style.display = "block";
         errBox.textContent = err.message || String(err);
-        document.getElementById("password").value = "";
+        loginInput.focus();
       } finally {
         submitBtn.disabled = false;
       }

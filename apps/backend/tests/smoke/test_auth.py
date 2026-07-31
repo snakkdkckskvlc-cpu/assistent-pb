@@ -1,10 +1,16 @@
-"""Вход по паролю и защита роутеров.
+"""Вход по логину и защита роутеров.
 
-Приложение переезжает на сервер и слушает всю внутреннюю сеть. До этого
-разграничения не было вовсе — и это было безопасно ровно пока backend слушал
-127.0.0.1. Теперь единственная преграда между сетью и договорами компании —
-эта авторизация, поэтому проверяется не «форма входа работает», а что
-закрытое действительно закрыто.
+Пароля в приложении нет: сотрудник вводит логин один раз, дальше устройство
+подставляет его само, и остаётся нажать кнопку. Честная оговорка о том, чего
+это стоит, — в docstring services/auth.py; здесь проверяется, что из защиты
+реально осталось и что оно работает.
+
+Осталось три вещи, и все три тут проверяются:
+
+1. Без входа не открывается ничего, кроме формы входа и `/api/health`.
+2. Войти можно только под СУЩЕСТВУЮЩИМ логином — придумать на ходу нельзя,
+   иначе опечатка создавала бы нового «сотрудника» и он терял бы свою историю.
+3. Отключённая учётная запись не пускает и теряет свои открытые сессии.
 """
 
 from __future__ import annotations
@@ -12,91 +18,106 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 from fire_safety_backend.services import auth
-
-
-@pytest.fixture(autouse=True)
-def _clean_attempts():
-    auth.reset_failed_attempts()
-    yield
-    auth.reset_failed_attempts()
-
-
-# --- Хеширование ---
-
-
-def test_password_is_not_stored_as_is(
-    client: TestClient, test_login: str, test_password: str
-) -> None:
-    """Главное свойство: утёкшая база не отдаёт пароли."""
-    from fire_safety_backend.infrastructure.db import connect
-
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT password_hash, salt FROM users WHERE login = ?", (test_login,)
-        ).fetchone()
-    assert test_password.encode() not in bytes(row["password_hash"])
-    assert test_password not in str(row["password_hash"])
-    assert len(bytes(row["salt"])) >= 16
-
-
-def test_same_password_gives_different_hashes() -> None:
-    """Своя соль у каждого: одинаковые пароли разных людей не совпадают в базе,
-    и радужная таблица бесполезна."""
-    first, salt1 = auth.hash_password("одинаковый-пароль")
-    second, salt2 = auth.hash_password("одинаковый-пароль")
-    assert salt1 != salt2
-    assert first != second
-
-
-def test_verify_accepts_right_and_rejects_wrong() -> None:
-    digest, salt = auth.hash_password("правильный-пароль")
-    assert auth.verify_password("правильный-пароль", digest, salt) is True
-    assert auth.verify_password("правильный-паролЬ", digest, salt) is False
-
-
-def test_short_password_is_refused() -> None:
-    with pytest.raises(ValueError):
-        auth.create_user("коротышка", "1234567")
-
+from fire_safety_backend.views.auth import LAST_LOGIN_COOKIE
 
 # --- Вход ---
 
 
-def test_login_with_right_password(
-    anon_client: TestClient, test_login: str, test_password: str
-) -> None:
-    r = anon_client.post("/api/auth/login", json={"login": test_login, "password": test_password})
+def test_login_with_existing_login(anon_client: TestClient, test_login: str) -> None:
+    r = anon_client.post("/api/auth/login", json={"login": test_login})
     assert r.status_code == 200
     assert r.json()["login"] == test_login
 
 
-def test_login_with_wrong_password_fails(anon_client: TestClient, test_login: str) -> None:
-    r = anon_client.post("/api/auth/login", json={"login": test_login, "password": "не тот"})
+def test_unknown_login_is_refused(anon_client: TestClient) -> None:
+    """Придумать логин на ходу нельзя: иначе опечатка заводила бы нового
+    «сотрудника», и человек терял бы доступ к своим документам."""
+    r = anon_client.post("/api/auth/login", json={"login": "нет-такого"})
     assert r.status_code == 401
+    assert auth.authenticate("нет-такого") is None
 
 
-def test_unknown_login_and_wrong_password_look_the_same(
-    anon_client: TestClient, test_login: str
-) -> None:
-    """Разные сообщения подсказали бы перебирающему, какие логины существуют."""
-    wrong_pass = anon_client.post(
-        "/api/auth/login", json={"login": test_login, "password": "не тот"}
-    )
-    no_such = anon_client.post(
-        "/api/auth/login", json={"login": "нет-такого", "password": "не тот"}
-    )
-    assert wrong_pass.status_code == no_such.status_code == 401
-    assert wrong_pass.json()["detail"] == no_such.json()["detail"]
+def test_empty_login_is_refused(anon_client: TestClient) -> None:
+    assert anon_client.post("/api/auth/login", json={"login": ""}).status_code == 422
+    assert auth.authenticate("   ") is None
 
 
-def test_disabled_user_cannot_log_in(
-    client: TestClient, test_login: str, test_password: str
-) -> None:
-    from fire_safety_backend.infrastructure.db import connect
+def test_password_field_is_not_required(anon_client: TestClient, test_login: str) -> None:
+    """Ровно то, ради чего переделывали: тело запроса — один логин."""
+    assert anon_client.post("/api/auth/login", json={"login": test_login}).status_code == 200
 
-    with connect() as conn:
-        conn.execute("UPDATE users SET disabled = 1 WHERE login = ?", (test_login,))
-    assert auth.authenticate(test_login, test_password) is None
+
+def test_disabled_account_cannot_log_in(client: TestClient, test_login: str) -> None:
+    """Отключение — единственный способ закрыть доступ уволившемуся, раз
+    пароля нет."""
+    assert auth.set_disabled(test_login, True) is True
+    assert auth.authenticate(test_login) is None
+
+
+def test_disabling_closes_open_sessions(client: TestClient, test_login: str) -> None:
+    """Иначе отключённый сотрудник продолжает работать по открытой вкладке."""
+    assert client.get("/api/history").status_code == 200
+    auth.set_disabled(test_login, True)
+    assert client.get("/api/history").status_code == 401
+
+
+def test_disabled_account_can_be_brought_back(client: TestClient, test_login: str) -> None:
+    auth.set_disabled(test_login, True)
+    auth.set_disabled(test_login, False)
+    assert auth.authenticate(test_login) is not None
+
+
+# --- Автоподстановка логина ---
+
+
+def test_login_is_remembered_on_the_device(anon_client: TestClient, test_login: str) -> None:
+    """Главное в этой переделке: со второго раза логин вводить не надо."""
+    r = anon_client.post("/api/auth/login", json={"login": test_login})
+    assert r.cookies.get(LAST_LOGIN_COOKIE) == test_login
+
+    remembered = anon_client.get("/api/auth/me").json()["remembered"]
+    assert remembered == test_login
+
+
+def test_remembered_login_is_readable_by_the_page(anon_client: TestClient, test_login: str) -> None:
+    """Cookie с логином намеренно НЕ httponly — её читает страница входа.
+    Секрета в ней нет: доступ даёт сессия, а не логин."""
+    r = anon_client.post("/api/auth/login", json={"login": test_login})
+    cookie = "".join(
+        h for h in r.headers.get_list("set-cookie") if h.startswith(LAST_LOGIN_COOKIE)
+    ).lower()
+    assert "httponly" not in cookie
+
+
+def test_session_cookie_is_still_protected(anon_client: TestClient, test_login: str) -> None:
+    """А вот сессионная cookie обязана остаться закрытой от JS."""
+    r = anon_client.post("/api/auth/login", json={"login": test_login})
+    session_cookie = "".join(
+        h for h in r.headers.get_list("set-cookie") if h.startswith("assistent_pb_session")
+    ).lower()
+    assert "httponly" in session_cookie
+    assert "samesite=lax" in session_cookie
+
+
+def test_logout_keeps_the_remembered_login(client: TestClient, test_login: str) -> None:
+    """Выход — это «закончил работу», а не «это не мой компьютер». Иначе
+    следующий вход снова требовал бы набирать логин, ради чего всё и делалось."""
+    client.post("/api/auth/logout")
+    assert client.get("/api/auth/me").json()["remembered"] == test_login
+
+
+def test_forget_device_clears_the_login(client: TestClient) -> None:
+    """На общем компьютере подставленный логин коллеги — приглашение войти
+    под ним."""
+    assert client.post("/api/auth/forget-device").status_code == 200
+    body = client.get("/api/auth/me").json()
+    assert body["remembered"] == ""
+    assert body["login"] is None
+
+
+def test_nothing_is_remembered_before_the_first_login(anon_client: TestClient) -> None:
+    anon_client.cookies.clear()
+    assert anon_client.get("/api/auth/me").json()["remembered"] == ""
 
 
 # --- Что закрыто, а что открыто ---
@@ -164,16 +185,6 @@ def test_logout_revokes_the_session(client: TestClient) -> None:
     assert client.get("/api/history").status_code == 401
 
 
-def test_session_cookie_is_not_readable_from_js(
-    anon_client: TestClient, test_login: str, test_password: str
-) -> None:
-    """HttpOnly: XSS не утащит сессию."""
-    r = anon_client.post("/api/auth/login", json={"login": test_login, "password": test_password})
-    cookie = r.headers["set-cookie"].lower()
-    assert "httponly" in cookie
-    assert "samesite=lax" in cookie
-
-
 def test_stale_session_is_rejected(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """Забытая открытой вкладка на чужом компьютере не должна оставаться
     входом навсегда."""
@@ -181,16 +192,9 @@ def test_stale_session_is_rejected(client: TestClient, monkeypatch: pytest.Monke
     assert client.get("/api/history").status_code == 401
 
 
-def test_password_change_closes_open_sessions(client: TestClient, test_login: str) -> None:
-    """Иначе тот, из-за кого пароль меняли, продолжает ходить по старой сессии."""
-    assert client.get("/api/history").status_code == 200
-    auth.set_password(test_login, "новый-длинный-пароль")
-    assert client.get("/api/history").status_code == 401
-
-
 def test_me_reports_whether_any_accounts_exist(anon_client: TestClient) -> None:
     """Свежий сервер без учётных записей обязан сказать это прямо, иначе любой
-    ввод отвечает «неверный логин или пароль» и человек ищет ошибку в пароле."""
+    ввод отвечает «такой учётной записи нет» и человек ищет ошибку в логине."""
     body = anon_client.get("/api/auth/me").json()
     assert body["login"] is None
     assert body["any_users"] is True

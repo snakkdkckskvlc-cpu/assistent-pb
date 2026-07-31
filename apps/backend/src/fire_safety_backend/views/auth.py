@@ -19,8 +19,26 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 COOKIE_NAME = "assistent_pb_session"
 
+# Логин, которым в прошлый раз входили с ЭТОГО устройства. Отдельная cookie и
+# намеренно БЕЗ httponly: её читает страница входа, чтобы подставить логин в
+# поле — сотруднику остаётся нажать кнопку. Секрета в ней нет: сам по себе
+# логин доступа не даёт, доступ даёт сессионная cookie выше.
+LAST_LOGIN_COOKIE = "assistent_pb_login"
+_LAST_LOGIN_MAX_AGE = 365 * 24 * 3600
+
 # Псевдоним, чтобы остальные роутеры не тянули слой сервисов ради аннотации.
 User = auth_service.User
+
+
+def _remember_login(response: Response, login: str) -> None:
+    response.set_cookie(
+        LAST_LOGIN_COOKIE,
+        login,
+        httponly=False,  # её читает страница входа — в этом весь смысл
+        samesite="lax",
+        path="/",
+        max_age=_LAST_LOGIN_MAX_AGE,
+    )
 
 
 def _set_cookie(response: Response, token: str) -> None:
@@ -55,19 +73,25 @@ async def optional_user(request: Request) -> auth_service.User | None:
 
 
 class LoginRequest(BaseModel):
+    """Только логин. Пароля нет — см. services/auth.py, там же честная
+    оговорка о том, чего это стоит."""
+
     login: str = Field(min_length=1, max_length=100)
-    password: str = Field(min_length=1, max_length=200)
 
 
 @router.post("/login")
 async def api_login(payload: LoginRequest, response: Response) -> dict:
-    user = await asyncio.to_thread(auth_service.authenticate, payload.login, payload.password)
+    user = await asyncio.to_thread(auth_service.authenticate, payload.login)
     if user is None:
-        # Одно сообщение на «нет такого логина» и «неверный пароль»: раздельные
-        # подсказали бы перебирающему, какие логины существуют.
-        raise HTTPException(status_code=401, detail="Неверный логин или пароль")
+        # «Нет такого логина» и «запись отключена» отвечают одинаково: даже без
+        # пароля не стоит превращать форму входа в справочник существующих
+        # логинов.
+        raise HTTPException(status_code=401, detail="Такой учётной записи нет")
     token = await asyncio.to_thread(auth_service.open_session, user.id)
     _set_cookie(response, token)
+    # Запоминаем логин на этом устройстве: в следующий раз он подставится сам,
+    # и сотруднику останется нажать «Вход».
+    _remember_login(response, user.login)
     return {"login": user.login, "is_admin": user.is_admin}
 
 
@@ -77,20 +101,41 @@ async def api_logout(request: Request, response: Response) -> dict:
     if token:
         await asyncio.to_thread(auth_service.close_session, token)
     response.delete_cookie(COOKIE_NAME, path="/")
+    # Логин НЕ забываем: выход — это «закончил работу», а не «это не мой
+    # компьютер». Иначе следующий вход снова требовал бы набирать логин, ради
+    # чего всё и делалось. Забыть устройство — отдельная кнопка ниже.
+    return {"ok": True}
+
+
+@router.post("/forget-device")
+async def api_forget_device(request: Request, response: Response) -> dict:
+    """Перестать подставлять логин на этом компьютере.
+
+    Нужна для общего или чужого компьютера: там подставленный логин коллеги —
+    это приглашение войти под ним.
+    """
+    token = request.cookies.get(COOKIE_NAME, "")
+    if token:
+        await asyncio.to_thread(auth_service.close_session, token)
+    response.delete_cookie(COOKIE_NAME, path="/")
+    response.delete_cookie(LAST_LOGIN_COOKIE, path="/")
     return {"ok": True}
 
 
 @router.get("/me")
 async def api_me(request: Request) -> dict:
-    """Кто вошёл и заведены ли вообще учётные записи.
+    """Кто вошёл, какой логин помнит это устройство и есть ли вообще записи.
 
-    Второе нужно странице входа: на свежем сервере пользователей ещё нет, и
-    честное «учётных записей нет, заведите скриптом» лучше, чем бесконечное
-    «неверный логин или пароль» на любой ввод.
+    `remembered` — то, ради чего сделан весь этот вход: страница подставляет
+    его в поле, и остаётся нажать кнопку.
+
+    `any_users` нужен на свежем сервере: записей ещё нет, и честное «заведите
+    скриптом» лучше, чем «такой учётной записи нет» на любой ввод.
     """
     user = await optional_user(request)
     return {
         "login": user.login if user else None,
         "is_admin": bool(user and user.is_admin),
+        "remembered": request.cookies.get(LAST_LOGIN_COOKIE, ""),
         "any_users": await asyncio.to_thread(auth_service.any_users_exist),
     }

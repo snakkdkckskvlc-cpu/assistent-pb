@@ -8,10 +8,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-# Учётная запись, под которой ходят все тесты. Пароль длиннее минимума из
-# services/auth.py — иначе create_user откажет.
+# Учётная запись, под которой ходят все тесты. Пароля нет: вход в приложении
+# идёт только по логину (см. services/auth.py).
 TEST_LOGIN = "tester"
-TEST_PASSWORD = "test-password-123"
 
 
 @pytest.fixture
@@ -70,8 +69,6 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClie
     from fire_safety_backend.main import app
     from fire_safety_backend.services import auth as auth_service
 
-    auth_service.reset_failed_attempts()
-
     # Калитка целостности проверяет манифест при старте backend'а. В рабочем
     # дереве он почти всегда расходится с кодом (правки ещё не закоммичены), и
     # без этого тесты падали бы после каждой строчки. Настоящую проверку
@@ -82,8 +79,8 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClie
         # Роутеры закрыты авторизацией, поэтому клиент сразу входит: иначе
         # каждый smoke-тест проверял бы не свою функцию, а 401. Пользователь
         # создаётся ПОСЛЕ входа в TestClient — таблицы появляются в lifespan.
-        auth_service.create_user(TEST_LOGIN, TEST_PASSWORD)
-        r = tc.post("/api/auth/login", json={"login": TEST_LOGIN, "password": TEST_PASSWORD})
+        auth_service.create_user(TEST_LOGIN)
+        r = tc.post("/api/auth/login", json={"login": TEST_LOGIN})
         assert r.status_code == 200, f"тестовый вход не удался: {r.text}"
         yield tc
 
@@ -93,11 +90,6 @@ def test_login() -> str:
     """Логин тестовой учётной записи. Фикстурой, а не импортом константы:
     каталог тестов не пакет, и `from ..conftest import ...` тут не работает."""
     return TEST_LOGIN
-
-
-@pytest.fixture
-def test_password() -> str:
-    return TEST_PASSWORD
 
 
 @pytest.fixture

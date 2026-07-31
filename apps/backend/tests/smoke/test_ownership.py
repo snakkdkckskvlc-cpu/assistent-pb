@@ -22,7 +22,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 from fire_safety_backend.infrastructure.queue import Task, queue
-from fire_safety_backend.services import auth, history, ownership
+from fire_safety_backend.services import history, ownership
 
 _OTHER = "коллега"
 
@@ -35,12 +35,6 @@ def foreign_task() -> Task:
     queue._tasks[task.id] = task
     yield task
     queue._tasks.pop(task.id, None)
-
-
-@pytest.fixture(autouse=True)
-def _clean_attempts():
-    auth.reset_failed_attempts()
-    yield
 
 
 # --- Задачи ---

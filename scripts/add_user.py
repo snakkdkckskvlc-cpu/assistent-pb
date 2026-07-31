@@ -1,13 +1,16 @@
-"""Завести учётную запись, сменить пароль, посмотреть список.
+"""Завести учётную запись, отключить, посмотреть список.
 
-Пароля по умолчанию в приложении намеренно нет: «admin/admin» на сервере в
-общей сети — это открытая дверь, которую забудут закрыть. Поэтому первая
-учётная запись заводится руками, здесь.
+Пароля нет: вход в приложение идёт только по логину, и логин запоминается на
+устройстве (см. services/auth.py — там же честная оговорка, чего это стоит).
+Придумать логин на ходу и войти нельзя: учётную запись заводит администратор,
+здесь. Иначе опечатка в логине создавала бы нового «сотрудника», и человек
+терял бы доступ к своим документам.
 
 Запуск:
-    python scripts/add_user.py ivanov              # завести, пароль спросит
+    python scripts/add_user.py ivanov              # завести
     python scripts/add_user.py ivanov --admin      # с правами администратора
-    python scripts/add_user.py ivanov --set-password
+    python scripts/add_user.py ivanov --disable    # закрыть доступ уволившемуся
+    python scripts/add_user.py ivanov --enable
     python scripts/add_user.py --list
 
 Нужен PYTHONPATH=apps/backend/src (как и остальным скриптам).
@@ -19,7 +22,6 @@
 from __future__ import annotations
 
 import argparse
-import getpass
 import sqlite3
 import sys
 from pathlib import Path
@@ -30,27 +32,13 @@ sys.path.insert(0, str(_REPO_ROOT / "apps" / "backend" / "src"))
 from fire_safety_backend.infrastructure.db import init_db  # noqa: E402
 from fire_safety_backend.services import auth  # noqa: E402
 
-_MIN_LEN = 8
-
-
-def _ask_password() -> str | None:
-    """Пароль спрашивается без эха и дважды — опечатку в невидимом вводе
-    иначе обнаружит только тот, кто не сможет войти."""
-    first = getpass.getpass("Пароль: ")
-    if len(first) < _MIN_LEN:
-        print(f"[X] Пароль короче {_MIN_LEN} символов")
-        return None
-    if first != getpass.getpass("Ещё раз: "):
-        print("[X] Пароли не совпали")
-        return None
-    return first
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Учётные записи Ассистента ПБ")
     parser.add_argument("login", nargs="?", help="логин пользователя")
     parser.add_argument("--admin", action="store_true", help="права администратора")
-    parser.add_argument("--set-password", action="store_true", help="сменить пароль существующему")
+    parser.add_argument("--disable", action="store_true", help="закрыть доступ")
+    parser.add_argument("--enable", action="store_true", help="вернуть доступ")
     parser.add_argument("--list", action="store_true", help="показать список учётных записей")
     args = parser.parse_args()
 
@@ -75,24 +63,22 @@ def main() -> int:
         parser.print_help()
         return 1
 
-    password = _ask_password()
-    if password is None:
-        return 1
-
-    if args.set_password:
-        if not auth.set_password(args.login, password):
+    if args.disable or args.enable:
+        if not auth.set_disabled(args.login, args.disable):
             print(f"[X] Нет такого пользователя: {args.login}")
             return 1
-        # set_password закрывает все сессии — об этом стоит сказать вслух,
-        # иначе смена пароля выглядит как «ничего не произошло».
-        print(f"[OK] Пароль изменён: {args.login}. Все его сессии закрыты.")
+        if args.disable:
+            # Сессии закрываются вместе с доступом — об этом стоит сказать
+            # вслух, иначе «отключил, а он всё ещё работает» выглядит багом.
+            print(f"[OK] Доступ закрыт: {args.login}. Его сессии завершены.")
+        else:
+            print(f"[OK] Доступ возвращён: {args.login}")
         return 0
 
     try:
-        auth.create_user(args.login, password, is_admin=args.admin)
+        auth.create_user(args.login, is_admin=args.admin)
     except sqlite3.IntegrityError:
         print(f"[X] Пользователь уже существует: {args.login}")
-        print(f"    Сменить пароль: python scripts/add_user.py {args.login} --set-password")
         return 1
     except ValueError as e:
         print(f"[X] {e}")
@@ -100,6 +86,7 @@ def main() -> int:
 
     role = " (администратор)" if args.admin else ""
     print(f"[OK] Учётная запись создана: {args.login}{role}")
+    print("     Пароля нет — вход по логину, он запомнится на компьютере сотрудника.")
     return 0
 
 
