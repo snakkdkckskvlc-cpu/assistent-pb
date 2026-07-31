@@ -185,3 +185,43 @@ def test_no_network_does_not_break_startup(clean_install: tuple[Path, Path]) -> 
     _git(work, "remote", "set-url", "origin", "https://127.0.0.1:1/nope.git")
     assert updater.check_and_apply_update(work) is False
     assert (work / "app.txt").read_text(encoding="utf-8") == "v1"
+
+
+# --- Незапушенные коммиты: близкий промах, из-за которого правка и появилась ---
+
+
+def test_unpushed_commits_block_update(clean_install: tuple[Path, Path]) -> None:
+    """Работа закоммичена, дерево чистое, ветка main — и раньше этого хватало,
+    чтобы reset --hard стёр все локальные коммиты молча.
+
+    Реальный случай: 10 коммитов работы уцелели только потому, что приложение
+    в тот день не запускали.
+    """
+    origin, work = clean_install
+    _advance_origin(origin)
+    (work / "моя_работа.txt").write_text("важное", encoding="utf-8")
+    _git(work, "add", ".")
+    _git(work, "commit", "--quiet", "-m", "локальный коммит")
+    _git(work, "fetch", "--quiet", "origin", "main")
+
+    assert updater._is_safe_to_update(work) is False
+
+
+def test_local_commits_survive_the_update_attempt(clean_install: tuple[Path, Path]) -> None:
+    """Сквозная проверка: попытка обновления не должна тронуть локальную работу."""
+    origin, work = clean_install
+    _advance_origin(origin)
+    (work / "моя_работа.txt").write_text("важное", encoding="utf-8")
+    _git(work, "add", ".")
+    _git(work, "commit", "--quiet", "-m", "локальный коммит")
+    head_before = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=work, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    assert updater.check_and_apply_update(work) is False
+
+    head_after = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=work, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    assert head_after == head_before, "локальный коммит не должен исчезнуть"
+    assert (work / "моя_работа.txt").exists()

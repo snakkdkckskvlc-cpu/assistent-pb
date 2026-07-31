@@ -57,14 +57,41 @@ def _git(
 
 
 def _is_safe_to_update(root: Path) -> bool:
-    """main, без незакоммиченных изменений — иначе это, вероятно, рабочая
-    копия разработчика, и её трогать нельзя."""
+    """main, без незакоммиченных изменений и без своих коммитов — иначе это
+    рабочая копия разработчика, и её трогать нельзя.
+
+    Про незапушенные коммиты проверка появилась после близкого промаха.
+    Обновление применяется через `git reset --hard origin/main`, а раньше
+    здесь смотрели только на незакоммиченные правки. То есть достаточно было
+    закоммитить работу и запустить приложение: дерево чистое, ветка main,
+    origin ушёл вперёд — и reset --hard стирал ВСЕ локальные коммиты молча,
+    без конфликта и без вопроса. Реальный случай: 10 коммитов работы в такой
+    ситуации спасло только то, что приложение в тот день не запускали.
+    """
     branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
     if branch.returncode != 0 or branch.stdout.strip() != GITHUB_REMOTE_BRANCH:
         return False
 
     status = _git(root, "status", "--porcelain")
-    return status.returncode == 0 and not status.stdout.strip()
+    if status.returncode != 0 or status.stdout.strip():
+        return False
+
+    # Коммиты, которых нет в origin. Вызывающий код обязан сделать fetch ДО
+    # этой проверки, иначе сравнение идёт с устаревшим представлением об
+    # удалённой ветке (см. check_and_apply_update).
+    ahead = _git(root, "rev-list", "--count", f"origin/{GITHUB_REMOTE_BRANCH}..HEAD")
+    if ahead.returncode != 0:
+        # Не смогли выяснить — считаем небезопасным: пропущенное обновление
+        # исправляется следующим запуском, стёртая работа — ничем.
+        log.warning("update: не удалось проверить локальные коммиты — обновление пропущено")
+        return False
+    if ahead.stdout.strip() not in ("0", ""):
+        log.info(
+            "update: %s локальных коммитов не в origin — обновление пропущено",
+            ahead.stdout.strip(),
+        )
+        return False
+    return True
 
 
 def _reinstall_dependencies(root: Path) -> bool:
@@ -142,12 +169,14 @@ def check_and_apply_update(root: Path) -> bool:
         return False
 
     try:
-        if not _is_safe_to_update(root):
-            return False
-
+        # Fetch ПЕРЕД проверкой безопасности: она сравнивает локальные
+        # коммиты с origin, и на устаревшей ссылке ответ был бы неверным.
         fetch = _git(root, "fetch", "origin", GITHUB_REMOTE_BRANCH, "--quiet")
         if fetch.returncode != 0:
             return False  # обычно просто нет сети — это нормально, работаем офлайн
+
+        if not _is_safe_to_update(root):
+            return False
 
         local = _git(root, "rev-parse", "HEAD")
         remote = _git(root, "rev-parse", f"origin/{GITHUB_REMOTE_BRANCH}")
