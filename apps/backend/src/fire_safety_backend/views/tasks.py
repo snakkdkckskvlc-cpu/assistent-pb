@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from ..infrastructure import task_store
 from ..infrastructure.queue import Task, queue
 from ..services import history
 from . import auth
@@ -51,6 +52,10 @@ async def api_task(task_id: str, user: auth.User = Depends(auth.current_user)) -
     # ЦЕЛИКОМ, вместе с текстом документа, и 403 подтвердил бы посторонему,
     # что задача с таким id существует.
     task = queue.get(task_id, owner=user.login)
+    if task is None:
+        # В памяти нет — значит сервер перезапускали либо задача вытеснена
+        # как давно завершённая. Результат при этом сохранён.
+        task = await asyncio.to_thread(task_store.load, task_id, user.login)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 

@@ -20,6 +20,11 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# Сколько задач держать в памяти. Сервер живёт неделями, и словарь рос без
+# предела. Вытеснять безопасно: результаты завершённых задач сохранены в базе
+# (infrastructure/task_store.py), и /api/tasks/{id} подхватит их оттуда.
+_MAX_TASKS_IN_MEMORY = 200
+
 
 @dataclass
 class Task:
@@ -79,6 +84,7 @@ class TaskQueue:
             raise RuntimeError("TaskQueue не запущена — вызовите start() в lifespan")
         task = Task(id=uuid.uuid4().hex[:12], kind=kind, owner=owner)
         self._tasks[task.id] = task
+        self._evict_finished()
         await self._queue.put((task, coro_factory))
         log.info("Task queued: %s [%s] от %s", task.id, kind, owner or "—")
         return task
@@ -95,6 +101,21 @@ class TaskQueue:
         if owner is not None and task.owner != owner:
             return None
         return task
+
+    def _evict_finished(self) -> None:
+        """Выкидывает самые старые ЗАВЕРШЁННЫЕ задачи сверх предела.
+
+        Только завершённые: выкинуть ждущую или считающуюся значило бы потерять
+        её у пользователя прямо во время работы.
+        """
+        if len(self._tasks) <= _MAX_TASKS_IN_MEMORY:
+            return
+        finished = sorted(
+            (t for t in self._tasks.values() if t.status in ("done", "error")),
+            key=lambda t: t.created_at,
+        )
+        for task in finished[: len(self._tasks) - _MAX_TASKS_IN_MEMORY]:
+            self._tasks.pop(task.id, None)
 
     def running(self) -> Task | None:
         """Задача, которую воркер считает прямо сейчас. Она одна: параллелить

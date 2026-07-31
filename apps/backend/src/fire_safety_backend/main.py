@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from . import config
-from .infrastructure import languagetool, llm, netguard, secure_files
+from .infrastructure import languagetool, llm, netguard, secure_files, task_store
 from .infrastructure.db import init_db
 from .infrastructure.queue import queue
 from .services import addressees as addressee_service
@@ -57,6 +57,10 @@ netguard.install()
 async def _record_task_history(task) -> None:
     # SQLite — блокирующий вызов, уводим с event loop воркера очереди.
     await asyncio.to_thread(history_service.record, task)
+    # Плюс полный результат — чтобы перезапуск сервера не терял то, что
+    # человек ждал минутами и ещё не успел скачать. Текст договора внутри,
+    # поэтому в базу он ложится зашифрованным (infrastructure/task_store.py).
+    await asyncio.to_thread(task_store.save, task)
 
 
 async def _retention_loop() -> None:
@@ -80,6 +84,12 @@ async def _retention_loop() -> None:
 async def lifespan(app: FastAPI):
     init_db()
     addressee_service.seed_defaults()
+    # Возобновить прерванные задачи нельзя — работа модели не сохраняется.
+    # Но и оставить их «в очереди» навсегда нельзя: человек ждал бы ответа,
+    # которого не будет.
+    interrupted = task_store.mark_interrupted()
+    if interrupted:
+        log.warning("Прервано перезапуском задач: %d", interrupted)
     llm.startup()
     languagetool.startup()
     queue.on_task_finished = _record_task_history

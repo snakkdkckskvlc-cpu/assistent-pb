@@ -228,6 +228,21 @@ def store(logical: Path, data: bytes) -> Path:
     return enc
 
 
+def encrypt_blob(data: bytes) -> bytes:
+    """Шифрует данные для хранения НЕ в файле — например в колонке SQLite.
+
+    Нужно результатам задач: там лежит разбор договора вместе с текстом
+    документа, и класть его в app.db открытым значило бы сделать базу
+    хранилищем договоров (в task_history текст намеренно не пишется).
+    """
+    p = protector()
+    return _wrap(data, p) if p is not None else data
+
+
+def decrypt_blob(raw: bytes) -> bytes:
+    return _unwrap(raw) if raw.startswith(MAGIC) else raw
+
+
 def load(logical: Path) -> bytes:
     """Читает файл, расшифровывая при необходимости."""
     src = stored_path(logical)

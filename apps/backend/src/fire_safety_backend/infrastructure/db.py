@@ -121,6 +121,27 @@ CREATE TABLE IF NOT EXISTS output_files (
     owner TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Результаты задач, чтобы перезапуск сервера не терял то, что человек ждал
+-- минутами. ВАЖНО: result здесь — это разбор договора вместе с текстом
+-- документа, поэтому он лежит ЗАШИФРОВАННЫМ (infrastructure/secure_files.py).
+-- В task_history текст документов не пишется намеренно, и превращать app.db в
+-- открытое хранилище договоров через эту таблицу нельзя.
+CREATE TABLE IF NOT EXISTS task_results (
+    task_id TEXT PRIMARY KEY,
+    owner TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    result BLOB,
+    error TEXT,
+    progress TEXT NOT NULL DEFAULT '',
+    percent INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_results_owner ON task_results(owner);
 """
 
 

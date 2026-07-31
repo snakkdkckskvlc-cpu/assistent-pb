@@ -26,7 +26,7 @@ import time
 from typing import TYPE_CHECKING
 
 from .. import config
-from ..infrastructure import file_access
+from ..infrastructure import file_access, task_store
 from . import ownership
 
 if TYPE_CHECKING:
@@ -129,8 +129,22 @@ def purge_expired() -> dict:
         # Осознанное решение оператора: срок не задан — не удаляем ничего.
         return {"uploads": 0, "outputs": 0, "tmp": 0, "freed_bytes": 0, "disabled": True}
 
-    stats: dict = dict(_run(time.time() - days * _SEC_PER_DAY))
+    cutoff = time.time() - days * _SEC_PER_DAY
+    stats: dict = dict(_run(cutoff))
     stats["disabled"] = False
+    # Разбор договора в базе не должен жить дольше самого договора на диске —
+    # срок общий.
+    from datetime import UTC, datetime
+
+    try:
+        stats["results"] = task_store.purge_older_than(
+            datetime.fromtimestamp(cutoff, UTC).isoformat()
+        )
+    except Exception as e:  # noqa: BLE001
+        # Недоступная база не должна отменять очистку ФАЙЛОВ — они и есть
+        # главный след на диске. Тот же принцип, что с застрявшим файлом выше.
+        log.warning("Очистка: не удалось убрать старые результаты задач: %s", e)
+        stats["results"] = 0
     total = stats["uploads"] + stats["outputs"] + stats["tmp"]
     if total:
         log.info(
