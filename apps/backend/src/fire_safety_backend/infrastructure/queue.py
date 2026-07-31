@@ -96,6 +96,42 @@ class TaskQueue:
             return None
         return task
 
+    def running(self) -> Task | None:
+        """Задача, которую воркер считает прямо сейчас. Она одна: параллелить
+        на CPU смысла нет, и замер это подтвердил — Ollama всё равно выполняет
+        запросы к одной модели последовательно."""
+        return next((t for t in self._tasks.values() if t.status == "running"), None)
+
+    def queued_ahead(self, task_id: str) -> list[Task]:
+        """Задачи, которые будут посчитаны раньше указанной. Пустой список —
+        задача следующая, уже считается или завершена."""
+        task = self._tasks.get(task_id)
+        if task is None or task.status != "queued":
+            return []
+        return sorted(
+            (
+                t
+                for t in self._tasks.values()
+                if t.status == "queued" and t.created_at < task.created_at
+            ),
+            key=lambda t: t.created_at,
+        )
+
+    def position(self, task_id: str) -> int:
+        """Место в очереди: 1 — следующая на выполнение. 0 — не в очереди.
+
+        Показывать позицию важнее, чем кажется: задача на CPU идёт минутами, и
+        без неё интерфейс просто молчит, а человек не понимает, работает
+        программа или зависла.
+        """
+        task = self._tasks.get(task_id)
+        if task is None or task.status != "queued":
+            return 0
+        return len(self.queued_ahead(task_id)) + 1
+
+    def queued_count(self) -> int:
+        return sum(1 for t in self._tasks.values() if t.status == "queued")
+
     def list(self, owner: str | None = None) -> list[Task]:
         tasks = list(self._tasks.values())
         if owner is None:

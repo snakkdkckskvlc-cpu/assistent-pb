@@ -194,6 +194,27 @@ function renderProgress(container, label, percent) {
   `;
 }
 
+// Сколько ждать, по-человечески. Сервер отдаёт секунды или null, когда
+// статистики по этому виду задач ещё нет — в этом случае молчим, а не
+// выдумываем число.
+function humanEta(seconds) {
+  if (seconds == null || seconds <= 0) return "";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 1) return "меньше минуты";
+  if (minutes < 60) return `примерно ${minutes} мин`;
+  return `примерно ${Math.round(minutes / 60)} ч`;
+}
+
+// Что показать, пока задача ждёт своей очереди. На сервере работают несколько
+// человек, а задача на CPU идёт минутами: без позиции интерфейс просто молчит,
+// и человек не понимает, работает программа или зависла.
+function queueLabel(t) {
+  if (t.status !== "queued") return t.progress || "Обработка";
+  if (!t.position || t.position <= 1) return "Следующая в очереди";
+  const eta = humanEta(t.eta_sec);
+  return `В очереди: ${t.position}-я из ${t.queue_length}` + (eta ? ` · ${eta}` : "");
+}
+
 // --- Универсальная submit-логика ---
 
 async function submitForm({ endpoint, buildRequest, resultContainer, progressContainer, renderResult }) {
@@ -219,8 +240,7 @@ async function submitForm({ endpoint, buildRequest, resultContainer, progressCon
     let taskKind = "";
     const result = await pollTask(task_id, (t) => {
       taskKind = t.kind || taskKind;
-      const label = t.status === "queued" ? "В очереди" : (t.progress || "Обработка");
-      renderProgress(progressContainer, label, t.percent);
+      renderProgress(progressContainer, queueLabel(t), t.percent);
     });
 
     progressContainer.style.display = "none";
