@@ -26,6 +26,11 @@ _QUERY_PREFIX = "query: "
 # правил — хуже, чем не сослаться вовсе.
 _DEFAULT_WHERE = {"status": {"$ne": "superseded"}}
 
+# Последняя ошибка поиска. Пустая строка — сбоев не было. Хранится модулем, а
+# не ретривером: /api/health должен уметь спросить состояние, не создавая
+# ретривер заново (это перезагрузка embedding-модели).
+_search_failure = ""
+
 
 def _to_hits(res: dict, index: int) -> list[dict]:
     """Разбирает ответ ChromaDB в наш формат.
@@ -92,13 +97,8 @@ class Retriever:
     def search(self, query: str, top_k: int | None = None, where: dict | None = None) -> list[dict]:
         if not self.is_ready():
             return []
-        k = top_k or config.TOP_K
-        res = self._collection.query(
-            query_texts=[_QUERY_PREFIX + query],
-            n_results=k,
-            where=where if where is not None else _DEFAULT_WHERE,
-        )
-        return _to_hits(res, index=0)
+        res = self._query([_QUERY_PREFIX + query], top_k, where)
+        return _to_hits(res, index=0) if res else []
 
     def search_many(
         self, queries: list[str], top_k: int | None = None, where: dict | None = None
@@ -106,13 +106,38 @@ class Retriever:
         """Батч-версия search(): один round-trip в ChromaDB на несколько запросов."""
         if not self.is_ready() or not queries:
             return [[] for _ in queries]
-        k = top_k or config.TOP_K
-        res = self._collection.query(
-            query_texts=[_QUERY_PREFIX + q for q in queries],
-            n_results=k,
-            where=where if where is not None else _DEFAULT_WHERE,
-        )
+        res = self._query([_QUERY_PREFIX + q for q in queries], top_k, where)
+        if not res:
+            return [[] for _ in queries]
         return [_to_hits(res, index=i) for i in range(len(queries))]
+
+    def _query(self, texts: list[str], top_k: int | None, where: dict | None) -> dict | None:
+        """Запрос к ChromaDB. None — база ответила ошибкой.
+
+        Раньше исключение отсюда улетало наверх и убивало ВСЮ задачу: вызов
+        retrieve_many в pipelines/legal.py не обёрнут, и повреждённый индекс
+        означал не «анализ без ссылок на нормативку», а «анализа нет вовсе».
+        Так и случилось: на живой базе любой запрос С ФИЛЬТРОМ отменённых
+        редакций падал с «Error executing plan: Error finding id», хотя тот же
+        запрос без фильтра отрабатывал.
+
+        Деградация здесь громкая, а не тихая: ошибка пишется в лог и
+        запоминается для /api/health, чтобы интерфейс сказал «база неисправна»,
+        а не молча выдал разбор договора без единой ссылки на закон.
+        """
+        global _search_failure
+        try:
+            res = self._collection.query(
+                query_texts=texts,
+                n_results=top_k or config.TOP_K,
+                where=where if where is not None else _DEFAULT_WHERE,
+            )
+        except Exception as e:
+            _search_failure = f"{type(e).__name__}: {e}"
+            log.error("Поиск по нормативной базе не выполнен: %s", e)
+            return None
+        _search_failure = ""
+        return res
 
 
 @lru_cache(maxsize=len(config.DOMAIN_COLLECTIONS))
@@ -142,6 +167,16 @@ def retrieve_many(
 def is_ready() -> bool:
     """Готовность RAG без пересоздания ретривера (для /api/health)."""
     return _default_retriever().is_ready()
+
+
+def search_failure() -> str:
+    """Последняя ошибка поиска, пустая строка — сбоев не было.
+
+    Индекс может существовать и считаться готовым, но отвечать ошибкой на
+    запрос — именно так и было с повреждённой коллекцией. Без этого признака
+    интерфейс писал бы «нормативная база подключена», пока поиск не работает.
+    """
+    return _search_failure
 
 
 def embed_model_cached() -> bool:

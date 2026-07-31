@@ -26,6 +26,17 @@ async def _rag_probe() -> tuple[bool, str]:
     try:
         import fire_safety_rag
 
+        # Индекс может существовать и считаться готовым, но отвечать ошибкой на
+        # запрос — так и было с повреждённой коллекцией: любой поиск С
+        # ФИЛЬТРОМ отменённых редакций падал. Писать «база подключена», пока
+        # поиск не работает, — та самая тихая деградация, которой в этом
+        # проекте уже дорого обошлась пропажа фирменного бланка.
+        if failure := fire_safety_rag.search_failure():
+            return False, (
+                f"Нормативная база отвечает ошибкой ({failure[:120]}). "
+                "Переиндексируйте: python scripts/index_corpus.py --reset"
+            )
+
         # Использует закешированный singleton-ретривер (lru_cache) —
         # без этого каждый health-чек заново грузил бы embedding-модель.
         if await asyncio.to_thread(fire_safety_rag.is_ready):

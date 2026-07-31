@@ -66,6 +66,27 @@ def _indexed_sources() -> set[str] | None:
         return None
 
 
+def _filtered_search_works() -> str:
+    """Пустая строка — поиск работает. Иначе текст ошибки.
+
+    Проверяется именно поиск С ФИЛЬТРОМ отменённых редакций — тот самый, каким
+    пользуется ретривер. Сверки «файл есть в индексе» для этого мало:
+    повреждённая коллекция честно отдавала все 3281 документ через get(), но
+    падала на ЛЮБОМ векторном запросе с where — то есть при каждом реальном
+    обращении из анализа договора. Такая порча иначе обнаруживается только
+    сбоем у пользователя.
+    """
+    try:
+        import fire_safety_rag
+
+        if not fire_safety_rag.is_ready():
+            return "индекс пуст или не создан"
+        fire_safety_rag.retrieve("требования пожарной безопасности", top_k=1)
+        return fire_safety_rag.search_failure()
+    except Exception as e:  # noqa: BLE001
+        return f"{type(e).__name__}: {e}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Проверка корпуса нормативки")
     parser.add_argument("--index", action="store_true", help="Сверить ещё и с ChromaDB")
@@ -127,6 +148,15 @@ def main() -> int:
                 for n in missing[:15]:
                     print(f"     {n}")
                 print("   python scripts/index_corpus.py --reset")
+
+            failure = _filtered_search_works()
+            if failure:
+                problems += 1
+                print(f"\n[X] Поиск с фильтром отменённых редакций НЕ работает: {failure}")
+                print("   Индекс повреждён — переиндексируйте:")
+                print("   python scripts/index_corpus.py --reset")
+            else:
+                print("\n[OK] Поиск с фильтром отменённых редакций работает")
 
     if problems:
         print(f"\nПроблем: {problems}")
