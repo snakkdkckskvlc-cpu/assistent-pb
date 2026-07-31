@@ -25,6 +25,11 @@ log = logging.getLogger(__name__)
 class Task:
     id: str
     kind: str
+    # Логин того, кто поставил задачу. Пустая строка бывает только в тестах и
+    # в однопользовательском десктопном режиме. По этому полю фильтруется
+    # выдача: результат задачи — это разбор договора целиком, и отдавать его
+    # по одному лишь знанию id нельзя.
+    owner: str = ""
     status: str = "queued"  # queued | running | done | error
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     started_at: str | None = None
@@ -67,20 +72,35 @@ class TaskQueue:
                 await self._worker_task
             self._worker_task = None
 
-    async def submit(self, kind: str, coro_factory: Callable[[Task], Awaitable[Any]]) -> Task:
+    async def submit(
+        self, kind: str, coro_factory: Callable[[Task], Awaitable[Any]], owner: str = ""
+    ) -> Task:
         if self._queue is None:
             raise RuntimeError("TaskQueue не запущена — вызовите start() в lifespan")
-        task = Task(id=uuid.uuid4().hex[:12], kind=kind)
+        task = Task(id=uuid.uuid4().hex[:12], kind=kind, owner=owner)
         self._tasks[task.id] = task
         await self._queue.put((task, coro_factory))
-        log.info("Task queued: %s [%s]", task.id, kind)
+        log.info("Task queued: %s [%s] от %s", task.id, kind, owner or "—")
         return task
 
-    def get(self, task_id: str) -> Task | None:
-        return self._tasks.get(task_id)
+    def get(self, task_id: str, owner: str | None = None) -> Task | None:
+        """Задача или None. С owner отдаёт только СВОЮ задачу.
 
-    def list(self) -> list[Task]:
-        return list(self._tasks.values())
+        None вместо отказа — сознательно: вызывающий отвечает 404, а не 403.
+        403 подтвердил бы, что задача с таким id существует.
+        """
+        task = self._tasks.get(task_id)
+        if task is None:
+            return None
+        if owner is not None and task.owner != owner:
+            return None
+        return task
+
+    def list(self, owner: str | None = None) -> list[Task]:
+        tasks = list(self._tasks.values())
+        if owner is None:
+            return tasks
+        return [t for t in tasks if t.owner == owner]
 
     async def _worker(self) -> None:
         while True:

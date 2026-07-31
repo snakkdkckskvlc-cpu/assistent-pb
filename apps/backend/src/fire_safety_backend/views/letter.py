@@ -6,7 +6,7 @@ import asyncio
 import logging
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from .. import config
 from ..infrastructure import secure_files
@@ -14,6 +14,8 @@ from ..infrastructure.generators.letter_docx import build_letter_docx
 from ..infrastructure.queue import queue
 from ..models import LetterFields, LetterRequest
 from ..pipelines import letter as pipelines
+from ..services import ownership
+from . import auth
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +23,7 @@ router = APIRouter(prefix="/api", tags=["letter"])
 
 
 @router.post("/letter")
-async def api_letter(req: LetterRequest) -> dict:
+async def api_letter(req: LetterRequest, user: auth.User = Depends(auth.current_user)) -> dict:
     if not req.draft.strip():
         raise HTTPException(status_code=400, detail="Пустой набросок")
 
@@ -41,14 +43,20 @@ async def api_letter(req: LetterRequest) -> dict:
                 log.warning("Не удалось собрать бланк письма: %s", e)
             else:
                 result["_docx_path"] = filename
+                # Файл создан внутри задачи — владельца записываем здесь же,
+                # иначе письмо с реквизитами компании смог бы скачать любой,
+                # кому попалось его имя.
+                await asyncio.to_thread(ownership.claim, filename, task.owner)
         return result
 
-    task = await queue.submit("letter", run)
+    task = await queue.submit("letter", run, owner=user.login)
     return {"task_id": task.id}
 
 
 @router.post("/letter/render")
-async def api_letter_render(fields: LetterFields) -> dict:
+async def api_letter_render(
+    fields: LetterFields, user: auth.User = Depends(auth.current_user)
+) -> dict:
     """Собирает DOCX на фирменном бланке из текущих полей письма — тех же,
     что вернула генерация, либо уже отредактированных в интерфейсе. Быстрая
     операция (нет LLM), поэтому вне очереди задач — сразу синхронный ответ."""
@@ -63,6 +71,7 @@ async def api_letter_render(fields: LetterFields) -> dict:
         raise HTTPException(status_code=500, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Не удалось собрать DOCX: {e}") from e
+    await asyncio.to_thread(ownership.claim, filename, user.login)
     # Без бланка письмо уходит контрагенту без реквизитов, ИНН и банковских
     # данных — то есть как обычный текст, а не официальный документ компании.
     # Файл при этом создаётся и открывается, поэтому сказать об этом надо

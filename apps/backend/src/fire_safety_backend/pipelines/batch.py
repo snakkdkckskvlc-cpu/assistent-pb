@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 from .. import config
 from ..infrastructure import secure_files
 from ..infrastructure.parsers import extract_text_with_meta
+from ..services import ownership
 from ..services.classify import classify_document
 from .legal import run_legal_analysis
 
@@ -107,6 +108,8 @@ async def run_batch(file_paths: list[Path], task: Task | None = None) -> dict:
         with secure_files.encrypted_output(output_path) as writable:
             await asyncio.to_thread(build_batch_docx, items, writable)
         result["_docx_path"] = str(output_path.name)
+        if task is not None and task.owner:
+            await asyncio.to_thread(ownership.claim, output_path.name, task.owner)
     except Exception as e:
         log.warning("Не удалось собрать сводный DOCX батча: %s", e, exc_info=True)
         result["_docx_path"] = None

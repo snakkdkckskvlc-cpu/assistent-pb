@@ -34,6 +34,15 @@ def _isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "WORK_DIR", tmp_path / "tmp")
     for d in (config.OUTPUT_DIR, config.WORK_DIR):
         d.mkdir(parents=True, exist_ok=True)
+
+    # Скачивание сверяет владельца файла по БД (services/ownership.py), а
+    # мини-приложение из этого теста не поднимает lifespan и таблиц не
+    # создаёт. Заводим свою временную базу — заодно тест не трогает боевую.
+    from fire_safety_backend.infrastructure import db as db_module
+
+    monkeypatch.setattr(db_module, "DB_PATH", tmp_path / "test_app.db")
+    db_module.init_db()
+
     secure_files.use_protector(_XorProtector())
     yield
     secure_files.reset()
@@ -42,12 +51,16 @@ def _isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 @pytest.fixture
 def client() -> TestClient:
     from fastapi import FastAPI
+    from fire_safety_backend.services.auth import User
+    from fire_safety_backend.views import auth
     from fire_safety_backend.views.downloads import router
 
     # Только роутер скачивания: поднимать всё приложение (очередь, БД, LLM)
-    # для проверки одного эндпоинта незачем.
+    # для проверки одного эндпоинта незачем. Пользователь подменяется —
+    # проверяется выдача файла, а не вход (он покрыт test_auth.py).
     app = FastAPI()
     app.include_router(router)
+    app.dependency_overrides[auth.current_user] = lambda: User(id=1, login="tester", is_admin=False)
     return TestClient(app)
 
 

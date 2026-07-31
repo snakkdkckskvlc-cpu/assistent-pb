@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from ..infrastructure.queue import queue
 from ..pipelines import legal as pipelines
 from ..services import text_from_input_with_warning
+from . import auth
 
 router = APIRouter(prefix="/api", tags=["legal"])
 
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/api", tags=["legal"])
 async def api_legal(
     file: UploadFile | None = File(default=None),
     text: str | None = Form(default=None),
+    user: auth.User = Depends(auth.current_user),
 ) -> dict:
     content, source_warning = await text_from_input_with_warning(file, text)
     if not content.strip():
@@ -29,5 +31,5 @@ async def api_legal(
             result["_source_warning"] = source_warning
         return result
 
-    task = await queue.submit("legal", run)
+    task = await queue.submit("legal", run, owner=user.login)
     return {"task_id": task.id}

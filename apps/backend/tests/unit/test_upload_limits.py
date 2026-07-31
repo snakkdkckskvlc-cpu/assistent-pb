@@ -85,6 +85,8 @@ class TestBatchUsesTheSameLimit:
         в роутере, который потолок не применял."""
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
+        from fire_safety_backend.services.auth import User
+        from fire_safety_backend.views import auth
         from fire_safety_backend.views.batch import router
 
         monkeypatch.setattr(config, "MAX_UPLOAD_BYTES", 4096)
@@ -95,6 +97,9 @@ class TestBatchUsesTheSameLimit:
         config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         app = FastAPI()
         app.include_router(router)
+        app.dependency_overrides[auth.current_user] = lambda: User(
+            id=1, login="tester", is_admin=False
+        )
         client = TestClient(app)
 
         r = client.post(
@@ -114,6 +119,8 @@ class TestBatchUsesTheSameLimit:
         ни память, ни место."""
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
+        from fire_safety_backend.services.auth import User
+        from fire_safety_backend.views import auth
         from fire_safety_backend.views.batch import router
 
         monkeypatch.setattr(config, "MAX_UPLOAD_BYTES", 4096)
@@ -121,6 +128,9 @@ class TestBatchUsesTheSameLimit:
         config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         app = FastAPI()
         app.include_router(router)
+        app.dependency_overrides[auth.current_user] = lambda: User(
+            id=1, login="tester", is_admin=False
+        )
 
         TestClient(app).post("/api/batch", files=[("files", ("огромный.pdf", b"x" * 8192))])
 

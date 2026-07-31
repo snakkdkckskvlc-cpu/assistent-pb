@@ -12,11 +12,13 @@ import asyncio
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
 from .. import config
 from ..infrastructure import secure_files
+from ..services import ownership
+from . import auth
 
 router = APIRouter(prefix="/api/download", tags=["download"])
 
@@ -40,8 +42,14 @@ def _content_disposition(filename: str) -> str:
 
 
 @router.get("/{filename}")
-async def api_download(filename: str) -> Response:
+async def api_download(filename: str, user: auth.User = Depends(auth.current_user)) -> Response:
     safe = Path(filename).name  # защита от path traversal
+    # Случайное имя (uuid) — это «защита незнанием»: ссылку пересылают в чате,
+    # она оседает в истории браузера и в логах прокси. На общем сервере этого
+    # мало. Чужой файл отдаёт 404, а не 403 — иначе ответ подтверждает, что
+    # файл с таким именем существует.
+    if not await asyncio.to_thread(ownership.may_read, safe, user.login):
+        raise HTTPException(status_code=404, detail="Файл не найден")
     logical = config.OUTPUT_DIR / safe
     try:
         # Чтение с диска и расшифровка — блокирующие, уводим с event loop.

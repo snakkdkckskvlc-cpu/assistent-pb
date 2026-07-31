@@ -11,6 +11,7 @@ from fire_safety_rag import chunk_sentences
 from .. import config
 from ..infrastructure import languagetool, llm
 from ..infrastructure.generators.corrected_docx import build_corrected_docx
+from ..services import ownership
 from ._prompts import load_prompt, make_progress_counter
 
 if TYPE_CHECKING:
@@ -200,6 +201,11 @@ async def _attach_corrected_docx(
             build_corrected_docx, out["corrected_text"], errors, source_path
         )
         out["_docx_path"] = docx_path.name
+        # Владелец файла — тот, кто поставил задачу. Записываем здесь, а не в
+        # истории: история пишется ПОСЛЕ завершения задачи, а файл существует
+        # уже сейчас и до тех пор доступен был бы любому по имени.
+        if task is not None and task.owner:
+            await asyncio.to_thread(ownership.claim, docx_path.name, task.owner)
         out["_docx_is_copy"] = edited_copy
     except Exception:
         log.exception("Не удалось подготовить исправленный документ")

@@ -112,6 +112,15 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
+-- Кто чей файл в data/outputs. Отдельная таблица, а не колонка в
+-- task_history: файл появляется в СЕРЕДИНЕ задачи, а запись в историю
+-- делается после её завершения.
+CREATE TABLE IF NOT EXISTS output_files (
+    filename TEXT PRIMARY KEY,
+    owner TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -123,6 +132,14 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
         "feedback",
         "bad_output",
         "ALTER TABLE feedback ADD COLUMN bad_output TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        # Кто запускал задачу. Пусто у записей, сделанных до появления
+        # разграничения доступа — такие видны всем вошедшим, иначе прежняя
+        # история исчезла бы у своих же владельцев.
+        "task_history",
+        "owner",
+        "ALTER TABLE task_history ADD COLUMN owner TEXT NOT NULL DEFAULT ''",
     ),
 )
 

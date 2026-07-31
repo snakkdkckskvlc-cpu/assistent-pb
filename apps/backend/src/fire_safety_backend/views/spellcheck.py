@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from ..infrastructure.queue import queue
 from ..pipelines import spellcheck as pipelines
 from ..services.uploads import text_from_input_with_source
+from . import auth
 
 router = APIRouter(prefix="/api", tags=["spellcheck"])
 
@@ -16,6 +17,7 @@ async def api_spellcheck(
     file: UploadFile | None = File(default=None),
     text: str | None = Form(default=None),
     deep: bool = Form(default=True),
+    user: auth.User = Depends(auth.current_user),
 ) -> dict:
     """deep=false — быстрая проверка только через LanguageTool (секунды вместо
     минут). Замер и обоснование — в docstring pipelines.spellcheck.run_spellcheck."""
@@ -36,5 +38,5 @@ async def api_spellcheck(
             result["_source_warning"] = source_warning
         return result
 
-    task = await queue.submit("spellcheck", run)
+    task = await queue.submit("spellcheck", run, owner=user.login)
     return {"task_id": task.id}

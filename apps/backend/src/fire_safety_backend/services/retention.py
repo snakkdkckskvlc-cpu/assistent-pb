@@ -19,6 +19,7 @@ wear-leveling и на журналируемой NTFS перезапись «т�
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import shutil
 import time
@@ -26,6 +27,7 @@ from typing import TYPE_CHECKING
 
 from .. import config
 from ..infrastructure import file_access
+from . import ownership
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -61,6 +63,10 @@ def _remove(entry: Path) -> int:
         shutil.rmtree(entry)
     else:
         entry.unlink()
+        # Файла больше нет — снимаем и заявку на владение, иначе таблица
+        # растёт вслед за уже несуществующими файлами.
+        with contextlib.suppress(Exception):
+            ownership.forget(entry.name)
     return size
 
 
