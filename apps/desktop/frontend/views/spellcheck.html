@@ -88,22 +88,19 @@
         parts.push(`<p style="color:var(--green)"><b>✓ Ошибок не найдено.</b></p>`);
       }
 
-      // Главное действие — забрать СВОЙ документ с исправлениями: шрифты,
-      // отступы и таблицы на месте, изменены только слова с ошибками.
-      // Оригинал не тронут, это отдельная копия.
       if (result._docx_path) {
-        const rep = result["_docx_отчёт"] || {};
-        const notFound = (rep["не_найдено"] || []).length;
-        const notes = [];
-        if (rep["применено"]) notes.push(`внесено правок: ${rep["применено"]}`);
-        if (notFound) notes.push(`не удалось найти в документе: ${notFound}`);
+        // Честно говорим, что именно получит пользователь: правки внутри
+        // копии оригинала (форматирование на месте) или собранный заново
+        // документ — для PDF, сканов и вставленного руками текста.
+        const note = result._docx_is_copy
+          ? "копия исходного документа с внесёнными правками — форматирование сохранено"
+          : "документ собран из исправленного текста: исходное форматирование сохранить не удалось (источник — не DOCX)";
         parts.push(`<h3>Исправленный документ</h3>
-          <p class="hint">Это копия вашего файла — оформление, шрифты и таблицы сохранены,
-          изменены только слова с ошибками. Оригинал не тронут.${notes.length ? " " + escapeHtml(notes.join(", ")) + "." : ""}</p>
           <div class="actions">
-            <button class="btn" id="sc-download" data-path="${escapeHtml(result._docx_path)}">📄 Скачать исправленный документ</button>
+            <button class="btn" id="sc-download">📄 Скачать исправленный DOCX</button>
             <span class="hint" id="sc-download-status"></span>
-          </div>`);
+          </div>
+          <p class="hint">${escapeHtml(note)}</p>`);
       }
 
       if (result.corrected_text) {
@@ -113,23 +110,19 @@
 
       container.innerHTML = parts.join("");
 
-      const dl = document.getElementById("sc-download");
-      if (dl) {
-        dl.addEventListener("click", async () => {
+      const dlBtn = document.getElementById("sc-download");
+      if (dlBtn) {
+        dlBtn.addEventListener("click", async () => {
           const statusEl = document.getElementById("sc-download-status");
-          dl.disabled = true;
-          statusEl.textContent = "Сохраняю…";
-          try {
-            const name = dl.dataset.path;
-            statusEl.textContent = "";
-            const res = await downloadFile(`/api/download/${encodeURIComponent(name)}`, name);
-            if (res && res.ok === false && res.error !== "cancelled") {
-              statusEl.textContent = "Не удалось сохранить: " + res.error;
-            }
-          } catch (e) {
-            statusEl.textContent = "Не удалось скачать: " + e.message;
-          } finally {
-            dl.disabled = false;
+          dlBtn.disabled = true;
+          statusEl.textContent = "";
+          const res = await downloadFile(
+            `/api/download/${encodeURIComponent(result._docx_path)}`,
+            result._docx_path,
+          );
+          dlBtn.disabled = false;
+          if (res && res.ok === false && res.error !== "cancelled") {
+            statusEl.textContent = "Не удалось сохранить: " + res.error;
           }
         });
       }

@@ -213,6 +213,9 @@ th, td { text-align: left; padding: 10px 8px; vertical-align: top; border-bottom
 th { color: var(--muted); font-weight: 500; font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em; }
 
 .chip { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+.chip.ok { background: #e6f4ea; color: #14713a; }
+.chip.warn { background: #fff4d6; color: #a3720d; }
+.chip.bad { background: #fbe9e7; color: #b3271b; }
 .chip.orph { background: #fbe9e7; color: #b3271b; }
 .chip.punct { background: #fff4d6; color: #a3720d; }
 .chip.style { background: #e7f1ff; color: #1c5db8; }

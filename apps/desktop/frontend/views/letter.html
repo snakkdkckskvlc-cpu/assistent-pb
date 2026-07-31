@@ -184,11 +184,18 @@
             body: JSON.stringify(fields),
           });
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const { docx_path } = await r.json();
+          const { docx_path, letterhead_missing } = await r.json();
           statusEl.textContent = "";
           const res = await downloadFile(`/api/download/${encodeURIComponent(docx_path)}`, docx_path);
           if (res && res.ok === false && res.error !== "cancelled") {
             statusEl.textContent = "Не удалось сохранить: " + res.error;
+          } else if (letterhead_missing) {
+            // Файл скачался, но БЕЗ реквизитов компании — такое письмо нельзя
+            // отправлять контрагенту, а по виду кнопки этого не понять.
+            statusEl.innerHTML =
+              '<span style="color:var(--red)">⚠ Письмо БЕЗ фирменного бланка: ' +
+              "не найден шаблон, в документе нет реквизитов, ИНН и банковских данных. " +
+              "Отправлять в таком виде нельзя — сообщите разработчику.</span>";
           }
         } catch (e) {
           statusEl.textContent = "Ошибка: " + (e.message || String(e));

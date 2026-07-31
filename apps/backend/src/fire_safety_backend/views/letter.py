@@ -9,6 +9,7 @@ import uuid
 from fastapi import APIRouter, HTTPException
 
 from .. import config
+from ..infrastructure import secure_files
 from ..infrastructure.generators.letter_docx import build_letter_docx
 from ..infrastructure.queue import queue
 from ..models import LetterFields, LetterRequest
@@ -54,7 +55,20 @@ async def api_letter_render(fields: LetterFields) -> dict:
     filename = f"letter_{uuid.uuid4().hex[:12]}.docx"
     output_path = config.OUTPUT_DIR / filename
     try:
-        await asyncio.to_thread(build_letter_docx, fields.model_dump(), output_path)
+        # Письмо уходит на фирменном бланке с реквизитами и банковскими
+        # данными — на диске оно лежит зашифрованным.
+        with secure_files.encrypted_output(output_path) as writable:
+            await asyncio.to_thread(build_letter_docx, fields.model_dump(), writable)
+    except secure_files.StorageUnprotected as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Не удалось собрать DOCX: {e}") from e
-    return {"docx_path": filename}
+    # Без бланка письмо уходит контрагенту без реквизитов, ИНН и банковских
+    # данных — то есть как обычный текст, а не официальный документ компании.
+    # Файл при этом создаётся и открывается, поэтому сказать об этом надо
+    # ЯВНО и до отправки: иначе разницу замечают, только сравнив письма
+    # вручную (так и случилось, когда шаблон пропал).
+    return {
+        "docx_path": filename,
+        "letterhead_missing": not config.LETTERHEAD_TEMPLATE.exists(),
+    }

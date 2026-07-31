@@ -26,6 +26,11 @@ UPLOAD_DIR = DATA_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR = DATA_DIR / "outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
+# Расшифрованные копии документов на время обработки. Именно ЗДЕСЬ, а не в
+# системном %TEMP%: открытая копия договора не должна оставаться там, куда не
+# дотягивается автоочистка (services/retention.py).
+WORK_DIR = DATA_DIR / "tmp"
+WORK_DIR.mkdir(exist_ok=True)
 
 
 def _default_llm_model() -> str:
@@ -104,6 +109,37 @@ def _auto_num_ctx_legal() -> int:
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 LLM_MODEL = os.environ.get("LLM_MODEL") or _default_llm_model()
 LLM_TIMEOUT_SEC = int(os.environ.get("LLM_TIMEOUT_SEC", "900"))
+
+
+def _parse_keep_alive(raw: str) -> int | str:
+    """Ollama принимает либо ЧИСЛО секунд (-1 = держать бессрочно), либо строку
+    с единицей измерения («30m», «24h»). Голая строка "-1" отвергается с
+    `time: missing unit in duration` — поэтому целые числа отдаём именно
+    числом, а не строкой из переменной окружения."""
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
+
+
+# Сколько Ollama держит модель в памяти после запроса. Дефолт Ollama — 5
+# минут, после чего модель выгружается и следующий запрос заново читает её
+# с диска (замерено: холодный запрос 9.3 c против 1.2 c тёплого — восемь
+# секунд впустую). Инструментом пользуются несколько раз в день, поэтому
+# «после паузы» — это почти каждый запрос. -1 — держать бессрочно; модель
+# занимает ~5 ГБ при 128 ГБ ОЗУ на целевом сервере.
+LLM_KEEP_ALIVE = _parse_keep_alive(os.environ.get("LLM_KEEP_ALIVE", "-1"))
+
+# Число потоков llama.cpp. По умолчанию не задаём — Ollama выбирает сама, и
+# для однородных процессоров (как Ryzen 5 5600 на боевом сервере) её выбор
+# обычно верный. Настройка нужна для ГИБРИДНЫХ процессоров (Intel 12-го
+# поколения и новее: быстрые P-ядра + медленные E-ядра): там работа делится
+# между ядрами поровну, и быстрые простаивают в ожидании медленных. Замер на
+# Core Ultra 5 125H (14 ядер / 18 потоков): дефолт 6.96 ток/с, 12 потоков
+# 7.79 ток/с (+12%), 4 потока 5.76 ток/с. Оптимум зависит от железа —
+# подбирается замером на конкретной машине, а не переносится из чужой.
+_raw_threads = os.environ.get("LLM_NUM_THREAD", "").strip()
+LLM_NUM_THREAD: int | None = int(_raw_threads) if _raw_threads.isdigit() else None
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.2"))
 LLM_NUM_CTX = int(os.environ.get("LLM_NUM_CTX", "4096"))
 # Отдельное окно для юр. анализа: договор целиком туда всё равно не влезает
@@ -148,3 +184,35 @@ LANGUAGETOOL_TIMEOUT_SEC = float(os.environ.get("LANGUAGETOOL_TIMEOUT_SEC", "20"
 
 # --- Chunking для длинных текстов при spellcheck ---
 SPELLCHECK_CHUNK_WORDS = 300
+
+# --- Загрузка файлов ---
+# Потолок на один файл. Приходящий файл читается в память целиком, поэтому
+# без потолка случайно перетащенный многогигабайтный файл (архив, видео)
+# укладывает backend без внятного сообщения. 64 МБ с запасом покрывают
+# реальные документы: договор на 17 страниц со сканами — единицы мегабайт.
+MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(64 * 1024 * 1024)))
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+# --- Защита данных на диске ---
+# Через приложение проходят договоры контрагентов и письма компании, а
+# разграничения доступа нет: кто получил файлы — получил все документы.
+# Поэтому uploads/outputs хранятся зашифрованными Windows DPAPI (см.
+# infrastructure/dpapi.py и infrastructure/secure_files.py). Выключать имеет
+# смысл только при отладке.
+ENCRYPT_AT_REST = _env_flag("ENCRYPT_AT_REST", True)
+
+# Сколько дней жить загруженным и сгенерированным файлам. Шифрование не
+# спасает от кода, запущенного под этой же учётной записью Windows, — а вот
+# отсутствие файла спасает. Скачанное пользователем лежит там, куда он его
+# сохранил, и очисткой не затрагивается. 0 — не удалять ничего.
+DATA_RETENTION_DAYS = int(os.environ.get("DATA_RETENTION_DAYS", "7"))
+# Как часто проверять сроки, пока приложение открыто. Раз в 6 часов: рабочий
+# день длиннее, чем интервал, поэтому долгую сессию очистка тоже накрывает.
+DATA_RETENTION_SWEEP_SEC = int(os.environ.get("DATA_RETENTION_SWEEP_SEC", str(6 * 60 * 60)))

@@ -10,9 +10,12 @@ from fire_safety_rag import chunk_sentences
 
 from .. import config
 from ..infrastructure import languagetool, llm
+from ..infrastructure.generators.corrected_docx import build_corrected_docx
 from ._prompts import load_prompt, make_progress_counter
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ..infrastructure.queue import Task
 
 log = logging.getLogger(__name__)
@@ -36,17 +39,13 @@ def _load_glossary_terms() -> list[str]:
     return terms
 
 
-def _normalize_before(text: str) -> str:
-    return " ".join(text.split()).casefold()
-
-
 def _apply_to_text(text: str, errors: list[dict]) -> str:
     """Собирает исправленный текст из найденных правок.
 
-    Нужно потому, что в быстром режиме модель не вызывается, а показать
-    результат целиком всё равно надо. Замены идут по одному разу на вхождение
-    и в порядке убывания длины: короткий фрагмент может оказаться частью
-    длинного, и заменив его первым, мы разрушили бы длинный.
+    Нужно в быстром режиме: модель не вызывается, а показать результат целиком
+    всё равно надо. Замены идут в порядке убывания длины «было» — короткий
+    фрагмент может оказаться частью длинного, и заменив его первым, мы
+    разрушили бы длинный.
     """
     out = text
     for e in sorted(errors, key=lambda x: len(str(x.get("before", ""))), reverse=True):
@@ -54,6 +53,10 @@ def _apply_to_text(text: str, errors: list[dict]) -> str:
         if before and after and before != after and before not in after:
             out = out.replace(before, after)
     return out
+
+
+def _normalize_before(text: str) -> str:
+    return " ".join(text.split()).casefold()
 
 
 def _dedup_errors(errors: list[dict]) -> list[dict]:
@@ -72,20 +75,24 @@ def _dedup_errors(errors: list[dict]) -> list[dict]:
     return deduped
 
 
-async def run_spellcheck(text: str, task: Task | None = None, deep: bool = True) -> dict:
+async def run_spellcheck(
+    text: str,
+    task: Task | None = None,
+    source_path: Path | None = None,
+    deep: bool = True,
+) -> dict:
     """deep=False — только LanguageTool, без обращения к модели.
 
     Замер на 29 намеренно заложенных ошибках в четырёх деловых письмах:
 
-        LanguageTool   14/29 (48%)    1,7 с
+        LanguageTool   14/29 (48%)      1,7 с
         модель 7B      16/29 (55%)    117 с
         вместе         23/29 (79%)    117 с
 
-    То есть они ловят РАЗНОЕ: девять ошибок нашла только модель (все
-    контекстные — вводные обороты, «что бы» против «чтобы», причастный
-    оборот), семь — только LanguageTool. Поэтому быстрый режим не заменяет
-    глубокий, а даёт мгновенный результат там, где ждать две минуты на
-    страницу незачем.
+    Ловят они РАЗНОЕ: девять ошибок нашла только модель (все контекстные —
+    вводные обороты, «что бы» против «чтобы», причастный оборот), семь —
+    только LanguageTool. Поэтому быстрый режим не заменяет глубокий, а даёт
+    мгновенный результат там, где ждать две минуты на страницу незачем.
     """
     prompt = load_prompt("spellcheck")
     glossary_terms = _load_glossary_terms()
@@ -108,11 +115,11 @@ async def run_spellcheck(text: str, task: Task | None = None, deep: bool = True)
     if not deep:
         # Быстрый режим: правки уже есть, текст не переписываем. corrected_text
         # собирается применением найденных замен, а не отдельным проходом
-        # модели — она бы переписывала весь документ со скоростью 12 токенов/с.
+        # модели — она переписывала бы весь документ со скоростью 12 токенов/с.
         errors = _dedup_errors(list(lt_errors))
         if task:
-            task.percent = 100
-        return {
+            task.percent = 95
+        out = {
             "errors": errors,
             "corrected_text": _apply_to_text(text, errors),
             "stats": {
@@ -122,6 +129,8 @@ async def run_spellcheck(text: str, task: Task | None = None, deep: bool = True)
                 "режим": "быстрый (только LanguageTool)",
             },
         }
+        await _attach_corrected_docx(out, errors, source_path, task)
+        return out
 
     # Sentence-aware чанкинг (см. packages/rag/src/fire_safety_rag/chunking.py) —
     # без overlap: правки не должны дублироваться между соседними чанками.
@@ -160,16 +169,40 @@ async def run_spellcheck(text: str, task: Task | None = None, deep: bool = True)
         corrected_parts.append(result.get("corrected_text", chunk))
 
     all_errors = _dedup_errors(all_errors)
+    corrected_text = "\n\n".join(corrected_parts)
 
-    return {
+    out: dict = {
         "errors": all_errors,
-        "corrected_text": "\n\n".join(corrected_parts),
+        "corrected_text": corrected_text,
         "stats": {
             "total_errors": len(all_errors),
             "by_type": _count_by_type(all_errors),
             "chunks_processed": len(chunks),
         },
     }
+
+    await _attach_corrected_docx(out, all_errors, source_path, task)
+    return out
+
+
+async def _attach_corrected_docx(
+    out: dict, errors: list[dict], source_path: Path | None, task: Task | None
+) -> None:
+    """Исправленный документ для скачивания.
+
+    Сборка не должна ронять всю проверку: даже если файл собрать не удалось,
+    найденные ошибки и текст пользователю уже полезны.
+    """
+    if task:
+        task.progress = "Готовлю исправленный документ"
+    try:
+        docx_path, edited_copy = await asyncio.to_thread(
+            build_corrected_docx, out["corrected_text"], errors, source_path
+        )
+        out["_docx_path"] = docx_path.name
+        out["_docx_is_copy"] = edited_copy
+    except Exception:
+        log.exception("Не удалось подготовить исправленный документ")
 
 
 def _count_by_type(errors: list[dict]) -> dict[str, int]:

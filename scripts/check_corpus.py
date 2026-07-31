@@ -85,7 +85,7 @@ def main() -> int:
     untracked = sorted(actual_names - tracked)
     if untracked:
         problems += len(untracked)
-        print(f"\n❌ Действующие, но НЕ отслеживаются git ({len(untracked)}) —")
+        print(f"\n[X] Действующие, но НЕ отслеживаются git ({len(untracked)}) —")
         print("   на свежей установке этих документов у пользователя не будет:")
         for n in untracked:
             print(f"     {n}")
@@ -94,14 +94,14 @@ def main() -> int:
     no_meta = sorted(names - set(meta))
     if no_meta:
         problems += len(no_meta)
-        print(f"\n⚠  Без записи в _meta.json ({len(no_meta)}) — не будет ни типа, ни статуса:")
+        print(f"\n[!]Без записи в _meta.json ({len(no_meta)}) — не будет ни типа, ни статуса:")
         for n in no_meta:
             print(f"     {n}")
 
     orphan_meta = sorted(set(meta) - names)
     if orphan_meta:
         problems += len(orphan_meta)
-        print(f"\n⚠  Запись в _meta.json есть, файла нет ({len(orphan_meta)}):")
+        print(f"\n[!]Запись в _meta.json есть, файла нет ({len(orphan_meta)}):")
         for n in orphan_meta:
             print(f"     {n}")
 
@@ -110,7 +110,7 @@ def main() -> int:
     )
     if bad_status:
         problems += len(bad_status)
-        print(f"\n❌ Неизвестный status ({len(bad_status)}), допустимы {sorted(KNOWN_STATUSES)}:")
+        print(f"\n[X] Неизвестный status ({len(bad_status)}), допустимы {sorted(KNOWN_STATUSES)}:")
         for n in bad_status:
             print(f"     {n}: {meta[n]['status']}")
 
@@ -122,7 +122,7 @@ def main() -> int:
             if missing:
                 problems += len(missing)
                 print(
-                    f"\n❌ В корпусе есть, в индексе НЕТ ({len(missing)}) — нужна переиндексация:"
+                    f"\n[X] В корпусе есть, в индексе НЕТ ({len(missing)}) — нужна переиндексация:"
                 )
                 for n in missing[:15]:
                     print(f"     {n}")
@@ -131,7 +131,7 @@ def main() -> int:
     if problems:
         print(f"\nПроблем: {problems}")
         return 1
-    print("\n✅ Корпус согласован")
+    print("\n[OK] Корпус согласован")
     return 0
 
 

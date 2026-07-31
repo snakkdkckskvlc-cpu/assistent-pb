@@ -52,12 +52,18 @@
       if (c.includes("зелён") || c.includes("зелен")) return "crit-green";
       return "";
     }
+    // ВАЖНО: результат уходит в innerHTML, поэтому неизвестное значение
+    // обязано экранироваться. «Критичность» приходит из ответа модели, а
+    // моделью управляет анализируемый документ: договор с внедрённой
+    // инструкцией может заставить её вернуть сюда HTML вместо «красный».
+    // Раньше здесь стоял `return crit`, и такой HTML исполнялся бы в окне
+    // приложения — с доступом к мосту window.pywebview.api.
     function critLabel(crit) {
       const c = (crit || "").toLowerCase();
       if (c.includes("красн")) return "🔴 КРИТИЧНО";
       if (c.includes("жёлт") || c.includes("желт")) return "🟡 СУЩЕСТВЕННО";
       if (c.includes("зелён") || c.includes("зелен")) return "🟢 ВНИМАНИЕ";
-      return crit || "";
+      return escapeHtml(crit || "");
     }
 
     function renderLegalResult(result, container) {

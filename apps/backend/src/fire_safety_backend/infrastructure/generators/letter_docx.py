@@ -17,6 +17,7 @@ scripts/build_letterhead_template.py — не редактируйте letterhea
 
 from __future__ import annotations
 
+import logging
 import re
 from copy import deepcopy
 from datetime import date
@@ -26,6 +27,8 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from ... import config
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -118,6 +121,18 @@ def build_letter_docx(letter: dict, output_path: Path) -> Path:
         doc = Document(str(config.LETTERHEAD_TEMPLATE))
         _apply_mapping(doc, mapping)
     else:
+        # Отсутствие бланка — НЕ мелочь: письмо уходит контрагенту без
+        # реквизитов, ИНН и банковских данных, то есть как обычный текст, а
+        # не как официальный документ компании. Отказ при этом внешне
+        # незаметен — файл создаётся, скачивается и открывается. Такое уже
+        # случилось: шаблон пропал, и разницу заметили только сравнив два
+        # письма вручную. Поэтому пишем в лог ошибкой и помечаем результат,
+        # чтобы интерфейс сказал об этом пользователю ДО отправки.
+        log.error(
+            "Шаблон бланка не найден (%s) — письмо будет БЕЗ реквизитов компании. "
+            "Восстановить: python scripts/build_letterhead_template.py --source <бланк.docx>",
+            config.LETTERHEAD_TEMPLATE,
+        )
         # Fallback — минимальный документ
         doc = Document()
         doc.add_paragraph(mapping["date"]).alignment = WD_ALIGN_PARAGRAPH.RIGHT

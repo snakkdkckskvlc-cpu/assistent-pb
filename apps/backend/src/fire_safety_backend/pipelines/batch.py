@@ -20,6 +20,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from .. import config
+from ..infrastructure import secure_files
 from ..infrastructure.parsers import extract_text_with_meta
 from ..services.classify import classify_document
 from .legal import run_legal_analysis
@@ -45,7 +46,11 @@ async def run_batch(file_paths: list[Path], task: Task | None = None) -> dict:
         item: dict = {"файл": path.name}
 
         try:
-            text, extraction = await asyncio.to_thread(extract_text_with_meta, path)
+            # По расшифрованной копии: парсеры и OCR умеют только настоящий
+            # файл на диске. Копия исчезает сразу после разбора файла, а не
+            # живёт до конца пакета.
+            with secure_files.plaintext(path) as readable:
+                text, extraction = await asyncio.to_thread(extract_text_with_meta, readable)
             if extraction.warning:
                 item["предупреждение"] = extraction.warning
         except Exception as e:
@@ -97,7 +102,10 @@ async def run_batch(file_paths: list[Path], task: Task | None = None) -> dict:
 
     output_path = config.OUTPUT_DIR / f"batch_{task.id if task else 'preview'}.docx"
     try:
-        await asyncio.to_thread(build_batch_docx, items, output_path)
+        # Отчёт содержит находки по всем договорам пакета — на диск он должен
+        # попасть уже зашифрованным.
+        with secure_files.encrypted_output(output_path) as writable:
+            await asyncio.to_thread(build_batch_docx, items, writable)
         result["_docx_path"] = str(output_path.name)
     except Exception as e:
         log.warning("Не удалось собрать сводный DOCX батча: %s", e, exc_info=True)
