@@ -35,6 +35,21 @@ ensure_venv()
 
 
 ROOT = Path(__file__).resolve().parent.parent
+for _rel in ("apps/backend/src", "packages/rag/src"):
+    sys.path.insert(0, str(ROOT / _rel))
+
+# Проверка обязана идти в тех же условиях, что боевой запуск, иначе она
+# проверяет не то приложение, которое поедет к заказчику. netguard не только
+# запрещает сеть, но и выставляет HF_HUB_OFFLINE=1 — обязательно ДО импорта
+# huggingface_hub, иначе флаг не читается.
+#
+# Практическое следствие: без этого скрипт печатал предупреждение HF Hub про
+# «unauthenticated requests» ровно там, где чек-лист приёмки требует убедиться,
+# что обращений к huggingface.co нет. Пункт, который сам себе противоречит,
+# перестают проверять.
+from fire_safety_backend.infrastructure import netguard  # noqa: E402
+
+netguard.install()
 CORPUS = ROOT / "packages" / "rag" / "corpus"
 META = CORPUS / "_meta.json"
 SIDECAR_NAMES = {"_meta.json", ".gitkeep"}
