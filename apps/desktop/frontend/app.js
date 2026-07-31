@@ -21,7 +21,13 @@ async function updateHealth() {
       const rag = data.rag_ready
         ? " · нормативная база подключена"
         : ` · ${data.rag_warning || "нормативная база не подключена"}`;
-      const lt = data.languagetool_ready ? " · LanguageTool подключен" : "";
+      // Не установлен и «ещё поднимается» лечатся по-разному, поэтому молчим
+      // только во втором случае — java стартует около 15 секунд.
+      const lt = data.languagetool_ready
+        ? " · LanguageTool подключен"
+        : (data.languagetool_installed === false
+            ? " · LanguageTool не установлен, орфография идёт через модель"
+            : "");
       el.textContent = `● ${data.ollama.model} готова${rag}${lt}`;
       el.className = "status ok";
     } else {

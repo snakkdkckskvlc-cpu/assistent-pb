@@ -58,8 +58,17 @@ _COVERED_DIRS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 # Отдельные файлы вне этих каталогов: установщик и список зависимостей влияют
-# на то, что окажется на машине, не меньше самого кода.
-_COVERED_FILES: tuple[str, ...] = ("bootstrap.ps1", "requirements-runtime.txt")
+# на то, что окажется на машине, не меньше самого кода. Скрипты LanguageTool
+# перечислены поимённо, а не каталогом: рядом с ними распаковывается JDK на
+# 430 МБ, и обход этого дерева на каждом старте свёл бы 27 мс проверки на нет.
+_COVERED_FILES: tuple[str, ...] = (
+    "bootstrap.ps1",
+    "requirements-runtime.txt",
+    "tools/languagetool/setup.ps1",
+    "tools/languagetool/start.ps1",
+    "tools/languagetool/setup.sh",
+    "tools/languagetool/start.sh",
+)
 
 # Каталоги, которых в манифесте быть не должно. Каждое исключение по делу —
 # лишнее превратит инструмент в кирпич на ложном срабатывании:

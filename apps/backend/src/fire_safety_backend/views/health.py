@@ -109,5 +109,8 @@ async def health() -> dict:
         "rag_ready": rag_ready,
         "rag_warning": rag_warning,
         "languagetool_ready": lt["ok"],
+        # «Не подключен» само по себе ничего не говорит: не установлен вовсе и
+        # ещё поднимается (java стартует ~15 с) лечатся по-разному.
+        "languagetool_installed": languagetool.installed(),
         "security": security,
     }

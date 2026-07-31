@@ -33,6 +33,14 @@ WORK_DIR = DATA_DIR / "tmp"
 WORK_DIR.mkdir(exist_ok=True)
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    """Булев флаг из окружения. Пусто/не задано — значение по умолчанию."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
 def _default_llm_model() -> str:
     """qwen2.5:7b-instruct — модель, которую bootstrap.ps1 фактически качает по
     умолчанию. Если при установке был выбран другой LLM_MODEL, bootstrap.ps1
@@ -181,6 +189,11 @@ EASYOCR_MIN_CONFIDENCE = float(os.environ.get("EASYOCR_MIN_CONFIDENCE", "0.6"))
 # infrastructure/languagetool.py::check).
 LANGUAGETOOL_HOST = os.environ.get("LANGUAGETOOL_HOST", "http://127.0.0.1:8081")
 LANGUAGETOOL_TIMEOUT_SEC = float(os.environ.get("LANGUAGETOOL_TIMEOUT_SEC", "20"))
+# Поднимать ли сервер самим при старте. У Ollama есть собственная служба
+# Windows, у LanguageTool её нет — и пока запуск был на человеке, он не
+# происходил никогда, а каждая проверка орфографии уходила в модель. Выключать
+# имеет смысл, если сервер поднимают отдельно (служба, systemd, вручную).
+LANGUAGETOOL_AUTOSTART = _env_flag("LANGUAGETOOL_AUTOSTART", True)
 
 # --- Chunking для длинных текстов при spellcheck ---
 SPELLCHECK_CHUNK_WORDS = 300
@@ -191,13 +204,6 @@ SPELLCHECK_CHUNK_WORDS = 300
 # укладывает backend без внятного сообщения. 64 МБ с запасом покрывают
 # реальные документы: договор на 17 страниц со сканами — единицы мегабайт.
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(64 * 1024 * 1024)))
-
-
-def _env_flag(name: str, default: bool) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() not in {"0", "false", "no", "off", ""}
 
 
 # --- Защита данных на диске ---

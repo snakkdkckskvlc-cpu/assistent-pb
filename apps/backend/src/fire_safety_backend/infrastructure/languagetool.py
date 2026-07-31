@@ -1,25 +1,53 @@
 """Клиент к LanguageTool — офлайн-детерминированный первый проход перед LLM.
 
-LanguageTool запускается отдельным локальным процессом (tools/languagetool/
-start.sh, на вендоренном JDK), НЕ управляется этим приложением — тот же
-паттерн, что и Ollama (см. infrastructure/llm.py): просто HTTP-вызов,
-недоступность сервера — не фатальна, деградируем на чистый LLM-путь.
+LanguageTool работает отдельным локальным процессом на вендоренном JDK
+(tools/languagetool/). Приложение обращается к нему по HTTP; недоступность
+сервера не фатальна — деградируем на чистый LLM-путь.
 
 Почему отдельный процесс, а не встроенная Java-библиотека — LanguageTool
 лицензирован LGPL-2.1; вызов по HTTP отдельного процесса не является
 линковкой и не тянет копилефт-обязательств на наш код (подробный разбор —
 references/languagetool-master/README_reference.md).
+
+### Почему приложение теперь само поднимает сервер
+
+Раньше запуск был на человеке, и по факту не запускался никогда: установщик
+LanguageTool не ставил вовсе, ярлык на рабочем столе зовёт pythonw напрямую,
+и в интерфейсе просто висело «LanguageTool не подключен» без единой подсказки,
+что с этим делать. В результате КАЖДАЯ проверка орфографии уходила в модель —
+минуты вместо секунд, хотя быстрый детерминированный проход был написан и
+готов.
+
+Ollama остаётся неуправляемой (её ставит собственный установщик и она живёт
+службой Windows), а у LanguageTool службы нет — поэтому поднимаем сами.
+Запускаем только если порт свободен, и гасим при выходе только СВОЙ процесс:
+если сервер поднят кем-то другим (например, вручную из start.ps1), мы его не
+трогаем.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
+import sys
+from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 import httpx
 
 from .. import config
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 log = logging.getLogger(__name__)
+
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
+# Наш собственный процесс сервера. None — мы его не запускали, значит и
+# останавливать не наше дело.
+_own_server: subprocess.Popen | None = None
 
 # rule.category.id (см. LanguageTool /v2/check) → наш формат ошибки
 # ("орфография"/"пунктуация"), используемый и LLM-промптом spellcheck.txt,
@@ -41,16 +69,110 @@ _SENTENCE_END_CHARS = {".", "!", "?", "…"}
 _client: httpx.AsyncClient | None = None
 
 
+def tools_dir() -> Path:
+    return config.PROJECT_DIR / "tools" / "languagetool"
+
+
+def _port() -> int:
+    return urlparse(config.LANGUAGETOOL_HOST).port or 8081
+
+
+def server_command() -> list[str] | None:
+    """Команда запуска сервера или None, если LanguageTool не установлен.
+
+    Каталоги ищутся глобом, а не по зашитой версии: апстрим периодически
+    бампает версию в имени распакованной папки (та же логика, что в
+    tools/languagetool/start.ps1).
+    """
+    tools = tools_dir()
+    jdk = next(iter(sorted(tools.glob("jdk-*"))), None)
+    lt = next(iter(sorted(tools.glob("LanguageTool-*"))), None)
+    if jdk is None or lt is None:
+        return None
+    java = jdk / "bin" / ("java.exe" if sys.platform == "win32" else "java")
+    jar = lt / "languagetool-server.jar"
+    if not java.exists() or not jar.exists():
+        return None
+    # dict/ в classpath — собственный словарь проекта (spelling_global.txt) с
+    # терминами, которые LanguageTool иначе считает опечатками.
+    classpath = os.pathsep.join([str(jar), str(tools / "dict")])
+    return [
+        str(java),
+        "-cp",
+        classpath,
+        "org.languagetool.server.HTTPServer",
+        "--port",
+        str(_port()),
+    ]
+
+
+def installed() -> bool:
+    return server_command() is not None
+
+
+def _port_is_free() -> bool:
+    """Свободен ли порт. Занят — значит сервер уже кем-то поднят."""
+    import socket
+
+    with socket.socket() as s:
+        try:
+            s.bind(("127.0.0.1", _port()))
+        except OSError:
+            return False
+    return True
+
+
+def _spawn_server() -> None:
+    cmd = server_command()
+    if cmd is None:
+        log.info(
+            "LanguageTool не установлен — проверка орфографии пойдёт только через модель. "
+            "Установка: tools/languagetool/setup.ps1"
+        )
+        return
+    if not _port_is_free():
+        log.info("LanguageTool уже слушает порт %d — второй не запускаем", _port())
+        return
+    try:
+        global _own_server
+        _own_server = subprocess.Popen(  # noqa: S603
+            cmd,
+            cwd=str(tools_dir()),
+            # DEVNULL, а не PIPE: сервер пишет в stdout постоянно, и никем не
+            # вычитываемый пайп рано или поздно заполнится и подвесит java.
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=_NO_WINDOW,
+        )
+    except OSError as e:
+        log.warning("Не удалось запустить LanguageTool: %s", e)
+        return
+    log.info("LanguageTool запущен (pid %s), порт %d", _own_server.pid, _port())
+
+
 def startup() -> None:
     global _client
     _client = httpx.AsyncClient(timeout=config.LANGUAGETOOL_TIMEOUT_SEC)
+    if config.LANGUAGETOOL_AUTOSTART:
+        # Не ждём готовности: java поднимается порядка 15 секунд, а старт
+        # приложения специально доводили до 3.2 с. Пока сервер поднимается,
+        # проверка орфографии просто идёт через модель — это штатная
+        # деградация, а не сбой.
+        _spawn_server()
 
 
 async def shutdown() -> None:
-    global _client
+    global _client, _own_server
     if _client is not None:
         await _client.aclose()
         _client = None
+    if _own_server is not None:
+        _own_server.terminate()
+        try:
+            _own_server.wait(timeout=10)
+        except subprocess.TimeoutExpired:  # pragma: no cover — java обычно уходит сам
+            _own_server.kill()
+        _own_server = None
 
 
 def _get_client() -> httpx.AsyncClient:

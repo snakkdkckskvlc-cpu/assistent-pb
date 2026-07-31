@@ -1,4 +1,4 @@
-# Установка Ollama и загрузка модели для Fire Safety Assistant.
+﻿# Установка Ollama и загрузка модели для Fire Safety Assistant.
 # Запускать с правами администратора.
 
 $ErrorActionPreference = "Stop"

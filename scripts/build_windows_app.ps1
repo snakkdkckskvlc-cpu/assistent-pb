@@ -1,4 +1,4 @@
-# Собирает Windows .exe вокруг fire_safety_desktop.main через PyInstaller.
+﻿# Собирает Windows .exe вокруг fire_safety_desktop.main через PyInstaller.
 # Запускать НА WINDOWS-МАШИНЕ (PyInstaller не кросс-компилятор).
 #
 # Требования:

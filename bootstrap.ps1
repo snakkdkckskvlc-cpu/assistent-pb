@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 
 # ================================================================
 # Ассистент ПБ — автоматическая установка на Windows
@@ -95,7 +95,7 @@ Write-Host "Start: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 # STEP 1: GIT (нужен для автообновления приложения с GitHub)
 # ================================================================
 
-Section "1/8 Git"
+Section "1/9 Git"
 Refresh-Path
 $GITHUB_REPO_URL = "https://github.com/snakkdkckskvlc-cpu/assistent-pb"
 
@@ -140,7 +140,7 @@ if (Test-Command "git") {
 # STEP 2: PYTHON 3.12
 # ================================================================
 
-Section "2/8 Python 3.12"
+Section "2/9 Python 3.12"
 Refresh-Path
 $pythonOk = $false
 foreach ($cmd in @("py", "python", "python3")) {
@@ -183,7 +183,7 @@ if (-not $pythonOk) {
 # STEP 3: OLLAMA + MODEL
 # ================================================================
 
-Section "3/8 Ollama + language model"
+Section "3/9 Ollama + language model"
 
 $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
 if (-not $ollamaCmd) {
@@ -232,7 +232,7 @@ if ($installedModels -match [regex]::Escape($model)) {
 # STEP 4: TESSERACT
 # ================================================================
 
-Section "4/8 Tesseract OCR"
+Section "4/9 Tesseract OCR"
 if (Test-Command "tesseract") {
     Ok "Tesseract already installed"
 } else {
@@ -264,7 +264,7 @@ if (Test-Command "tesseract") {
 # STEP 5: POPPLER
 # ================================================================
 
-Section "5/8 Poppler"
+Section "5/9 Poppler"
 $popplerDir = Join-Path $root "poppler"
 $localZip = Join-Path $root "installers\poppler.zip"
 $tempZip = Join-Path $env:TEMP "poppler.zip"
@@ -297,10 +297,46 @@ if (Test-Path (Join-Path $popplerDir "Library\bin\pdftoppm.exe")) {
 }
 
 # ================================================================
-# STEP 6: VENV + DEPENDENCIES
+# STEP 6: LANGUAGETOOL
 # ================================================================
 
-Section "6/8 Python venv + dependencies"
+Section "6/9 LanguageTool (spelling and punctuation)"
+
+# Why this step exists at all: the app ASKS LanguageTool first and only then
+# goes to the LLM (see infrastructure/languagetool.py). Without it every
+# spellcheck runs through the model - minutes instead of seconds, and the
+# health indicator kept showing "LanguageTool not connected" with no way for
+# the user to fix it. The setup script was written long ago but nothing ever
+# called it.
+$ltSetup = Join-Path $root "tools\languagetool\setup.ps1"
+if (Test-Path $ltSetup) {
+    $ltDir = Get-ChildItem -Path (Join-Path $root "tools\languagetool") -Directory -Filter "LanguageTool-*" -ErrorAction SilentlyContinue | Select-Object -First 1
+    $jdkDir = Get-ChildItem -Path (Join-Path $root "tools\languagetool") -Directory -Filter "jdk-*" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($ltDir -and $jdkDir) {
+        Ok "LanguageTool already installed ($($ltDir.Name))"
+    } else {
+        Write-Host "  Downloading portable JDK 17 and LanguageTool (~430 MB, once)..." -ForegroundColor Yellow
+        try {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $ltSetup
+            if ($LASTEXITCODE -eq 0) {
+                Ok "LanguageTool installed"
+            } else {
+                # Not fatal: the app degrades to the LLM-only path on its own.
+                Warn "LanguageTool not installed. Spellcheck will run through the model (slower). Rerun: tools\languagetool\setup.ps1"
+            }
+        } catch {
+            Warn "LanguageTool error: $($_.Exception.Message)"
+        }
+    }
+} else {
+    Warn "tools\languagetool\setup.ps1 not found - skipping"
+}
+
+# ================================================================
+# STEP 7: VENV + DEPENDENCIES
+# ================================================================
+
+Section "7/9 Python venv + dependencies"
 
 $venv = Join-Path $root "venv"
 $venvPython = Join-Path $venv "Scripts\python.exe"
@@ -436,10 +472,10 @@ if ($criticalMissing.Count -gt 0) {
 Ok "Python dependencies installation completed"
 
 # ================================================================
-# STEP 7: INDEXING
+# STEP 8: INDEXING
 # ================================================================
 
-Section "7/8 Indexing regulatory database"
+Section "8/9 Indexing regulatory database"
 # packages\rag\corpus — тот же путь, что и config.CORPUS_DIR по умолчанию, и
 # уже в .gitignore как приватные данные. Раньше здесь проверялась папка
 # data\documents, а индексатор при этом читал packages\rag\corpus — то есть
@@ -489,10 +525,10 @@ if ($docCount -gt 0) {
 }
 
 # ================================================================
-# STEP 8: DESKTOP SHORTCUT
+# STEP 9: DESKTOP SHORTCUT
 # ================================================================
 
-Section "8/8 Desktop shortcut"
+Section "9/9 Desktop shortcut"
 
 # Модель, выбранная на шаге 2, — записываем в data\llm_model.txt, чтобы
 # backend использовал именно её независимо от способа запуска приложения
