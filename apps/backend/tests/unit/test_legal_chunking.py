@@ -129,10 +129,14 @@ async def test_run_legal_analysis_splits_and_merges(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(legal.llm, "chat_json", fake_chat_json)
     monkeypatch.setattr(
-        legal, "retrieve_many", lambda queries, top_k=None, where=None: [[] for _ in queries]
+        legal,
+        "retrieve_many",
+        lambda queries, top_k=None, where=None, domain=None: [[] for _ in queries],
     )
     monkeypatch.setattr(
-        legal, "retrieve_hybrid", lambda queries, top_k=None, where=None: [[] for _ in queries]
+        legal,
+        "retrieve_hybrid",
+        lambda queries, top_k=None, where=None, domain=None: [[] for _ in queries],
     )
 
     # Договор заведомо больше одного окна.
@@ -223,10 +227,14 @@ async def test_final_pass_timeout_does_not_lose_findings(monkeypatch: pytest.Mon
 
     monkeypatch.setattr(legal.llm, "chat_json", fake_chat_json)
     monkeypatch.setattr(
-        legal, "retrieve_many", lambda queries, top_k=None, where=None: [[] for _ in queries]
+        legal,
+        "retrieve_many",
+        lambda queries, top_k=None, where=None, domain=None: [[] for _ in queries],
     )
     monkeypatch.setattr(
-        legal, "retrieve_hybrid", lambda queries, top_k=None, where=None: [[] for _ in queries]
+        legal,
+        "retrieve_hybrid",
+        lambda queries, top_k=None, where=None, domain=None: [[] for _ in queries],
     )
     monkeypatch.setattr(legal, "_FINAL_PASS_TIMEOUT_SEC", 0.2)
 
@@ -284,10 +292,14 @@ def test_single_part_gets_the_full_answer_budget(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(legal.llm, "chat_json", fake_chat_json)
     monkeypatch.setattr(
-        legal, "retrieve_hybrid", lambda queries, top_k=None, where=None: [[] for _ in queries]
+        legal,
+        "retrieve_hybrid",
+        lambda queries, top_k=None, where=None, domain=None: [[] for _ in queries],
     )
     monkeypatch.setattr(
-        legal, "retrieve_many", lambda queries, top_k=None, where=None: [[] for _ in queries]
+        legal,
+        "retrieve_many",
+        lambda queries, top_k=None, where=None, domain=None: [[] for _ in queries],
     )
 
     asyncio.run(legal.run_legal_analysis("Короткий договор в одну часть."))

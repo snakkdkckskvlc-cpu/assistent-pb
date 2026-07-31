@@ -89,8 +89,12 @@ def _install_mock_llm(expected_by_contract: dict[str, list[dict]]) -> None:
         }
 
     llm.chat_json = fake_chat_json
-    legal_module.retrieve_hybrid = lambda queries, top_k=None, where=None: [[] for _ in queries]
-    legal_module.retrieve_many = lambda queries, top_k=None, where=None: [[] for _ in queries]
+    legal_module.retrieve_hybrid = lambda queries, top_k=None, where=None, domain=None: [
+        [] for _ in queries
+    ]
+    legal_module.retrieve_many = lambda queries, top_k=None, where=None, domain=None: [
+        [] for _ in queries
+    ]
 
 
 # Промпт «как если бы человек просто открыл Ollama». Намеренно не соломенное

@@ -353,20 +353,33 @@ class HybridRetriever:
         return f"{hit.get('source', '')}|{hit.get('article', '')}|{hit.get('text', '')[:100]}"
 
 
-@lru_cache(maxsize=1)
-def _default_hybrid() -> HybridRetriever:
-    return HybridRetriever()
+@lru_cache(maxsize=len(config.DOMAIN_COLLECTIONS))
+def _hybrid_for(collection_name: str) -> HybridRetriever:
+    """Ретривер на коллекцию. Кэш по имени, а не один на всё приложение:
+    у каждого домена свой лексический индекс, и пересобирать его при каждом
+    переключении домена значило бы выгружать корпус из ChromaDB заново.
+    """
+    return HybridRetriever(collection_name)
 
 
 def retrieve_hybrid(
-    queries: list[str], top_k: int | None = None, where: dict | None = None
+    queries: list[str],
+    top_k: int | None = None,
+    where: dict | None = None,
+    domain: str | None = None,
 ) -> list[list[dict]]:
-    """Батч-поиск, совместимый по сигнатуре с retrieve_many."""
-    return _default_hybrid().search_many(queries, top_k=top_k, where=where)
+    """Батч-поиск, совместимый по сигнатуре с retrieve_many.
+
+    domain выбирает корпус: «pb» — нормативка РФ, «nlmk» — документы
+    заказчика. По умолчанию нормативка.
+    """
+    return _hybrid_for(config.collection_for_domain(domain)).search_many(
+        queries, top_k=top_k, where=where
+    )
 
 
-def hybrid_ready() -> bool:
-    return _default_hybrid().is_ready()
+def hybrid_ready(domain: str | None = None) -> bool:
+    return _hybrid_for(config.collection_for_domain(domain)).is_ready()
 
 
 __all__ = ["HybridRetriever", "hybrid_ready", "retrieve_hybrid"]

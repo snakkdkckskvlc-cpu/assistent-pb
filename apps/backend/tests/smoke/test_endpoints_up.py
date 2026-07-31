@@ -44,7 +44,9 @@ def _mock_pipeline_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path) -> No
     # живым — тест пойдёт в настоящий ChromaDB.
     for name in ("retrieve_hybrid", "retrieve_many"):
         monkeypatch.setattr(
-            pipelines_legal, name, lambda queries, top_k=None, where=None: [[] for _ in queries]
+            pipelines_legal,
+            name,
+            lambda queries, top_k=None, where=None, domain=None: [[] for _ in queries],
         )
     monkeypatch.setattr(pipelines_letter, "retrieve_letters", lambda query, top_k=2: [])
 
@@ -175,7 +177,9 @@ def test_legal_grounds_citations_against_retrieved_chunks(
 
     contract_text = "Договор №1. Штраф за просрочку составляет 0.5% в день."
 
-    def fake_retrieve_many(queries: list[str], top_k=None, where=None) -> list[list[dict]]:
+    def fake_retrieve_many(
+        queries: list[str], top_k=None, where=None, domain=None
+    ) -> list[list[dict]]:
         return [[{"text": "норма про штрафы", "source": "123-ФЗ.txt", "score": 0.9}]] + [
             [] for _ in queries[1:]
         ]

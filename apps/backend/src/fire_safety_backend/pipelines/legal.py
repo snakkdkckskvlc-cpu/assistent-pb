@@ -520,12 +520,20 @@ async def run_legal_analysis(
     task: Task | None = None,
     base_percent: int = 0,
     span_percent: int = 100,
+    corpus_domain: str = "pb",
 ) -> dict:
     """base_percent/span_percent — доля общей полосы прогресса задачи, которую
     занимает именно этот вызов. По умолчанию — вся полоса (0..100), как при
     самостоятельном юр. анализе одного договора; pipelines/batch.py передаёт
     свою долю на файл, чтобы полоса не откатывалась назад между файлами
-    пакета (иначе у каждого файла процент заново стартовал бы с нуля)."""
+    пакета (иначе у каждого файла процент заново стартовал бы с нуля).
+
+    corpus_domain — какой корпус подтягивать под нормы: «pb» (нормативка РФ)
+    или «nlmk» (документы заказчика). Пока всегда «pb»: ссылаться в анализе
+    договора нужно на закон, а не на СТО заказчика.
+    TODO: дать выбор в интерфейсе, когда корпус НЛМК будет наполнен — тогда
+    имеет смысл второй проход по требованиям заказчика отдельным разделом
+    отчёта, а не вперемешку с нормами права."""
     prompt = load_prompt("legal")
 
     # Договор режется на части ПОД РАЗМЕР ОКНА модели. Раньше он уходил одним
@@ -577,7 +585,9 @@ async def run_legal_analysis(
         # Гибрид (вектор + BM25) — основной путь. Замер, зачем: на запросе про
         # несоразмерную неустойку чистый вектор возвращал СП по сигнализации, а
         # BM25 находил ГК РФ ст. 333 первой с отрывом вчетверо.
-        hits = await asyncio.to_thread(retrieve_hybrid, queries, _RAG_CHUNKS_PER_PART, norm_filter)
+        hits = await asyncio.to_thread(
+            retrieve_hybrid, queries, _RAG_CHUNKS_PER_PART, norm_filter, corpus_domain
+        )
         if not any(hits):
             # Гибрид молчит — например, rank_bm25 не установлен или лексический
             # индекс не собрался. Прежний чисто векторный поиск рабочий, и
@@ -585,7 +595,7 @@ async def run_legal_analysis(
             # смыслу.
             log.info("Гибридный поиск пуст — откатываюсь на векторный")
             hits = await asyncio.to_thread(
-                retrieve_many, queries, _RAG_CHUNKS_PER_PART, norm_filter
+                retrieve_many, queries, _RAG_CHUNKS_PER_PART, norm_filter, corpus_domain
             )
         context_chunks: list[dict] = []
         seen_keys: set[str] = set()

@@ -35,20 +35,31 @@ def main() -> int:
         help="Папка с документами (по умолчанию packages/rag/corpus)",
     )
     parser.add_argument("--reset", action="store_true", help="Пересоздать коллекцию с нуля")
+    parser.add_argument(
+        "--domain",
+        default="pb",
+        choices=["pb", "nlmk"],
+        help="pb — нормативка РФ (ФЗ, ГК, СП, ГОСТ); nlmk — документы заказчика из corpus/nlmk",
+    )
     args = parser.parse_args()
 
     from fire_safety_backend.infrastructure.parsers import extract_text
+    from fire_safety_rag import config as rag_config
     from fire_safety_rag.indexer import build_index
 
-    corpus_dir = args.dir or (
-        Path(__file__).resolve().parent.parent / "packages" / "rag" / "corpus"
-    )
+    corpus_dir = args.dir or rag_config.corpus_dir_for_domain(args.domain)
     if not corpus_dir.exists():
         print(f"Папка не найдена: {corpus_dir}", file=sys.stderr)
+        if args.domain == "nlmk":
+            print("Документы заказчика качает scripts/fetch_nlmk_docs.py", file=sys.stderr)
         return 1
 
-    print(f"Индексирую {corpus_dir} (первый раз может грузить embedding-модель)...")
-    stats = build_index(corpus_dir=corpus_dir, reset=args.reset, text_reader=extract_text)
+    collection = rag_config.collection_for_domain(args.domain)
+    print(f"Индексирую {corpus_dir} → коллекция «{collection}»")
+    print("(первый раз может грузить embedding-модель)")
+    stats = build_index(
+        corpus_dir=corpus_dir, reset=args.reset, text_reader=extract_text, domain=args.domain
+    )
     print(f"Готово: {stats}")
     return 0
 

@@ -136,15 +136,35 @@ def _load_sidecar_metadata(corpus_dir: Path) -> dict[str, dict]:
         return {}
 
 
+def _domain_files(corpus_dir: Path, domain: str | None) -> list[Path]:
+    """Файлы домена. Обход рекурсивный, поэтому подпапки ЧУЖИХ доменов надо
+    исключать явно: без этого индексация нормативки затянула бы в свою
+    коллекцию документы заказчика из corpus/nlmk и перемешала источники.
+    """
+    excluded = set()
+    if domain in (None, "pb"):
+        excluded.add((corpus_dir / config.NLMK_CORPUS_SUBDIR).resolve())
+    out: list[Path] = []
+    for path in corpus_dir.rglob("*"):
+        if not path.is_file() or path.name.startswith(".") or path.name == SIDECAR_META_FILENAME:
+            continue
+        if any(parent in excluded for parent in path.resolve().parents):
+            continue
+        out.append(path)
+    return out
+
+
 def build_index(
     corpus_dir: Path | None = None,
     reset: bool = False,
     text_reader: TextReader | None = None,
+    domain: str | None = None,
 ) -> dict:
     import chromadb
     from chromadb.utils import embedding_functions
 
-    corpus_dir = corpus_dir or config.CORPUS_DIR
+    collection_name = config.collection_for_domain(domain)
+    corpus_dir = corpus_dir or config.corpus_dir_for_domain(domain)
     if not corpus_dir.exists():
         raise FileNotFoundError(f"Корпус не найден: {corpus_dir}")
 
@@ -156,9 +176,9 @@ def build_index(
     )
     if reset:
         with contextlib.suppress(Exception):
-            client.delete_collection(config.COLLECTION_NAME)
+            client.delete_collection(collection_name)
     collection = client.get_or_create_collection(
-        name=config.COLLECTION_NAME,
+        name=collection_name,
         embedding_function=embed_fn,
         metadata={"hnsw:space": "cosine"},
     )
@@ -167,11 +187,7 @@ def build_index(
     indexed_hashes = {m.get("file_hash") for m in existing.get("metadatas", []) if m}
 
     sidecar_meta = _load_sidecar_metadata(corpus_dir)
-    files = [
-        p
-        for p in corpus_dir.rglob("*")
-        if p.is_file() and not p.name.startswith(".") and p.name != SIDECAR_META_FILENAME
-    ]
+    files = _domain_files(corpus_dir, domain)
     stats = {"files_total": len(files), "files_indexed": 0, "chunks_added": 0, "skipped": 0}
 
     for path in files:
@@ -245,8 +261,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Индексация нормативного корпуса в ChromaDB")
     parser.add_argument("--reset", action="store_true", help="Пересоздать коллекцию с нуля")
     parser.add_argument("--corpus", type=Path, default=None, help="Путь к корпусу")
+    parser.add_argument(
+        "--domain",
+        default=config.DEFAULT_DOMAIN,
+        choices=sorted(config.DOMAIN_COLLECTIONS),
+        help="Какой корпус индексировать: pb — нормативка РФ, nlmk — документы заказчика",
+    )
     args = parser.parse_args()
-    stats = build_index(corpus_dir=args.corpus, reset=args.reset)
+    stats = build_index(corpus_dir=args.corpus, reset=args.reset, domain=args.domain)
     print(f"\nГотово: {stats}")
     return 0
 

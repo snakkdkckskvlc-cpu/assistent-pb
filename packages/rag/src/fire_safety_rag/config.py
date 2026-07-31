@@ -21,6 +21,51 @@ CORPUS_DIR = Path(
 EMBED_MODEL = os.environ.get("RAG_EMBED_MODEL", "intfloat/multilingual-e5-large")
 COLLECTION_NAME = os.environ.get("RAG_COLLECTION", "legal_corpus")
 LETTERS_COLLECTION_NAME = os.environ.get("RAG_LETTERS_COLLECTION", "letters_history")
+
+# --- Домены корпуса ---
+# Нормативка РФ (ФЗ, ГК, СП, ГОСТ) и документы заказчика хранятся в РАЗНЫХ
+# коллекциях: у них разный статус. Ссылаться на СТО НЛМК как на норму права
+# нельзя, а проверять договор на соответствие требованиям заказчика — нужно;
+# в одной выдаче эти источники путались бы.
+#
+# Домен «pb» указывает на СУЩЕСТВУЮЩЕЕ имя коллекции, а не на новое
+# «pb_corpus»: в рабочем индексе лежит legal_corpus на 3334 чанка, и
+# переименование осиротило бы его молча — ретривер вернул бы пустоту без
+# единой ошибки. Переименовать можно, но только вместе с переиндексацией:
+# задайте RAG_COLLECTION=pb_corpus и прогоните index_corpus.py --reset.
+NLMK_COLLECTION_NAME = os.environ.get("RAG_NLMK_COLLECTION", "nlmk_corpus")
+# Подпапка документов заказчика внутри корпуса. Индексация ПБ её ПРОПУСКАЕТ
+# (см. indexer.build_index) — иначе рекурсивный обход затянул бы документы
+# НЛМК в нормативную коллекцию.
+NLMK_CORPUS_SUBDIR = "nlmk"
+
+DOMAIN_COLLECTIONS = {"pb": COLLECTION_NAME, "nlmk": NLMK_COLLECTION_NAME}
+DEFAULT_DOMAIN = "pb"
+
+
+def collection_for_domain(domain: str | None = None) -> str:
+    """Имя коллекции по домену.
+
+    Неизвестный домен — ошибка, а не тихий возврат к дефолту: опечатка в
+    --domain иначе молча проиндексировала бы документы не в ту коллекцию, и
+    заметили бы это только по пустой выдаче.
+    """
+    if not domain:
+        return DOMAIN_COLLECTIONS[DEFAULT_DOMAIN]
+    try:
+        return DOMAIN_COLLECTIONS[domain]
+    except KeyError:
+        known = ", ".join(sorted(DOMAIN_COLLECTIONS))
+        raise ValueError(f"Неизвестный домен корпуса «{domain}». Известные: {known}") from None
+
+
+def corpus_dir_for_domain(domain: str | None = None) -> Path:
+    """Папка с документами домена."""
+    if domain == "nlmk":
+        return CORPUS_DIR / NLMK_CORPUS_SUBDIR
+    return CORPUS_DIR
+
+
 TOP_K = int(os.environ.get("RAG_TOP_K", "5"))
 CHUNK_TOKENS = int(os.environ.get("RAG_CHUNK_TOKENS", "500"))
 CHUNK_OVERLAP = int(os.environ.get("RAG_CHUNK_OVERLAP", "50"))

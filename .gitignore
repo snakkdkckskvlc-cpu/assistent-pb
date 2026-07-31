@@ -106,3 +106,4 @@ tools/languagetool/LanguageTool-*/
 scripts/benchmark_results.json
 scripts/modelfiles/*.gguf
 data/eval_results.json
+data/eval_bare.json

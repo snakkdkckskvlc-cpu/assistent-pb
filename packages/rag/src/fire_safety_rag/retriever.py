@@ -114,19 +114,28 @@ class Retriever:
         return [_to_hits(res, index=i) for i in range(len(queries))]
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=len(config.DOMAIN_COLLECTIONS))
+def _retriever_for(collection_name: str) -> Retriever:
+    return Retriever(collection_name)
+
+
 def _default_retriever() -> Retriever:
-    return Retriever()
+    return _retriever_for(config.collection_for_domain(None))
 
 
-def retrieve(query: str, top_k: int | None = None) -> list[dict]:
-    return _default_retriever().search(query, top_k=top_k)
+def retrieve(query: str, top_k: int | None = None, domain: str | None = None) -> list[dict]:
+    return _retriever_for(config.collection_for_domain(domain)).search(query, top_k=top_k)
 
 
 def retrieve_many(
-    queries: list[str], top_k: int | None = None, where: dict | None = None
+    queries: list[str],
+    top_k: int | None = None,
+    where: dict | None = None,
+    domain: str | None = None,
 ) -> list[list[dict]]:
-    return _default_retriever().search_many(queries, top_k=top_k, where=where)
+    return _retriever_for(config.collection_for_domain(domain)).search_many(
+        queries, top_k=top_k, where=where
+    )
 
 
 def is_ready() -> bool:
