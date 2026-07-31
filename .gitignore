@@ -58,9 +58,20 @@ packages/rag/corpus/**
 !packages/rag/corpus/nlmk/
 !packages/rag/corpus/nlmk/README.md
 
-# Фирменные бланки писем компании (реквизиты, ИНН, подписанты).
+# Фирменные бланки писем компании (реквизиты, ИНН, р/с, подписанты, логотип).
+#
+# Хранятся в репозитории — он приватный. Без letterhead.docx письма молча
+# собираются на пустой заготовке: build_letter_docx уходит в запасной путь и
+# ошибки не показывает, то есть отказ выглядит как «просто некрасивое письмо».
+# Поэтому файл должен ехать вместе с кодом, а не доставляться руками.
+#
+# ЕСЛИ РЕПОЗИТОРИЙ КОГДА-ЛИБО СТАНЕТ ПУБЛИЧНЫМ — эти строки убрать, файлы
+# вычистить из истории (git filter-repo), реквизиты из letter.html вынести в
+# конфиг. Удаления последним коммитом недостаточно: история и форки остаются.
 apps/backend/src/fire_safety_backend/resources/templates/**
 !apps/backend/src/fire_safety_backend/resources/templates/.gitkeep
+!apps/backend/src/fire_safety_backend/resources/templates/letterhead.docx
+!apps/backend/src/fire_safety_backend/resources/templates/letterhead_raw.docx
 
 # Мини-БД от тестировщика и любые её распаковки
 Сжать.zip
