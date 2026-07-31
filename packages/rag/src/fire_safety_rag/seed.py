@@ -67,14 +67,13 @@ def ensure_seeded(chroma_dir: Path | None = None, prebuilt_dir: Path | None = No
         #
         # Копия — 37 МБ один раз за установку, это ничто на фоне индексации.
         #
-        # Копия кладётся в data/tmp, а не в системный %TEMP%, по практической
-        # причине: ChromaDB держит файлы базы открытыми (mmap), и на Windows
-        # каталог сразу после работы не удаляется. В data/tmp остатки подберёт
-        # автоочистка (backend services/retention.py), в %TEMP% они лежали бы
-        # мусором.
+        # Копия кладётся в data/tmp, а не в системный %TEMP%: остатки там
+        # подбирает автоочистка (backend services/retention.py чистит
+        # config.WORK_DIR), в %TEMP% они лежали бы мусором.
         work_root = chroma_dir.parent / "tmp"
         work_root.mkdir(parents=True, exist_ok=True)
         tmp = Path(tempfile.mkdtemp(prefix="prebuilt_", dir=work_root))
+        source = None
         try:
             source_copy = tmp / "chroma"
             shutil.copytree(prebuilt_dir, source_copy)
@@ -82,12 +81,24 @@ def ensure_seeded(chroma_dir: Path | None = None, prebuilt_dir: Path | None = No
             src_collection = source.get_collection(config.COLLECTION_NAME)
             data = src_collection.get(include=["embeddings", "documents", "metadatas"])
         finally:
-            # Отпускаем ссылки, чтобы Windows дала удалить файлы; если всё
-            # равно не даст — ignore_errors, ошибка удаления временной копии
-            # не повод срывать заселение.
+            # Соединение с sqlite надо закрыть ЯВНО, иначе Windows не отдаёт
+            # файлы и копия на 37 МБ остаётся после каждой установки.
+            # Замерено на chromadb 1.5.9: сброса ссылок с gc.collect() не
+            # хватает, clear_system_cache() тоже не хватает (он лишь чистит
+            # словарь), файлы освобождает только stop() у системы.
+            # _system — приватный атрибут: публичного close() в этой версии
+            # нет. Если он исчезнет в новой версии, тест
+            # test_seeding_leaves_no_temporary_copy_behind покраснеет.
+            if source is not None:
+                source._system.stop()
             source = src_collection = None
             gc.collect()
-            shutil.rmtree(tmp, ignore_errors=True)
+            try:
+                shutil.rmtree(tmp)
+            except OSError as e:
+                # Не срываем заселение из-за неудалённой копии, но и не молчим:
+                # тихая деградация тут означала бы растущий мусор в data/tmp.
+                log.warning("Временная копия эталона не удалена (%s): %s", tmp, e)
 
         if not data["ids"]:
             return False
