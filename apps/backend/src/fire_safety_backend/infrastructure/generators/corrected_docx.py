@@ -19,16 +19,16 @@ from __future__ import annotations
 
 import logging
 import shutil
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from docx import Document
 
 from ... import config
+from ...services.uploads import original_name
 from .. import secure_files
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from docx.text.paragraph import Paragraph
 
 log = logging.getLogger(__name__)
@@ -170,7 +170,9 @@ def build_corrected_docx(
     """
     out_name = "документ"
     if source_path is not None:
-        out_name = source_path.stem
+        # Без original_name в имя скачиваемого файла попал бы служебный
+        # префикс уникальности: «3f9a1c02_Договор_исправленный.docx».
+        out_name = Path(original_name(source_path)).stem
     dest = config.OUTPUT_DIR / f"{out_name}{SUFFIX}.docx"
 
     is_docx = source_path is not None and source_path.suffix.lower() == ".docx"

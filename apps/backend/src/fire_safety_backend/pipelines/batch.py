@@ -24,6 +24,7 @@ from ..infrastructure import secure_files
 from ..infrastructure.parsers import extract_text_with_meta
 from ..services import ownership
 from ..services.classify import classify_document
+from ..services.uploads import original_name
 from .legal import run_legal_analysis
 
 if TYPE_CHECKING:
@@ -42,9 +43,9 @@ async def run_batch(file_paths: list[Path], task: Task | None = None) -> dict:
     for i, path in enumerate(file_paths, start=1):
         file_base = int(100 * (i - 1) / len(file_paths))
         if task:
-            task.progress = f"Файл {i}/{len(file_paths)}: {path.name}"
+            task.progress = f"Файл {i}/{len(file_paths)}: {original_name(path)}"
             task.percent = file_base
-        item: dict = {"файл": path.name}
+        item: dict = {"файл": original_name(path)}
 
         try:
             # По расшифрованной копии: парсеры и OCR умеют только настоящий

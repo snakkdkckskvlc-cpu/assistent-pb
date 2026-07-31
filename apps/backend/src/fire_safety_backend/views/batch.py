@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
@@ -10,8 +10,11 @@ from .. import config
 from ..infrastructure import secure_files
 from ..infrastructure.queue import queue
 from ..pipelines import batch as pipelines
-from ..services.uploads import read_limited
+from ..services.uploads import read_limited, unique_name
 from . import auth
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 router = APIRouter(prefix="/api", tags=["batch"])
 
@@ -33,9 +36,10 @@ async def api_batch(
     # размера — то есть обходила ограничение, ради которого он и вводился.
     paths: list[Path] = []
     for f in files:
-        # Path(...).name защищает от path traversal через имя файла.
-        safe_name = Path(f.filename).name if f.filename else "upload"
-        logical = config.UPLOAD_DIR / safe_name
+        # Уникальное имя обязательно: двое сотрудников с одинаково названными
+        # файлами иначе перетирают друг друга, и первый получает в анализ
+        # чужой документ.
+        logical = config.UPLOAD_DIR / unique_name(f.filename)
         payload = await read_limited(f)
         try:
             secure_files.store(logical, payload)

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import uuid
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
@@ -37,6 +39,37 @@ async def read_limited(file: UploadFile) -> bytes:
     return b"".join(parts)
 
 
+_PREFIX_RE = re.compile(r"^[0-9a-f]{8}_")
+
+
+def unique_name(filename: str | None) -> str:
+    """`Договор.docx` → `3f9a1c02_Договор.docx`.
+
+    Без префикса двое сотрудников, приславших файлы с одинаковым именем,
+    перетирают файл друг друга — и первый получает в анализ ЧУЖОЙ документ.
+    На одном рабочем месте это было незаметно, на общем сервере это порча
+    данных, а не неудобство.
+
+    `Path(...).name` защищает от path traversal через имя файла.
+    """
+    safe = Path(filename).name if filename else "upload"
+    return f"{uuid.uuid4().hex[:8]}_{safe}"
+
+
+def original_name(path: Path | str) -> str:
+    """Имя без служебного префикса — то, которое видит пользователь.
+
+    Нужно там, где имя попадает человеку на глаза: заголовок скачиваемого
+    файла, отчёт пакетной проверки. Показывать `3f9a1c02_Договор.docx` вместо
+    `Договор.docx` — значит вываливать наружу деталь хранения.
+
+    Оговорка: файл, реально названный по шаблону «восемь hex-символов и
+    подчёркивание», потеряет это начало. Косметика, на содержимое не влияет.
+    """
+    name = Path(path).name
+    return _PREFIX_RE.sub("", name, count=1)
+
+
 async def text_from_input_with_source(
     file: UploadFile | None, text: str | None
 ) -> tuple[str, str, Path | None]:
@@ -57,9 +90,7 @@ async def text_from_input_with_source(
             status_code=400,
             detail="Нужно передать либо файл, либо текст",
         )
-    # Path(...).name защищает от path traversal через file.filename.
-    safe_name = Path(file.filename).name if file.filename else "upload"
-    logical = config.UPLOAD_DIR / safe_name
+    logical = config.UPLOAD_DIR / unique_name(file.filename)
     payload = await read_limited(file)
     try:
         secure_files.store(logical, payload)
