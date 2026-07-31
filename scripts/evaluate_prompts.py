@@ -93,7 +93,48 @@ def _install_mock_llm(expected_by_contract: dict[str, list[dict]]) -> None:
     legal_module.retrieve_many = lambda queries, top_k=None, where=None: [[] for _ in queries]
 
 
-async def _run(items: list[tuple[Path, dict]], out_path: Path, mock: bool) -> int:
+# Промпт «как если бы человек просто открыл Ollama». Намеренно не соломенное
+# чучело: роль задана, сторона указана, формат ответа тот же — иначе метрика
+# сравнивала бы не качество разбора, а умение попасть в схему. Нет ровно того,
+# что даёт наш пайплайн: признаков критичности, нормативной базы, нарезки под
+# окно, проверки ссылок и эскалации по цифрам.
+_BARE_PROMPT = """Ты юрист. Проанализируй договор со стороны ПОДРЯДЧИКА (исполнителя) и найди риски для него.
+
+Ответь строго валидным JSON без markdown:
+{
+  "находки": [
+    {
+      "критичность": "красный" | "жёлтый" | "зелёный",
+      "цитата_из_договора": "точная цитата из текста договора",
+      "в_чём_риск": "объяснение в 1-3 предложениях",
+      "ссылка_на_норму": "статья закона РФ или «требует проверки юристом»",
+      "предложение_правки": "альтернативная формулировка"
+    }
+  ],
+  "сводка": {"плюсы_для_компании": [], "минусы_для_компании": [], "общий_вывод": ""}
+}"""
+
+
+async def _analyse_bare(text: str) -> dict:
+    """Один запрос к той же модели без промпта продукта, RAG и нарезки.
+
+    Это база для сравнения: показывает, что даёт сама модель, и, значит, чего
+    стоит вся обвязка вокруг неё.
+    """
+    from fire_safety_backend import config
+    from fire_safety_backend.infrastructure import llm
+
+    return await llm.chat_json(
+        system=_BARE_PROMPT,
+        user=f"ДОГОВОР:\n---\n{text}\n---",
+        num_ctx=config.LLM_NUM_CTX_LEGAL,
+        num_predict=config.LLM_NUM_PREDICT_LEGAL,
+    )
+
+
+async def _run(
+    items: list[tuple[Path, dict]], out_path: Path, mock: bool, bare: bool = False
+) -> int:
     from fire_safety_backend.infrastructure import llm
     from fire_safety_backend.pipelines.legal import run_legal_analysis
     from fire_safety_backend.services.legal_eval import aggregate, score_contract
@@ -103,8 +144,9 @@ async def _run(items: list[tuple[Path, dict]], out_path: Path, mock: bool) -> in
     # не запущен». В режиме --mock клиент не нужен вовсе.
     if not mock:
         llm.startup()
+    analyse = _analyse_bare if bare else run_legal_analysis
     try:
-        return await _score_all(items, out_path, run_legal_analysis, aggregate, score_contract)
+        return await _score_all(items, out_path, analyse, aggregate, score_contract)
     finally:
         if not mock:
             await llm.shutdown()
@@ -112,6 +154,7 @@ async def _run(items: list[tuple[Path, dict]], out_path: Path, mock: bool) -> in
 
 async def _score_all(items, out_path, run_legal_analysis, aggregate, score_contract) -> int:
     scores = []
+    raw_findings: dict[str, list] = {}
     for contract_path, expected in items:
         text = contract_path.read_text(encoding="utf-8")
         risks = expected.get("risks", [])
@@ -127,6 +170,10 @@ async def _score_all(items, out_path, run_legal_analysis, aggregate, score_contr
         score = score_contract(contract_path.name, findings, risks)
         score.elapsed_sec = elapsed
         scores.append(score)
+        # Сами находки — рядом с метриками. Без них разбор промаха требует
+        # повторного прогона на полчаса, а по агрегату не видно, модель
+        # промолчала или сказала не то.
+        raw_findings[contract_path.name] = findings
         print(
             f"  находок {score.found_total}, совпало {len(score.matched)}/{score.expected_total}, "
             f"P={score.precision:.2f} R={score.recall:.2f} F1={score.f1:.2f} ({elapsed:.0f}с)"
@@ -145,7 +192,11 @@ async def _score_all(items, out_path, run_legal_analysis, aggregate, score_contr
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
         json.dumps(
-            {"сводка": summary, "по_договорам": [s.as_dict() for s in scores]},
+            {
+                "сводка": summary,
+                "по_договорам": [s.as_dict() for s in scores],
+                "находки": raw_findings,
+            },
             ensure_ascii=False,
             indent=2,
         )
@@ -173,6 +224,11 @@ def main() -> int:
     parser.add_argument("--mock", action="store_true", help="Без Ollama: проверить сам замер")
     parser.add_argument("--only", default=None, help="Префикс имени файла договора")
     parser.add_argument("--out", type=Path, default=_DEFAULT_OUT, help="Куда писать результаты")
+    parser.add_argument(
+        "--bare",
+        action="store_true",
+        help="Голая модель: один запрос без промпта продукта, RAG, нарезки и проверок",
+    )
     args = parser.parse_args()
 
     sys.path.insert(0, str(_ROOT / "apps" / "backend" / "src"))
@@ -184,7 +240,10 @@ def main() -> int:
         print("Режим --mock: канонические ответы, Ollama не вызывается.")
         print("Ожидание: precision = recall = 1.0. Иначе сломан сам замер.\n")
 
-    return asyncio.run(_run(items, args.out, args.mock))
+    if args.bare:
+        print("Режим --bare: та же модель, но БЕЗ промпта продукта, RAG,")
+        print("нарезки на части, проверки ссылок и эскалации критичности.\n")
+    return asyncio.run(_run(items, args.out, args.mock, args.bare))
 
 
 if __name__ == "__main__":
