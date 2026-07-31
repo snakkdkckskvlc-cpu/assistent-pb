@@ -88,6 +88,67 @@ def _check_update_in_background(root: Path) -> None:
         log.warning("Update check failed", exc_info=True)
 
 
+DEV_BYPASS_ENV = "ASSISTENT_PB_DEV"
+_MAX_SHOWN_PROBLEMS = 10
+
+
+def _integrity_gate(root: Path) -> bool:
+    """Пускать ли приложение дальше. False — файлы программы изменены.
+
+    Требование заказчика: если код правил не разработчик, приложение не должно
+    работать. Проверяется сверкой с манифестом `integrity.json`
+    (fire_safety_backend/infrastructure/integrity.py).
+
+    Честно про границу: полностью помешать правке нельзя — кто может изменить
+    код, может убрать и этот вызов. Проверка останавливает реальные сценарии:
+    «сотрудник поправил», сорванное на середине обновление, побившийся файл.
+    Обход `ASSISTENT_PB_DEV=1` существует для разработки, и он же — обход для
+    того, кто правит код осознанно. См. docs/05-quality/security.md.
+
+    Ошибку импорта модуля проверки НЕ глушим: если integrity.py удалили, это
+    само по себе изменение кода, и запускаться нельзя. Исключение поднимется в
+    main(), где его покажет общий обработчик.
+    """
+    if os.environ.get(DEV_BYPASS_ENV, "").strip():
+        log.warning("Проверка целостности кода пропущена (%s=1)", DEV_BYPASS_ENV)
+        return True
+
+    from fire_safety_backend.infrastructure import integrity
+
+    report = integrity.verify(root)
+    if report.ok:
+        log.info("Целостность кода: %s", report.reason)
+        return True
+
+    problems = report.problems
+    shown = "\n".join(f"  - {p}" for p in problems[:_MAX_SHOWN_PROBLEMS])
+    if len(problems) > _MAX_SHOWN_PROBLEMS:
+        shown += f"\n  - ... и ещё {len(problems) - _MAX_SHOWN_PROBLEMS}"
+
+    # Git — дополнение, а не решающий голос: на установке его может не быть
+    # вовсе, и блокировать запуск из-за «git не найден» неправильно.
+    git_note = ""
+    try:
+        from . import updater
+
+        if not updater._is_safe_to_update(root):
+            git_note = "\n\nGit: рабочая копия изменена либо это не ветка main."
+    except Exception:  # pragma: no cover — git может отсутствовать
+        pass
+
+    _show_fatal_error(
+        f"{report.reason}.\n\n"
+        "Приложение не запущено: файлы программы отличаются от выпущенных разработчиком.\n\n"
+        f"{shown}\n\n"
+        "Восстановить оригинальные файлы:\n"
+        "    git reset --hard origin/main\n\n"
+        "Если правка внесена намеренно, пересоберите манифест:\n"
+        "    python scripts/build_integrity_manifest.py"
+        f"{git_note}"
+    )
+    return False
+
+
 def _relaunch() -> None:
     """Перезапускает тем же способом, каким приложение всегда запускается
     (ярлык/start.bat зовут именно `pythonw -m fire_safety_desktop.main`) —
@@ -260,6 +321,11 @@ def main() -> None:
         os.chdir(root)
         _prepare_sys_path()
         _prepare_path()
+
+        # ДО обновления и до запуска backend'а: изменённая копия не должна ни
+        # обращаться к GitHub, ни поднимать сервер и открывать окно.
+        if not _integrity_gate(root):
+            return
 
         # В фоне, а не до открытия окна: git fetch — сетевой запрос, в худшем
         # случае секунды простоя интернета. Раньше это тормозило каждый
