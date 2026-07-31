@@ -1,6 +1,51 @@
 // Общая утилита: опрос статуса задачи + рендер результата.
 
+// Сессия истекла или сервер перезапустили — уводим на форму входа один раз.
+// Перехват стоит на самом fetch, а не в каждом вызове: обращений к API больше
+// двадцати по всем страницам, и забытая проверка означала бы «кнопка молча не
+// работает» вместо понятного «войдите заново».
+(function guardAgainstExpiredSession() {
+  const original = window.fetch;
+  let redirecting = false;
+  window.fetch = async function (...args) {
+    const response = await original.apply(this, args);
+    if (response.status === 401 && !redirecting && !location.pathname.endsWith("/login.html")) {
+      redirecting = true;
+      window.location.href = "/login.html";
+    }
+    return response;
+  };
+})();
+
+async function renderAuthBar() {
+  const bar = document.querySelector(".topbar");
+  if (!bar || document.getElementById("whoami")) return;
+  let data;
+  try {
+    data = await (await fetch("/api/auth/me")).json();
+  } catch (e) {
+    return;
+  }
+  if (!data || !data.login) return;
+
+  const box = document.createElement("div");
+  box.id = "whoami";
+  box.className = "status";
+  box.textContent = data.login + " · ";
+  const out = document.createElement("a");
+  out.href = "#";
+  out.textContent = "выйти";
+  out.addEventListener("click", async (e) => {
+    e.preventDefault();
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login.html";
+  });
+  box.appendChild(out);
+  bar.appendChild(box);
+}
+
 async function updateHealth() {
+  renderAuthBar();
   const el = document.getElementById("health");
   if (!el) return;
   try {

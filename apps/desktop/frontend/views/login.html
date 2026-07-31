@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход — Ассистент ПБ</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🔥 Ассистент</div>
+  </header>
+
+  <main class="hero">
+    <h1>Вход</h1>
+    <p class="subtitle">Внутренний инструмент компании. Введите свою учётную запись.</p>
+
+    <form class="section" id="login-form" style="max-width:420px;margin:0 auto;text-align:left">
+      <div class="field">
+        <label for="login">Логин</label>
+        <input type="text" id="login" name="login" autocomplete="username" autofocus required>
+      </div>
+      <div class="field">
+        <label for="password">Пароль</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <div class="actions">
+        <button class="btn" type="submit" id="submit">Войти</button>
+      </div>
+      <div id="error" class="error-box" style="display:none"></div>
+      <p class="hint" id="no-users" style="display:none">
+        На этом сервере ещё нет ни одной учётной записи. Их заводит
+        администратор командой <code>python scripts/add_user.py</code> —
+        пароля по умолчанию намеренно не существует.
+      </p>
+    </form>
+  </main>
+
+  <script>
+    const form = document.getElementById("login-form");
+    const errBox = document.getElementById("error");
+    const submitBtn = document.getElementById("submit");
+
+    // Свежий сервер: учётных записей нет вовсе. Без этой подсказки любой ввод
+    // отвечал бы «неверный логин или пароль», и человек искал бы ошибку в
+    // пароле вместо того, чтобы завести учётную запись.
+    fetch("/api/auth/me")
+      .then(r => r.json())
+      .then(d => {
+        if (d && d.any_users === false) {
+          document.getElementById("no-users").style.display = "block";
+        }
+      })
+      .catch(() => {});
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errBox.style.display = "none";
+      submitBtn.disabled = true;
+      try {
+        const r = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            login: document.getElementById("login").value,
+            password: document.getElementById("password").value,
+          }),
+        });
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data.detail || `HTTP ${r.status}`);
+        }
+        window.location.href = "/";
+      } catch (err) {
+        errBox.style.display = "block";
+        errBox.textContent = err.message || String(err);
+        document.getElementById("password").value = "";
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

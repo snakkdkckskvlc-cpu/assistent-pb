@@ -10,7 +10,7 @@ import contextlib
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from . import config
@@ -22,6 +22,7 @@ from .services import history as history_service
 from .services import retention
 from .views import (
     addressees,
+    auth,
     batch,
     data,
     downloads,
@@ -105,17 +106,32 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="Ассистент ПБ", lifespan=lifespan)
 
+    # Открыты без входа ровно два роутера:
+    #   auth   — иначе войти было бы негде;
+    #   health — диагностика «сервер жив, Ollama на месте» нужна до входа, и
+    #            сам он отдаёт неавторизованному только общее состояние
+    #            (см. views/health.py), без блока безопасности.
+    app.include_router(auth.router)
     app.include_router(health.router)
-    app.include_router(spellcheck.router)
-    app.include_router(legal.router)
-    app.include_router(letter.router)
-    app.include_router(batch.router)
-    app.include_router(tasks.router)
-    app.include_router(downloads.router)
-    app.include_router(addressees.router)
-    app.include_router(feedback.router)
-    app.include_router(history.router)
-    app.include_router(data.router)
+
+    # Всё остальное — только после входа. Зависимость навешивается на роутер
+    # ЦЕЛИКОМ, а не на каждую ручку: ручек больше двадцати, они добавляются, и
+    # забытый Depends на новой означал бы открытый доступ к договорам компании
+    # из всей внутренней сети.
+    guarded = [Depends(auth.current_user)]
+    for module in (
+        spellcheck,
+        legal,
+        letter,
+        batch,
+        tasks,
+        downloads,
+        addressees,
+        feedback,
+        history,
+        data,
+    ):
+        app.include_router(module.router, dependencies=guarded)
 
     # Frontend (статика + HTML-страницы) — только если каталог существует
     if config.FRONTEND_DIR.exists():

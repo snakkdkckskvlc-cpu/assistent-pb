@@ -88,6 +88,30 @@ CREATE TABLE IF NOT EXISTS task_history (
     summary TEXT NOT NULL DEFAULT '',
     error TEXT
 );
+
+-- Учётные записи. Пароль хранится ТОЛЬКО как scrypt-хеш со своей солью:
+-- восстановить его нельзя, при утечке базы перебор дорог (scrypt память-жёсткий).
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    login TEXT NOT NULL UNIQUE COLLATE NOCASE_UNICODE,
+    password_hash BLOB NOT NULL,
+    salt BLOB NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    disabled INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Сессии в БД, а не подписанные cookie: так вход можно ОТОЗВАТЬ (выход,
+-- отключение учётной записи), а подписанный токен живёт до истечения срока
+-- и отозвать его нечем.
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 """
 
 

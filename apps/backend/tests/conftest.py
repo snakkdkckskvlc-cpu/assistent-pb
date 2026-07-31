@@ -8,6 +8,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+# Учётная запись, под которой ходят все тесты. Пароль длиннее минимума из
+# services/auth.py — иначе create_user откажет.
+TEST_LOGIN = "tester"
+TEST_PASSWORD = "test-password-123"
+
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClient]:
@@ -63,6 +68,34 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClie
         monkeypatch.setattr(config, name, target)
 
     from fire_safety_backend.main import app
+    from fire_safety_backend.services import auth as auth_service
+
+    auth_service.reset_failed_attempts()
 
     with TestClient(app) as tc:
+        # Роутеры закрыты авторизацией, поэтому клиент сразу входит: иначе
+        # каждый smoke-тест проверял бы не свою функцию, а 401. Пользователь
+        # создаётся ПОСЛЕ входа в TestClient — таблицы появляются в lifespan.
+        auth_service.create_user(TEST_LOGIN, TEST_PASSWORD)
+        r = tc.post("/api/auth/login", json={"login": TEST_LOGIN, "password": TEST_PASSWORD})
+        assert r.status_code == 200, f"тестовый вход не удался: {r.text}"
         yield tc
+
+
+@pytest.fixture
+def test_login() -> str:
+    """Логин тестовой учётной записи. Фикстурой, а не импортом константы:
+    каталог тестов не пакет, и `from ..conftest import ...` тут не работает."""
+    return TEST_LOGIN
+
+
+@pytest.fixture
+def test_password() -> str:
+    return TEST_PASSWORD
+
+
+@pytest.fixture
+def anon_client(client: TestClient) -> Iterator[TestClient]:
+    """Тот же сервер, но без входа — для проверок «а закрыто ли»."""
+    client.cookies.clear()
+    yield client

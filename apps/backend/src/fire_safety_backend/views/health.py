@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from .. import config
 from ..infrastructure import bitlocker, integrity, languagetool, llm, netguard, secure_files
+from . import auth
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ async def _security_probe() -> dict:
 
 
 @router.get("/health")
-async def health() -> dict:
+async def health(request: Request) -> dict:
     # Независимые пробы — параллельно, а не суммируя их латентности.
     # ollama/languagetool.healthcheck() уже сами перехватывают httpx.HTTPError
     # и возвращают {"ok": False, ...}; RAG- и security-пробы ловят исключения
@@ -103,7 +104,7 @@ async def health() -> dict:
     )
     rag_ready, rag_warning = rag
 
-    return {
+    body = {
         "ok": ollama["ok"],
         "ollama": ollama,
         "rag_ready": rag_ready,
@@ -112,5 +113,12 @@ async def health() -> dict:
         # «Не подключен» само по себе ничего не говорит: не установлен вовсе и
         # ещё поднимается (java стартует ~15 с) лечатся по-разному.
         "languagetool_installed": languagetool.installed(),
-        "security": security,
     }
+
+    # Этот роутер открыт без входа — «сервер жив, Ollama на месте» нужно видеть
+    # до авторизации и из мониторинга. А вот блок безопасности (состояние
+    # шифрования, BitLocker, куда приложение пыталось выйти, изменён ли код)
+    # постороннему в сети знать незачем: это карта слабых мест.
+    if await auth.optional_user(request) is not None:
+        body["security"] = security
+    return body
