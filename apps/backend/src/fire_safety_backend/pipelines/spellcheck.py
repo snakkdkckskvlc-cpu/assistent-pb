@@ -105,7 +105,7 @@ async def run_spellcheck(
     # Ловит то, на чём LLM иногда либо тормозит, либо "исправляет" то, что
     # не было ошибкой. На весь документ разом — LT сам режет на предложения,
     # чанк-границы ему не нужны (см. tools/languagetool/, infrastructure/
-    # languagetool.py, references/languagetool-master/README_reference.md).
+    # languagetool.py, docs/08-references.md).
     if task:
         task.progress = "Проверяю через LanguageTool"
         task.percent = 3

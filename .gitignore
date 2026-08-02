@@ -45,10 +45,6 @@ packages/rag/corpus/**
 !packages/rag/corpus/SP9.13130.2009_ognetushiteli.txt
 !packages/rag/corpus/SP10.13130.2020_vnutrenniy_vodoprovod.txt
 !packages/rag/corpus/SP484.1311500.2020_signalizatsiya.docx
-!packages/rag/corpus/NLMK_Dogovor_postavka_kratkiy.docx
-!packages/rag/corpus/NLMK_Soglashenie_EDO.docx
-!packages/rag/corpus/NLMK_Polozhenie_propusknoy_rezhim.pdf
-!packages/rag/corpus/NLMK_Katalog_praktik_bezopasnost.pdf
 
 # Документы заказчика (домен nlmk). Сама папка разрешается ОТДЕЛЬНОЙ строкой:
 # правило `corpus/**` исключает и каталоги, а в исключённый каталог git не
@@ -57,13 +53,23 @@ packages/rag/corpus/**
 # fetch_nlmk_docs.py по манифесту), а README нужен — он объясняет, что тут.
 !packages/rag/corpus/nlmk/
 !packages/rag/corpus/nlmk/README.md
+!packages/rag/corpus/nlmk/_meta.json
+!packages/rag/corpus/nlmk/NLMK_Dogovor_postavka_kratkiy.docx
+!packages/rag/corpus/nlmk/NLMK_Soglashenie_EDO.docx
+!packages/rag/corpus/nlmk/NLMK_Polozhenie_propusknoy_rezhim.pdf
+!packages/rag/corpus/nlmk/NLMK_Katalog_praktik_bezopasnost.pdf
 
 # Фирменные бланки писем компании (реквизиты, ИНН, р/с, подписанты, логотип).
 #
-# Хранятся в репозитории — он приватный. Без letterhead.docx письма молча
-# собираются на пустой заготовке: build_letter_docx уходит в запасной путь и
-# ошибки не показывает, то есть отказ выглядит как «просто некрасивое письмо».
-# Поэтому файл должен ехать вместе с кодом, а не доставляться руками.
+# Хранится в репозитории — он приватный. Причина: без letterhead.docx письма
+# собираются на пустой заготовке, и хотя отказ теперь виден (letter_docx.py
+# пишет ERROR, интерфейс показывает красное «письмо БЕЗ фирменного бланка»),
+# доставлять файл руками при каждой установке — лишний шаг, который однажды
+# забудут, и человек получит предупреждение вместо готового письма.
+#
+# letterhead_raw.docx в репозиторий НЕ кладём: его не читает ни одна строка
+# кода (build_letterhead_template.py требует --source явно), а это ещё одна
+# копия реквизитов и расчётного счёта в истории.
 #
 # ЕСЛИ РЕПОЗИТОРИЙ КОГДА-ЛИБО СТАНЕТ ПУБЛИЧНЫМ — эти строки убрать, файлы
 # вычистить из истории (git filter-repo), реквизиты из letter.html вынести в
@@ -71,7 +77,6 @@ packages/rag/corpus/**
 apps/backend/src/fire_safety_backend/resources/templates/**
 !apps/backend/src/fire_safety_backend/resources/templates/.gitkeep
 !apps/backend/src/fire_safety_backend/resources/templates/letterhead.docx
-!apps/backend/src/fire_safety_backend/resources/templates/letterhead_raw.docx
 
 # Мини-БД от тестировщика и любые её распаковки
 Сжать.zip

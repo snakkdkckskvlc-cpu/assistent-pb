@@ -6,7 +6,7 @@ _chunk_by_words`) текст резался по количеству слов �
 Теперь оба используют эту функцию.
 
 Алгоритм (по мотивам sentence-aware чанкера private-gpt, см.
-references/private-gpt-main/README_reference.md): сначала делим на
+docs/08-references.md, карточка private-gpt): сначала делим на
 предложения (NLTK Punkt, модель для русского — vendored offline в
 resources/nltk_data, сеть не нужна), затем жадно упаковываем предложения
 в чанки по ограничению в словах. Предложение, которое само по себе длиннее

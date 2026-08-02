@@ -63,7 +63,7 @@ _MAX_TARGETS = 50
 def _is_local(host: object) -> bool:
     if host is None:
         return True
-    if isinstance(host, (bytes, bytearray)):
+    if isinstance(host, bytes | bytearray):
         host = bytes(host).decode("utf-8", "replace")
     if not isinstance(host, str):
         return False

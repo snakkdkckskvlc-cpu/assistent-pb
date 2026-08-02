@@ -19,6 +19,15 @@ import pytest
 from fire_safety_backend.infrastructure import netguard
 
 
+def _own_hostname_resolvable() -> bool:
+    """Резолвится ли имя машины САМО ПО СЕБЕ, без установленного запрета."""
+    try:
+        socket.getaddrinfo(socket.gethostname(), None)
+    except OSError:
+        return False
+    return True
+
+
 @pytest.fixture
 def listener() -> socket.socket:
     """Слушатель на loopback — стенд вместо Ollama."""
@@ -78,6 +87,14 @@ def test_localhost_name_resolves(guard) -> None:
     assert socket.getaddrinfo("localhost", 80)
 
 
+@pytest.mark.skipif(
+    not _own_hostname_resolvable(),
+    reason=(
+        "имя этой машины не резолвится и БЕЗ netguard (типично для macOS с "
+        "именем вида *.local) — тест не смог бы отличить запрет от отсутствия "
+        "записи в DNS"
+    ),
+)
 def test_own_hostname_resolves(guard) -> None:
     """Узнать своё имя — не выход наружу, а запрет на это ломает библиотеки
     неочевидным образом."""

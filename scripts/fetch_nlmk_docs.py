@@ -25,10 +25,13 @@ Crawl-delay: 5.
 
 Запуск (из venv проекта):
     python scripts/fetch_nlmk_docs.py --dry-run   # только показать, что скачается
-    python scripts/fetch_nlmk_docs.py             # скачать в packages/rag/corpus
+    python scripts/fetch_nlmk_docs.py             # скачать в corpus/nlmk
     python scripts/fetch_nlmk_docs.py --max-mb 60 # поднять потолок размера
 
-После загрузки нужна переиндексация: python scripts/index_corpus.py
+Документы кладутся в packages/rag/corpus/nlmk — ОТДЕЛЬНЫЙ домен корпуса, не
+вперемешку с нормативкой РФ. После загрузки:
+
+    python scripts/index_corpus.py --domain nlmk
 """
 
 from __future__ import annotations
@@ -68,12 +71,19 @@ def _manifest_path() -> Path:
 
 
 def _corpus_dir() -> Path:
-    return Path(__file__).resolve().parent.parent / "packages" / "rag" / "corpus"
+    """Папка ДОМЕНА заказчика, а не корень корпуса.
+
+    Раньше здесь возвращался корень: документы НЛМК ложились рядом с ГК РФ и
+    сводами правил, а `index_corpus.py` без --domain (домен по умолчанию — pb)
+    затягивал их в нормативную коллекцию. Получалось ровно то смешение
+    источников, ради предотвращения которого домены и вводились: СТО заказчика
+    становился находимым как норма права при разборе договора.
+    """
+    return Path(__file__).resolve().parent.parent / "packages" / "rag" / "corpus" / "nlmk"
 
 
 def _existing_hashes(corpus_dir: Path) -> dict[str, str]:
-    """SHA-256 всех файлов корпуса → имя. Четыре документа НЛМК уже лежат там,
-    скачанные вручную, и повторно их сохранять незачем."""
+    """SHA-256 всех файлов домена → имя, чтобы не качать уже имеющееся."""
     hashes: dict[str, str] = {}
     for p in corpus_dir.rglob("*"):
         if p.is_file() and not p.name.startswith("."):
@@ -135,7 +145,13 @@ def _fetch_one(
 
 
 def _merge_meta(corpus_dir: Path, added: dict[str, dict]) -> None:
-    """Дописывает записи в corpus/_meta.json, не трогая существующие."""
+    """Дописывает записи в _meta.json ДОМЕНА, не трогая существующие.
+
+    Файл обязан лежать рядом с документами: indexer читает боковые метаданные
+    из папки индексируемого домена (`_load_sidecar_metadata(corpus_dir)`).
+    Запись в корень корпуса означала бы, что у всех чанков НЛМК нет ни
+    doc_type, ни title, ни source_url — и никто бы об этом не сообщил.
+    """
     meta_path = corpus_dir / "_meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
     for name, entry in added.items():
@@ -229,7 +245,7 @@ def main() -> int:
     for s in skipped:
         print(f"  · {s}")
     if saved and not args.dry_run:
-        print("\nТеперь переиндексация: python scripts/index_corpus.py")
+        print("\nТеперь переиндексация: python scripts/index_corpus.py --domain nlmk")
     return 0
 
 

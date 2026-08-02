@@ -1,12 +1,12 @@
 """Юнит-тесты infrastructure/generators/letter_docx.py.
 
-resources/templates/letterhead.docx НЕ хранится в git (реквизиты компании,
-ИНН, банковский счёт — коммерческие данные, см. .gitignore и
-scripts/build_letterhead_template.py) — на свежем checkout/CI его нет.
-Поэтому тесты разделены на два уровня:
-  - тесты против РЕАЛЬНОГО шаблона — пропускаются, если файла нет локально;
-  - тесты против fallback-пути (шаблона нет вовсе) — гарантированно
-    прогоняются везде, это единственный путь, который CI реально исполняет.
+resources/templates/letterhead.docx поставляется вместе с кодом (репозиторий
+приватный), поэтому на обычной установке доступны оба уровня тестов:
+  - тесты против РЕАЛЬНОГО шаблона — основной путь, пропускаются только если
+    файл повреждён или удалён;
+  - тесты против запасного пути (шаблона нет вовсе) — он остаётся для
+    повреждённой установки и проверяется подменой пути, а не отсутствием
+    файла в репозитории.
 """
 
 from __future__ import annotations
@@ -30,10 +30,10 @@ _EXPECTED_PLACEHOLDERS = {
 
 _HAS_REAL_TEMPLATE = config.LETTERHEAD_TEMPLATE.exists()
 _SKIP_REASON = (
-    "letterhead.docx не сгенерирован локально — содержит коммерческие "
-    "реквизиты компании, в git не попадает (см. .gitignore). Соберите из "
-    "своей копии канонического бланка: python scripts/build_letterhead_template.py "
-    "--source <бланк>.docx"
+    "letterhead.docx отсутствует. Обычно он поставляется вместе с кодом "
+    "(репозиторий приватный), так что пропуск здесь означает повреждённую "
+    "установку. Восстановить: git checkout -- "
+    "apps/backend/src/fire_safety_backend/resources/templates/letterhead.docx"
 )
 
 _SAMPLE_LETTER = {
@@ -104,9 +104,13 @@ def test_build_letter_docx_against_real_template(tmp_path: Path) -> None:
 def test_build_letter_docx_fallback_when_template_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Единственный путь build_letter_docx, реально гарантированный в CI/на
-    свежем checkout: letterhead.docx там нет и не будет (коммерческие
-    данные) — должна изящно собрать простой DOCX, а не упасть."""
+    """Запасной путь build_letter_docx: бланка нет — собираем простой DOCX,
+    а не падаем.
+
+    Бланк теперь поставляется с кодом, поэтому в обычной установке этот путь
+    не выполняется. Он остаётся для повреждённой установки и для случая, когда
+    файл ещё не восстановлен, — и проверяется здесь подменой пути, а не
+    отсутствием файла в репозитории."""
     monkeypatch.setattr(config, "LETTERHEAD_TEMPLATE", tmp_path / "does-not-exist.docx")
     out = tmp_path / "out.docx"
 

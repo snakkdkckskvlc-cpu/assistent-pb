@@ -74,7 +74,7 @@ def test_fallback_letter_has_no_company_requisites(
 
 @pytest.mark.skipif(
     not config.LETTERHEAD_TEMPLATE.exists(),
-    reason="бланк не установлен на этой машине (он в .gitignore)",
+    reason="бланк отсутствует — повреждённая установка (обычно он в репозитории)",
 )
 def test_real_template_puts_requisites_into_letter(tmp_path: Path) -> None:
     """Когда бланк есть — реквизиты обязаны оказаться в документе.

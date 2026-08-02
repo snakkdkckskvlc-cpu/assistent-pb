@@ -72,30 +72,6 @@
     "effective_date": "2020-07-27",
     "status": "actual"
   },
-  "NLMK_Dogovor_postavka_kratkiy.docx": {
-    "doc_type": "nlmk_document",
-    "title": "Договор на поставку (краткий) — типовой шаблон НЛМК",
-    "source_url": "https://lipetsk.nlmk.com/ru/about/documents/",
-    "status": "actual"
-  },
-  "NLMK_Soglashenie_EDO.docx": {
-    "doc_type": "nlmk_document",
-    "title": "Соглашение об электронном документообороте (НЛМК)",
-    "source_url": "https://lipetsk.nlmk.com/ru/about/documents/",
-    "status": "actual"
-  },
-  "NLMK_Polozhenie_propusknoy_rezhim.pdf": {
-    "doc_type": "nlmk_document",
-    "title": "Положение о пропускном и внутриобъектовых режимах (НЛМК)",
-    "source_url": "https://lipetsk.nlmk.com/ru/about/documents/",
-    "status": "actual"
-  },
-  "NLMK_Katalog_praktik_bezopasnost.pdf": {
-    "doc_type": "nlmk_document",
-    "title": "Каталог передовых практик для организации безопасного выполнения работ (НЛМК, для подрядчиков)",
-    "source_url": "https://lipetsk.nlmk.com/ru/about/documents/",
-    "status": "actual"
-  },
   "GK_RF_part1_dogovor.txt": {
     "doc_type": "code",
     "act_number": "ГК РФ ч.1",

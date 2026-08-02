@@ -52,21 +52,26 @@ from fire_safety_backend.infrastructure import netguard  # noqa: E402
 netguard.install()
 CORPUS = ROOT / "packages" / "rag" / "corpus"
 META = CORPUS / "_meta.json"
-SIDECAR_NAMES = {"_meta.json", ".gitkeep"}
+SIDECAR_NAMES = {"_meta.json", ".gitkeep", "README.md"}
 KNOWN_STATUSES = {"actual", "superseded", "draft"}
 
 
-def _corpus_files() -> list[Path]:
+def _corpus_files(corpus_dir: Path | None = None) -> list[Path]:
+    """Документы ОДНОГО домена. Обход не рекурсивный: подпапка — это другой
+    домен со своей коллекцией и своими метаданными, и складывать их в один
+    список значило бы проверять несопоставимые вещи."""
+    base = corpus_dir or CORPUS
     return sorted(
         p
-        for p in CORPUS.iterdir()
+        for p in base.iterdir()
         if p.is_file() and p.name not in SIDECAR_NAMES and not p.name.startswith(".")
     )
 
 
-def _git_tracked() -> set[str]:
+def _git_tracked(corpus_dir: Path | None = None) -> set[str]:
+    base = corpus_dir or CORPUS
     r = subprocess.run(
-        ["git", "ls-files", str(CORPUS.relative_to(ROOT))],
+        ["git", "ls-files", str(base.relative_to(ROOT))],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -75,14 +80,14 @@ def _git_tracked() -> set[str]:
     return {Path(line).name for line in r.stdout.splitlines() if line.strip()}
 
 
-def _indexed_sources() -> set[str] | None:
+def _indexed_sources(collection: str | None = None) -> set[str] | None:
     """Имена файлов, реально попавшие в ChromaDB. None — индекс недоступен."""
     try:
         import chromadb
         from fire_safety_rag import config
 
         client = chromadb.PersistentClient(path=str(config.CHROMA_DIR))
-        col = client.get_collection(config.COLLECTION_NAME)
+        col = client.get_collection(collection or config.COLLECTION_NAME)
         got = col.get(include=["metadatas"])
         return {m.get("source") for m in got.get("metadatas", []) if m}
     except Exception as e:  # noqa: BLE001
@@ -112,17 +117,33 @@ def _filtered_search_works() -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Проверка корпуса нормативки")
+    parser = argparse.ArgumentParser(description="Проверка корпуса")
     parser.add_argument("--index", action="store_true", help="Сверить ещё и с ChromaDB")
+    parser.add_argument(
+        "--domain",
+        default="pb",
+        choices=["pb", "nlmk"],
+        help="Какой домен проверять: pb — нормативка РФ, nlmk — документы заказчика",
+    )
     args = parser.parse_args()
 
-    files = _corpus_files()
+    from fire_safety_rag import config as rag_config
+
+    corpus_dir = rag_config.corpus_dir_for_domain(args.domain)
+    collection = rag_config.collection_for_domain(args.domain)
+    if not corpus_dir.exists():
+        print(f"Папка домена «{args.domain}» не найдена: {corpus_dir}")
+        return 0
+
+    meta_path = corpus_dir / "_meta.json"
+    files = _corpus_files(corpus_dir)
     names = {p.name for p in files}
-    meta = json.loads(META.read_text(encoding="utf-8")) if META.exists() else {}
-    tracked = _git_tracked()
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    tracked = _git_tracked(corpus_dir)
     problems = 0
 
-    print(f"Файлов в корпусе: {len(files)} · записей в _meta.json: {len(meta)}")
+    print(f"Домен «{args.domain}» → коллекция «{collection}»")
+    print(f"Файлов: {len(files)} · записей в _meta.json: {len(meta)}")
 
     # Отменённые редакции публиковать не обязательно — они всё равно
     # исключаются из выдачи. Требуем git только от действующих документов.
@@ -160,7 +181,7 @@ def main() -> int:
             print(f"     {n}: {meta[n]['status']}")
 
     if args.index:
-        indexed = _indexed_sources()
+        indexed = _indexed_sources(collection)
         if indexed is not None:
             actual = {n for n in names if meta.get(n, {}).get("status") != "superseded"}
             missing = sorted(actual - indexed)

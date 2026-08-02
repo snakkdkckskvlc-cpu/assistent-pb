@@ -111,6 +111,14 @@ def test_result_in_the_database_is_encrypted(
         secure_files.reset()
 
 
+@pytest.mark.skipif(
+    secure_files.protector() is None,
+    reason=(
+        "на этой платформе файлы хранятся открытым текстом (DPAPI только под "
+        "Windows), поэтому «нечитаемый блоб» не воспроизводится: подмена "
+        "протектора после сохранения ни на что не влияет"
+    ),
+)
 def test_unreadable_blob_does_not_break_the_answer(client: TestClient, test_login: str) -> None:
     """Блоб, зашифрованный другой учётной записью, не должен ронять весь
     ответ — отдаём задачу без результата."""

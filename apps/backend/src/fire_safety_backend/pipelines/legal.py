@@ -446,7 +446,7 @@ def generate_short_id(seed: str, length: int = _SHORT_ID_LENGTH) -> str:
     """Короткий детерминированный ID, посеянный содержимым чанка.
 
     Адаптировано из private-gpt (components/engines/citations/utils.py::
-    generate_shorter_id, см. references/private-gpt-main/README_reference.md) —
+    generate_shorter_id, см. docs/08-references.md, карточка private-gpt) —
     там это часть большого streaming-цитатного движка под llama-index; здесь
     оставлена только сама идея «короткий воспроизводимый ID из RNG,
     посеянного содержимым», без их DI/streaming-обвязки, не нужной при
@@ -482,7 +482,7 @@ def _verify_quote(quote: str, source_text: str) -> tuple[bool, int | None]:
     бы паттерн.
 
     Идея — grounding-паттерн OpenContracts (is_grounding_source, см.
-    references/OpenContracts-main/README_reference.md): просить точную
+    docs/08-references.md, карточка OpenContracts): просить точную
     цитату и затем подтверждать её местоположение в исходном тексте, а не
     доверять модели на слово. У OpenContracts это отдельная модель/таблица;
     здесь — минимальная проверка без новых таблиц (см. также docs/08-references.md).

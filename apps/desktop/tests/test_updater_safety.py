@@ -207,8 +207,16 @@ def test_unpushed_commits_block_update(clean_install: tuple[Path, Path]) -> None
     assert updater._is_safe_to_update(work) is False
 
 
-def test_local_commits_survive_the_update_attempt(clean_install: tuple[Path, Path]) -> None:
+def test_local_commits_survive_the_update_attempt(
+    clean_install: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Сквозная проверка: попытка обновления не должна тронуть локальную работу."""
+    # Как и в соседних сквозных тестах: pip и переиндексация медленные и лезут
+    # в сеть. Здесь это ещё и защита от самого теста — если предохранитель
+    # сломается, тест не должен уйти в реальный pip install на 600 секунд
+    # против рабочего интерпретатора, он должен упасть на ассерте.
+    monkeypatch.setattr(updater, "_reinstall_dependencies", lambda root: True)
+    monkeypatch.setattr(updater, "_reindex_corpus", lambda root: True)
     origin, work = clean_install
     _advance_origin(origin)
     (work / "моя_работа.txt").write_text("важное", encoding="utf-8")
@@ -225,3 +233,63 @@ def test_local_commits_survive_the_update_attempt(clean_install: tuple[Path, Pat
     ).stdout.strip()
     assert head_after == head_before, "локальный коммит не должен исчезнуть"
     assert (work / "моя_работа.txt").exists()
+
+
+def test_unresolvable_remote_ref_blocks_update(clean_install: tuple[Path, Path]) -> None:
+    """Не смогли выяснить, есть ли локальные коммиты, — считаем небезопасным.
+
+    Раньше пустой вывод `rev-list --count` трактовался как «ноль коммитов
+    впереди», то есть предохранитель открывался ровно тогда, когда выяснить
+    ничего не удалось.
+    """
+    _, work = clean_install
+    _git(work, "update-ref", "-d", "refs/remotes/origin/main")
+    assert updater._is_safe_to_update(work) is False
+
+
+def test_stale_remote_ref_does_not_pass_off_local_commits_as_synced(
+    clean_install: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сверка коммитов обязана идти ПОСЛЕ fetch.
+
+    Если считать по устаревшей ссылке, локальный коммит выглядит как «уже в
+    origin» (ссылка указывает на него же), и reset --hard его стирает. Тест
+    ловит именно перестановку шагов: fetch внутри check_and_apply_update
+    обновляет ссылку, и коммит становится виден.
+    """
+    monkeypatch.setattr(updater, "_reinstall_dependencies", lambda root: True)
+    monkeypatch.setattr(updater, "_reindex_corpus", lambda root: True)
+    origin, work = clean_install
+
+    # Локальный коммит, о котором устаревшая ссылка origin/main не знает.
+    (work / "работа.txt").write_text("важное", encoding="utf-8")
+    _git(work, "add", ".")
+    _git(work, "commit", "--quiet", "-m", "локальное")
+    # origin тем временем ушёл вперёд своим путём — обновление «доступно».
+    _advance_origin(origin)
+
+    assert updater.check_and_apply_update(work) is False
+    assert (work / "работа.txt").exists(), "локальная работа не должна исчезнуть"
+
+
+def test_dirty_tree_does_not_touch_the_network(
+    clean_install: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Грязное дерево — ответ известен без сети, fetch делать незачем.
+
+    Иначе каждый запуск приложения у разработчика ждёт до FETCH_TIMEOUT_SEC
+    впустую.
+    """
+    _, work = clean_install
+    (work / "app.txt").write_text("правка", encoding="utf-8")
+
+    calls: list[tuple[str, ...]] = []
+    real_git = updater._git
+
+    def spy(root, *args, **kwargs):
+        calls.append(args)
+        return real_git(root, *args, **kwargs)
+
+    monkeypatch.setattr(updater, "_git", spy)
+    assert updater.check_and_apply_update(work) is False
+    assert not any(a and a[0] == "fetch" for a in calls), "fetch не должен вызываться"

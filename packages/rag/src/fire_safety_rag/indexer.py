@@ -136,6 +136,13 @@ def _load_sidecar_metadata(corpus_dir: Path) -> dict[str, dict]:
         return {}
 
 
+# Файлы, которые лежат в папке корпуса, но документами не являются. README —
+# пояснение для человека; попав в индекс, он находится по запросам как будто
+# это требование заказчика («СТО НЛМК — не источник права», «обходить каталог
+# скриптом нельзя») и притом без doc_type и title.
+_NON_DOCUMENT_NAMES = {SIDECAR_META_FILENAME, "README.md", "readme.md"}
+
+
 def _domain_files(corpus_dir: Path, domain: str | None) -> list[Path]:
     """Файлы домена. Обход рекурсивный, поэтому подпапки ЧУЖИХ доменов надо
     исключать явно: без этого индексация нормативки затянула бы в свою
@@ -146,7 +153,7 @@ def _domain_files(corpus_dir: Path, domain: str | None) -> list[Path]:
         excluded.add((corpus_dir / config.NLMK_CORPUS_SUBDIR).resolve())
     out: list[Path] = []
     for path in corpus_dir.rglob("*"):
-        if not path.is_file() or path.name.startswith(".") or path.name == SIDECAR_META_FILENAME:
+        if not path.is_file() or path.name.startswith(".") or path.name in _NON_DOCUMENT_NAMES:
             continue
         if any(parent in excluded for parent in path.resolve().parents):
             continue
