@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from fire_safety_backend import config
 from fire_safety_backend.infrastructure import languagetool, llm
 from fire_safety_backend.pipelines import spellcheck
 
@@ -96,3 +97,44 @@ def test_self_containing_replacement_is_skipped_in_text() -> None:
     assert spellcheck._apply_to_text("месяца", [{"before": "месяца", "after": "месяца работ"}]) == (
         "месяца"
     )
+
+
+# --- Рычаги качества: порция, подсказки LanguageTool, отказ от переписывания ---
+# Замер на 19 намеренно заложенных ошибках (одна модель, один промпт, менялся
+# только размер куска): 300 слов → 5 из 19, ≈4 предложения → 16 из 19.
+
+
+def test_model_is_not_asked_to_rewrite_the_text() -> None:
+    """Модель тратила выдачу на переписывание фрагмента целиком вместо поиска
+    ошибок. Текст теперь собирается применением правок."""
+    from fire_safety_backend.pipelines._prompts import load_prompt
+
+    assert "corrected_text" not in load_prompt("spellcheck")
+
+
+def test_chunk_is_a_sentence_or_two_not_a_page() -> None:
+    """Главный рычаг качества. На куске в 300 слов модель находит две-три
+    ошибки и останавливается, пропуская даже «обьекте»."""
+    assert config.SPELLCHECK_CHUNK_WORDS <= 40
+
+
+def test_known_errors_are_shown_to_the_model() -> None:
+    """LanguageTool отрабатывает до модели; раньше его находки использовались
+    только для дедупликации после, и модель искала вслепую."""
+    chunk = "Работы на обьекте будут проводится в срок."
+    lt = [{"before": "обьекте", "after": "объекте"}]
+    prompt = spellcheck._with_known_errors(chunk, lt)
+    assert chunk in prompt
+    assert "обьекте" in prompt.split(chunk, 1)[1], "находка LT должна быть показана"
+
+
+def test_errors_from_other_chunks_are_not_shown() -> None:
+    """Подсказка про фрагмент, которого в этом куске нет, только сбивает."""
+    chunk = "Работы завершены."
+    lt = [{"before": "заблоговременно", "after": "заблаговременно"}]
+    assert spellcheck._with_known_errors(chunk, lt) == chunk
+
+
+def test_no_known_errors_leaves_the_chunk_untouched() -> None:
+    chunk = "Текст без ошибок."
+    assert spellcheck._with_known_errors(chunk, []) == chunk

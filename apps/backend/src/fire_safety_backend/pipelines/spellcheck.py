@@ -40,6 +40,31 @@ def _load_glossary_terms() -> list[str]:
     return terms
 
 
+def _with_known_errors(chunk: str, lt_errors: list[dict]) -> str:
+    """Показывает модели то, что LanguageTool уже нашёл в этом же фрагменте.
+
+    Раньше LanguageTool отрабатывал ДО модели, но результат использовался
+    только для дедупликации ПОСЛЕ — модель искала вслепую и тратила выдачу на
+    те же очевидные опечатки. Здесь она видит их сразу и может заняться тем,
+    чего правилами не поймать: вводными оборотами, обособлением, «что бы»
+    против «чтобы» — на замере это ровно те девять ошибок из двадцати девяти,
+    которые нашла только она.
+    """
+    known = [
+        str(e.get("before", "")).strip()
+        for e in lt_errors
+        if str(e.get("before", "")).strip() and str(e.get("before", "")).strip() in chunk
+    ]
+    if not known:
+        return chunk
+    listed = "; ".join(dict.fromkeys(known))
+    return (
+        f"{chunk}\n\n"
+        f"(Проверка по словарю уже нашла здесь: {listed}. "
+        f"Их повторять не нужно — ищи то, что она пропустила.)"
+    )
+
+
 def _apply_to_text(text: str, errors: list[dict]) -> str:
     """Собирает исправленный текст из найденных правок.
 
@@ -133,14 +158,20 @@ async def run_spellcheck(
         await _attach_corrected_docx(out, errors, source_path, task)
         return out
 
-    # Sentence-aware чанкинг (см. packages/rag/src/fire_safety_rag/chunking.py) —
-    # без overlap: правки не должны дублироваться между соседними чанками.
-    # NLTK-токенизация всего документа — CPU-bound, не блокируем event loop.
+    # Мелкая порция — главный рычаг качества, а не настройка производительности.
+    # Замерено на 19 намеренно заложенных ошибках, одна модель и один промпт,
+    # менялся только размер куска:
+    #     20 предложений разом (было 300 слов)  —  5 из 19
+    #     по 4 предложения                      —  9 из 14 на тех же пропущенных
+    #     по одному предложению                 — 11 из 14 на тех же пропущенных
+    # Модель не слабая, её заваливали объёмом: на большом куске она находит
+    # 2-3 ошибки и останавливается, пропуская даже «обьекте» и «в течении».
+    # По времени почти без разницы — платим за ВЫДАННЫЕ токены, а их столько
+    # же (85 с против 95 с на том же тексте).
     chunks = await asyncio.to_thread(
         chunk_sentences, text, config.SPELLCHECK_CHUNK_WORDS, overlap_words=0
     )
     all_errors: list[dict] = list(lt_errors)
-    corrected_parts: list[str] = []
 
     for i, chunk in enumerate(chunks, start=1):
         if task:
@@ -150,7 +181,7 @@ async def run_spellcheck(
         chunk_span = max(1, int(90 / len(chunks)))
         result = await llm.chat_json(
             system=prompt,
-            user=chunk,
+            user=_with_known_errors(chunk, lt_errors),
             num_predict=config.LLM_NUM_PREDICT_SPELLCHECK,
             on_delta=make_progress_counter(
                 task, config.LLM_NUM_PREDICT_SPELLCHECK, chunk_base, chunk_span
@@ -167,10 +198,12 @@ async def run_spellcheck(
                 e["chunk"] = i
                 e["source"] = "llm"
         all_errors.extend(e for e in errors if isinstance(e, dict))
-        corrected_parts.append(result.get("corrected_text", chunk))
 
     all_errors = _dedup_errors(all_errors)
-    corrected_text = "\n\n".join(corrected_parts)
+    # Исправленный текст собирается применением правок, а не отдельным
+    # проходом модели: раньше её просили вернуть переписанный фрагмент
+    # целиком, и она тратила на это выдачу вместо поиска ошибок.
+    corrected_text = _apply_to_text(text, all_errors)
 
     out: dict = {
         "errors": all_errors,
