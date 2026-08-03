@@ -53,7 +53,7 @@
     "apps/backend/src/fire_safety_backend/services/uploads.py": "e222e8a84fb882e2e2b8afd5e8f20a5c9487d3db317150d706478c1cbf362b5d",
     "apps/backend/src/fire_safety_backend/views/__init__.py": "dbcdec21157ed44f010b78aeb4d7b11d0b7e321424233882eb5557e42910389b",
     "apps/backend/src/fire_safety_backend/views/addressees.py": "162c6903fe0f73f9183e861bc7a51d6738fd94b63f20cf84ce776b9346873184",
-    "apps/backend/src/fire_safety_backend/views/auth.py": "7a94f2a115a779cafe27c04339509d3b8a20c32d346005c523b28711baeca28c",
+    "apps/backend/src/fire_safety_backend/views/auth.py": "97149e17c403e87e8fb9969fe25a9bb4d4f86f2406008e2e8c8ea3add6f45bc7",
     "apps/backend/src/fire_safety_backend/views/batch.py": "b919a37b0192b6fe26b828fc8da4fe8b7a0b7fe133dc9cb07e7073748aa85816",
     "apps/backend/src/fire_safety_backend/views/data.py": "3c87627db54086242781a94f27a8e666afef18e46e8f1c882daef0bcf03b28f2",
     "apps/backend/src/fire_safety_backend/views/downloads.py": "0fb8a2ef8c80ff5031f4ac081a7ba42eda60c7323f6a44eb7fb799862f4192a6",

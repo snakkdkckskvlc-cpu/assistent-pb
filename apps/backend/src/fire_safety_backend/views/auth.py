@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -31,9 +32,15 @@ User = auth_service.User
 
 
 def _remember_login(response: Response, login: str) -> None:
+    # Значение cookie кодируется процентами. Заголовки HTTP допускают только
+    # latin-1, и кириллический логин ронял вход целиком: «Разраб» приводил к
+    # UnicodeEncodeError внутри starlette и HTTP 500 вместо входа. Для русской
+    # компании это отказ на самом обычном сценарии — логины здесь кириллицей и
+    # будут. Обратное преобразование — в /api/auth/state, который и отдаёт
+    # запомненный логин странице входа.
     response.set_cookie(
         LAST_LOGIN_COOKIE,
-        login,
+        quote(login, safe=""),
         httponly=False,  # её читает страница входа — в этом весь смысл
         samesite="lax",
         path="/",
@@ -136,6 +143,8 @@ async def api_me(request: Request) -> dict:
     return {
         "login": user.login if user else None,
         "is_admin": bool(user and user.is_admin),
-        "remembered": request.cookies.get(LAST_LOGIN_COOKIE, ""),
+        # Cookie хранится в процентном кодировании (кириллица в заголовок
+        # HTTP иначе не помещается) — раскодируем перед отдачей на страницу.
+        "remembered": unquote(request.cookies.get(LAST_LOGIN_COOKIE, "")),
         "any_users": await asyncio.to_thread(auth_service.any_users_exist),
     }
