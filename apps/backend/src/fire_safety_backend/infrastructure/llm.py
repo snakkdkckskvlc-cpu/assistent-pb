@@ -196,11 +196,53 @@ async def healthcheck() -> dict:
     model_ok = any(
         config.LLM_MODEL in n or n.startswith(config.LLM_MODEL.split(":")[0]) for n in names
     )
+    warning = (
+        None
+        if model_ok
+        else f"Модель {config.LLM_MODEL} не установлена. Запустите: ollama pull {config.LLM_MODEL}"
+    )
+    if model_ok:
+        warning = _memory_warning(tags)
     return {
         "ok": model_ok,
         "model": config.LLM_MODEL,
         "installed": names,
-        "warning": None
-        if model_ok
-        else f"Модель {config.LLM_MODEL} не установлена. Запустите: ollama pull {config.LLM_MODEL}",
+        "warning": warning,
     }
+
+
+# Сверх веса модели нужна память под KV-кэш, контекст и саму ОС. Коэффициент
+# грубый, но он и не должен быть точным: задача — отличить «влезает с запасом»
+# от «не влезет никогда», а не выгадать последний гигабайт.
+_MODEL_MEMORY_HEADROOM = 1.4
+
+
+def _memory_warning(tags: list[dict]) -> str | None:
+    """Предупреждение, если выбранная модель не помещается в ОЗУ.
+
+    Симптом нехватки памяти — не ошибка, а бесконечное ожидание: модель
+    вытесняется в swap и генерация замедляется на порядки. Замерено на машине
+    разработчика: 8,6 ГБ ОЗУ против модели на 18,6 ГБ — своп 7,8 ГБ, процессы
+    llama-server вытеснены с диска целиком, ответ не приходит вообще.
+    Без этой проверки пользователь видит «задача выполняется» и ждёт часами.
+    """
+    size = next(
+        (
+            m.get("size", 0)
+            for m in tags
+            if m.get("name", "") == config.LLM_MODEL
+            or m.get("name", "").startswith(config.LLM_MODEL + ":")
+        ),
+        0,
+    )
+    ram = config._total_ram_gb() * 1e9
+    if not size or ram <= 0:
+        return None
+    if size * _MODEL_MEMORY_HEADROOM <= ram:
+        return None
+    return (
+        f"Модель {config.LLM_MODEL} весит {size / 1e9:.1f} ГБ, а на машине "
+        f"{ram / 1e9:.1f} ГБ ОЗУ. Она не поместится в память: ответы будут идти "
+        f"из swap, то есть в десятки раз медленнее или не придут вовсе. "
+        f"Возьмите модель меньше или добавьте оперативной памяти."
+    )
