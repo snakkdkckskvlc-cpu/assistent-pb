@@ -128,6 +128,19 @@ def test_known_errors_are_shown_to_the_model() -> None:
     assert "обьекте" in prompt.split(chunk, 1)[1], "находка LT должна быть показана"
 
 
+def test_known_errors_hint_redirects_the_model_to_punctuation() -> None:
+    """Мягкой формулировки не хватало: во фрагменте с опечаткой модель
+    называла ровно эту опечатку и останавливалась, пропуская обращение и
+    вводное слово в том же предложении (замерено на размеченном наборе,
+    scripts/evaluate_spellcheck.py). Поэтому подсказка не просит «не
+    повторять», а прямо переназначает задачу на пунктуацию."""
+    chunk = "Уважаемый Иван Иванович работы на обьекте выполнены."
+    lt = [{"before": "обьекте", "after": "объекте"}]
+    hint = spellcheck._with_known_errors(chunk, lt).split(chunk, 1)[1]
+    assert "ПУНКТУАЦИЯ" in hint
+    assert "обращении" in hint
+
+
 def test_errors_from_other_chunks_are_not_shown() -> None:
     """Подсказка про фрагмент, которого в этом куске нет, только сбивает."""
     chunk = "Работы завершены."

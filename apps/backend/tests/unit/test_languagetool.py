@@ -97,10 +97,10 @@ class _MatchesClient:
         return _MatchesResponse(self._matches)
 
 
-async def test_check_drops_style_and_grammar_findings(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_check_drops_style_findings(monkeypatch: pytest.MonkeyPatch) -> None:
     # Проверка сужена до орфографии/пунктуации (см. languagetool.py::
-    # _CATEGORY_TO_TYPE) — GRAMMAR/STYLE/LOGIC/EXTEND должны быть отброшены
-    # целиком, а не помечены как "стиль".
+    # _CATEGORY_TO_TYPE) — STYLE/LOGIC/EXTEND должны быть отброшены целиком, а
+    # не помечены как "стиль".
     matches = [
         {
             "message": "опечатка",
@@ -118,9 +118,9 @@ async def test_check_drops_style_and_grammar_findings(monkeypatch: pytest.Monkey
             "context": {"text": "канцелярский оборот", "offset": 0, "length": 5},
         },
         {
-            "message": "грамматика",
-            "rule": {"category": {"id": "GRAMMAR"}},
-            "context": {"text": "согласование", "offset": 0, "length": 5},
+            "message": "многословие",
+            "rule": {"category": {"id": "REDUNDANCY"}},
+            "context": {"text": "масло масляное", "offset": 0, "length": 5},
         },
     ]
     monkeypatch.setattr(languagetool, "_get_client", lambda: _MatchesClient(matches))
@@ -128,6 +128,25 @@ async def test_check_drops_style_and_grammar_findings(monkeypatch: pytest.Monkey
     types = {e["type"] for e in errors}
     assert types == {"орфография", "пунктуация"}
     assert len(errors) == 2
+
+
+async def test_check_keeps_grammar_findings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GRAMMAR отдаётся как орфография, и это замер, а не вкус.
+
+    Пока категорию отбрасывали, вместе с ней терялось «в течении месяца»
+    вместо «в течение» — обычная ошибка делового письма, которую не находил
+    больше НИКТО: модель её тоже пропускает. Шума эта категория почти не даёт
+    (на пяти настоящих договорах — одно срабатывание на весь набор)."""
+    matches = [
+        {
+            "message": "предлог «в течение»",
+            "rule": {"category": {"id": "GRAMMAR"}},
+            "context": {"text": "В течении месяца работы", "offset": 0, "length": 16},
+        },
+    ]
+    monkeypatch.setattr(languagetool, "_get_client", lambda: _MatchesClient(matches))
+    errors = await languagetool.check("В течении месяца работы не начались")
+    assert [e["type"] for e in errors] == ["орфография"]
 
 
 async def test_healthcheck_returns_false_when_server_unreachable(
