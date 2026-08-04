@@ -61,11 +61,15 @@ def test_keep_applicable_drops_no_op_correction() -> None:
 
 def test_keep_applicable_rewrites_quote_to_the_document_wording() -> None:
     errors = [
-        {"before": "Наша компания — надёжный партнёр", "after": "Наша компания — надёжный партнёр."}
+        {"before": "Наша компания — надёжный партнёр", "after": "Наша компания — надёжный партнёр"}
     ]
     kept = _keep_applicable([{**errors[0], "source": "llm"}], _TEXT)
     assert len(kept) == 1
-    assert kept[0]["before"] == "Наша компания надёжный партнёр"
+    # Цитата и привязана к тексту документа (тире в исходнике нет), и сужена до
+    # места правки — длинный кусок в таблице человеку читать незачем.
+    assert kept[0]["before"] in _TEXT
+    assert "—" not in kept[0]["before"]
+    assert "—" in kept[0]["after"]
 
 
 def test_keep_applicable_never_touches_languagetool_findings() -> None:
