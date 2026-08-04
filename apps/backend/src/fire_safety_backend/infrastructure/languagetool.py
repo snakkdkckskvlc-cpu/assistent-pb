@@ -89,6 +89,49 @@ def tools_dir() -> Path:
     return config.PROJECT_DIR / "tools" / "languagetool"
 
 
+def glossary_path() -> Path:
+    return tools_dir() / "dict" / "spelling_global.txt"
+
+
+def glossary_terms() -> list[str]:
+    """Отраслевые термины компании: АПС, СОУЭ, «противодымная» и подобные."""
+    path = glossary_path()
+    if not path.is_file():
+        return []
+    terms = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            terms.append(line)
+    return terms
+
+
+def _glossary_lookup() -> frozenset[str]:
+    """Термины в нижнем регистре — для сверки с находками LanguageTool.
+
+    ### Почему термины отсеиваются ЗДЕСЬ, а не словарём LanguageTool
+
+    Файл dict/spelling_global.txt лежит в classpath ровно так, как описано в
+    его же шапке, — и не работает. Проверено прямым опытом: в словарь добавлено
+    несуществующее слово «зюзюкапроверка», сервер поднят заново, и LanguageTool
+    флажит его как опечатку. То же и по «правильному» адресу
+    org/languagetool/resource/ru/hunspell/. Механизм молча не действует.
+
+    Иллюзию работы создавал «ПожСервис»: у него заглавная буква ВНУТРИ слова, а
+    такие токены спеллер пропускает сам. Проверка заглавным несуществующим
+    словом («Зюзюкатест») это подтвердила — оно флажится.
+
+    Практическое следствие было такое: «противодымную» предлагалось заменить на
+    «противошумную» в каждом документе компании. Термин из отраслевого
+    словаря — в отчёте об ошибках.
+
+    Поэтому сверка перенесена в наш код: он выполняется гарантированно и
+    покрыт тестами. Файл остаётся единым источником — его же читает промпт
+    модели (pipelines/spellcheck.py), так что термин добавляется в одном месте.
+    """
+    return frozenset(term.casefold() for term in glossary_terms())
+
+
 def _port() -> int:
     return urlparse(config.LANGUAGETOOL_HOST).port or 8081
 
@@ -245,6 +288,18 @@ def _is_proper_noun_false_positive(match: dict) -> bool:
     return not _is_sentence_start(ctx_text, ctx_offset)
 
 
+def _is_glossary_term(match: dict, glossary: frozenset[str]) -> bool:
+    """Слово из отраслевого словаря компании — не опечатка."""
+    if not glossary:
+        return False
+    ctx = match.get("context", {})
+    ctx_text = ctx.get("text", "")
+    ctx_offset = ctx.get("offset", 0)
+    ctx_length = ctx.get("length", 0)
+    word = ctx_text[ctx_offset : ctx_offset + ctx_length].strip()
+    return bool(word) and word.casefold() in glossary
+
+
 async def check(text: str, language: str = "ru-RU") -> list[dict]:
     """Проверяет текст через LanguageTool. Пустой список — сервер недоступен
     или ошибок не найдено; вызывающий код не должен различать эти случаи
@@ -265,10 +320,13 @@ async def check(text: str, language: str = "ru-RU") -> list[dict]:
         log.warning("LanguageTool вернул невалидный JSON")
         return []
 
+    glossary = _glossary_lookup()
     return [
         _match_to_error(m)
         for m in matches
-        if _category_id(m) in _CATEGORY_TO_TYPE and not _is_proper_noun_false_positive(m)
+        if _category_id(m) in _CATEGORY_TO_TYPE
+        and not _is_proper_noun_false_positive(m)
+        and not _is_glossary_term(m, glossary)
     ]
 
 

@@ -75,6 +75,8 @@
             : (e.type || "").toLowerCase().includes("пункт") ? "punct" : "style";
           const srcTag = e.source === "languagetool"
             ? ` <span class="hint" title="Найдено детерминированным правилом LanguageTool, не LLM">· LanguageTool</span>`
+            : e.source === "правило"
+            ? ` <span class="hint" title="Найдено детерминированным правилом проекта, не LLM">· правило</span>`
             : "";
           parts.push(`<tr>
             <td><span class="chip ${cls}">${escapeHtml(e.type || "")}</span></td>

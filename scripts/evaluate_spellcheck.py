@@ -18,6 +18,13 @@
     python scripts/evaluate_spellcheck.py --fast     # только LanguageTool
     python scripts/evaluate_spellcheck.py --only 01
 
+Полноты мало. Размеченный набор писали мы, и цифру полноты легко поднять,
+разрешив модели «находить» больше. Поэтому есть второй режим — прогон по
+ПРОИЗВОЛЬНОМУ вычитанному документу, где ошибок быть не должно и каждая
+находка подозрительна:
+
+    python scripts/evaluate_spellcheck.py --noise apps/backend/tests/fixtures/contracts/03_ognezashchita.txt
+
 ВНИМАНИЕ по времени: полный проход идёт через ту же модель, что и продукт, на
 CPU — это минуты. Быстрый режим отвечает за секунды.
 
@@ -90,6 +97,27 @@ def _in_clean_part(before: str, clean: list[str]) -> bool:
     return any(b in _normalize(fragment) for fragment in clean) and len(b) >= _MIN_OVERLAP
 
 
+async def _wait_for_languagetool(languagetool, timeout_sec: int = 90) -> bool:
+    """Ждёт готовности LanguageTool и говорит, дождался ли.
+
+    Приложение ждать НЕ должно: java поднимается порядка 15 секунд, а старт
+    доводили до 3.2 с, и проверка орфографии при неготовом сервере штатно
+    деградирует на модель. Для замера это ровно наоборот: молча потерять весь
+    детерминированный проход значит померить не то приложение и не заметить
+    этого. Поймано на живом прогоне — первый же документ считался без словаря.
+    """
+    deadline = time.time() + timeout_sec
+    announced = False
+    while time.time() < deadline:
+        if (await languagetool.healthcheck()).get("ok"):
+            return True
+        if not announced:
+            print("Жду LanguageTool (java поднимается ~15 с)...")
+            announced = True
+        await asyncio.sleep(2)
+    return False
+
+
 async def _run_one(path: Path, deep: bool) -> dict:
     from fire_safety_backend.pipelines.spellcheck import run_spellcheck
 
@@ -153,6 +181,37 @@ def _print_report(reports: list[dict], deep: bool) -> None:
         print(f"  {mark} {kind}: {good}/{len(results)}")
 
 
+async def _noise_check(path: Path, deep: bool, limit: int) -> int:
+    """Сколько находок пайплайн даёт на ПРОИЗВОЛЬНОМ документе.
+
+    Размеченный набор меряет полноту — сколько подсаженных ошибок нашли. Он
+    ничего не говорит о том, что инструмент скажет о ЧУЖОМ вычитанном тексте, а
+    там ошибок почти нет, и каждая находка подозрительна. Замерено на настоящем
+    договоре: модель выдавала около десятка правок на 2000 символов правильного
+    юридического текста, включая порчу номера пункта.
+
+    Полнота без этой проверки обманчива: любую цифру полноты можно поднять,
+    разрешив модели «находить» больше.
+    """
+    from fire_safety_backend.pipelines.spellcheck import run_spellcheck
+
+    text = path.read_text(encoding="utf-8", errors="replace")[:limit]
+    print(f"Документ: {path.name}, взято {len(text)} символов")
+    started = time.time()
+    result = await run_spellcheck(text, deep=deep)
+    errors = [e for e in result.get("errors", []) if isinstance(e, dict)]
+    by_source: dict[str, int] = {}
+    for e in errors:
+        by_source[e.get("source", "?")] = by_source.get(e.get("source", "?"), 0) + 1
+    print(f"Находок: {len(errors)} за {time.time() - started:.0f} c · по источникам {by_source}\n")
+    for e in errors:
+        print(f"  [{e.get('source', '?')}] «{e.get('before', '')[:90]}»")
+        print(f"      -> «{e.get('after', '')[:90]}»")
+    print("\nКаждую находку надо посмотреть глазами: текст считается правильным,")
+    print("значит всё найденное — либо настоящая ошибка источника, либо ложняк.")
+    return 0
+
+
 async def _main_async(args: argparse.Namespace) -> int:
     paths = sorted(p for p in FIXTURES.glob("*.txt"))
     if args.only:
@@ -169,6 +228,14 @@ async def _main_async(args: argparse.Namespace) -> int:
     languagetool.startup()
     llm.startup()
     try:
+        if not await _wait_for_languagetool(languagetool):
+            print("[X] LanguageTool не поднялся за отведённое время.")
+            print("    Замер без него бессмысленен: пропали бы ВСЕ находки словаря,")
+            print("    и цифра вышла бы красивой, но не про то приложение.")
+            print("    Поднять вручную: .\\tools\\languagetool\\start.ps1")
+            return 1
+        if args.noise:
+            return await _noise_check(Path(args.noise), deep=not args.fast, limit=args.limit)
         reports = [await _run_one(p, deep=not args.fast) for p in paths]
     finally:
         await llm.shutdown()
@@ -188,6 +255,15 @@ def main() -> int:
     parser.add_argument("--fast", action="store_true", help="только LanguageTool, без модели")
     parser.add_argument("--only", help="префикс имени файла, например 01")
     parser.add_argument("--out", help="куда сложить подробный JSON")
+    parser.add_argument(
+        "--noise",
+        metavar="ФАЙЛ",
+        help="прогнать по ПРОИЗВОЛЬНОМУ документу и показать все находки: "
+        "на вычитанном чужом тексте каждая из них подозрительна",
+    )
+    parser.add_argument(
+        "--limit", type=int, default=2000, help="сколько символов брать в режиме --noise"
+    )
     args = parser.parse_args()
     return asyncio.run(_main_async(args))
 

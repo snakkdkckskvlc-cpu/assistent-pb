@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections import Counter
 from typing import TYPE_CHECKING
 
 from fire_safety_rag import chunk_sentences
 
 from .. import config
-from ..infrastructure import languagetool, llm
+from ..infrastructure import languagetool, llm, ru_rules
 from ..infrastructure.generators.corrected_docx import build_corrected_docx
 from ..services import ownership
 from ._prompts import load_prompt, make_progress_counter
@@ -22,23 +23,17 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_GLOSSARY_PATH = config.PROJECT_DIR / "tools" / "languagetool" / "dict" / "spelling_global.txt"
-
 
 def _load_glossary_terms() -> list[str]:
-    """Единый источник фирменных терминов — тот же файл, что LanguageTool
-    подключает через classpath (tools/languagetool/start.sh). Раньше список
-    дублировался прозой прямо в resources/prompts/spellcheck.txt и молча
-    расходился со словарём LT."""
-    if not _GLOSSARY_PATH.exists():
-        return []
-    terms = []
-    for line in _GLOSSARY_PATH.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        terms.append(line)
-    return terms
+    """Единый источник фирменных терминов для промпта модели.
+
+    Тот же файл сверяется с находками LanguageTool — но НЕ его собственным
+    механизмом словаря: тот молча не работает, разбор в
+    infrastructure/languagetool.py::_glossary_lookup. Список читается из одного
+    места, чтобы термин добавлялся один раз и не расходился между промптом и
+    проверкой.
+    """
+    return languagetool.glossary_terms()
 
 
 def _with_known_errors(chunk: str, lt_errors: list[dict]) -> str:
@@ -99,6 +94,11 @@ def _normalize_before(text: str) -> str:
 # однобуквенное «и» переписало бы весь документ.
 _MIN_QUOTE_CHARS = 4
 
+# Источники, чьи цитаты дословны по построению и чьи находки при конфликте
+# побеждают находку модели: словарь LanguageTool и домашние правила проекта.
+# Оба детерминированы — на одном тексте всегда один и тот же ответ.
+_DETERMINISTIC_SOURCES = frozenset({"languagetool", ru_rules.SOURCE})
+
 
 def _anchor_to_source(before: str, text: str) -> str | None:
     """Точная подстрока исходного текста, которую имела в виду модель. None —
@@ -137,6 +137,54 @@ def _anchor_to_source(before: str, text: str) -> str | None:
     return match.group(0) if match else None
 
 
+# Числовая группа целиком, вместе с внутренними разделителями: сравнивать
+# отдельные цифры недостаточно. «2.2» и «2,2» состоят из одних и тех же цифр,
+# а это разные вещи — номер пункта договора и дробь.
+_NUMERIC_RUN = re.compile(r"[\d.,]*\d[\d.,]*")
+_ABBREVIATIONS = re.compile(r"\b[А-ЯЁA-Z]{2,}(?:-\d+)?\b")
+
+
+def _numbers(text: str) -> list[str]:
+    """Числа текста. Крайние точки и запятые срезаются: они принадлежат
+    предложению, а не числу, — иначе законная правка «100 однако» →
+    «100, однако» выглядела бы подменой числа."""
+    return [run.strip(".,") for run in _NUMERIC_RUN.findall(text) if run.strip(".,")]
+
+
+def _unsafe_reason(before: str, after: str) -> str | None:
+    """Почему эту правку нельзя применять. None — правка допустимая.
+
+    ### Откуда взялось
+
+    Замер на НАСТОЯЩЕМ договоре (не на размеченных письмах, а на вычитанном
+    юридическом тексте, который писали не мы): пайплайн выдал 14 находок, и
+    почти все от модели оказались выдумкой. Среди них — «2.2. Авансирование» →
+    «2,2. Авансирование», то есть порча номера пункта договора.
+
+    Для инструмента, которым правят договоры с заказчиком, это хуже пропуска:
+    пропущенную запятую человек переживёт, испорченный номер пункта — нет.
+
+    Проверка орфографии и пунктуации не вправе менять СОДЕРЖАНИЕ. Отсюда три
+    запрета, и каждый на конкретный наблюдавшийся случай:
+
+    1. Цифры. Корректор не меняет числа: ни номера пунктов, ни суммы, ни даты.
+    2. Аббревиатуры. «ФЗ» → «Федерального закона» — это уже не орфография.
+       Раскрывать сокращения корректор тоже не вправе.
+    3. Буква «ё». «зачёта» → «зачета» — не исправление, а порча: обратное
+       направление (е → ё) допустимо, оно восстанавливает букву.
+    """
+    if _numbers(before) != _numbers(after):
+        return "меняет числа"
+    # Считаем количество, а не наличие. «сертификат соответствия ФЗ ... № 123-ФЗ»
+    # → «...Федерального закона... № 123-ФЗ»: одно вхождение ФЗ исчезло, но
+    # второе осталось, и проверка по множеству такую подмену пропускала.
+    if Counter(_ABBREVIATIONS.findall(before)) - Counter(_ABBREVIATIONS.findall(after)):
+        return "теряет аббревиатуру"
+    if before.replace("ё", "е").replace("Ё", "Е") == after and "ё" in before.lower():
+        return "убирает букву ё"
+    return None
+
+
 def _keep_applicable(errors: list[dict], text: str) -> list[dict]:
     """Оставляет только правки, которые реально применятся к документу.
 
@@ -147,7 +195,7 @@ def _keep_applicable(errors: list[dict], text: str) -> list[dict]:
     """
     kept: list[dict] = []
     for e in errors:
-        if e.get("source") == "languagetool":
+        if e.get("source") in _DETERMINISTIC_SOURCES:
             kept.append(e)
             continue
         before, after = str(e.get("before", "")), str(e.get("after", ""))
@@ -157,6 +205,10 @@ def _keep_applicable(errors: list[dict], text: str) -> list[dict]:
             continue
         if _normalize_before(anchored) == _normalize_before(after):
             log.info("Правка модели ничего не меняет, отбрасываю: %r", before[:80])
+            continue
+        unsafe = _unsafe_reason(anchored, after)
+        if unsafe is not None:
+            log.warning("Правка модели %s, отбрасываю: %r -> %r", unsafe, anchored[:60], after[:60])
             continue
         kept.append({**e, "before": anchored})
     return kept
@@ -194,8 +246,8 @@ def _dedup_errors(errors: list[dict]) -> list[dict]:
     его подмножество). Если модель правит сверх того — обособляет оборот, а не
     только исправляет слово, — находка остаётся.
     """
-    lt_errors = [e for e in errors if e.get("source") == "languagetool"]
-    other_errors = [e for e in errors if e.get("source") != "languagetool"]
+    lt_errors = [e for e in errors if e.get("source") in _DETERMINISTIC_SOURCES]
+    other_errors = [e for e in errors if e.get("source") not in _DETERMINISTIC_SOURCES]
     lt_changes = [c for c in (_changed_tokens(e) for e in lt_errors) if c]
 
     deduped = list(lt_errors)
@@ -258,6 +310,11 @@ async def run_spellcheck(
         task.progress = "Проверяю через LanguageTool"
         task.percent = 3
     lt_errors = await languagetool.check(text)
+    # Домашние правила идут рядом со словарём, а не вместо него: они закрывают
+    # ровно тот класс, который не берут ни LanguageTool, ни модель (см.
+    # infrastructure/ru_rules.py). Стоят ноль секунд, поэтому работают в обоих
+    # режимах, включая быстрый.
+    lt_errors.extend(ru_rules.check(text))
     for e in lt_errors:
         e["chunk"] = 0
 
@@ -305,6 +362,7 @@ async def run_spellcheck(
         result = await llm.chat_json(
             system=prompt,
             user=_with_known_errors(chunk, lt_errors),
+            temperature=config.LLM_TEMPERATURE_SPELLCHECK,
             num_predict=config.LLM_NUM_PREDICT_SPELLCHECK,
             on_delta=make_progress_counter(
                 task, config.LLM_NUM_PREDICT_SPELLCHECK, chunk_base, chunk_span

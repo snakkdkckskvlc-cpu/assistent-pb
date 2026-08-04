@@ -130,6 +130,57 @@ async def test_check_drops_style_findings(monkeypatch: pytest.MonkeyPatch) -> No
     assert len(errors) == 2
 
 
+async def test_glossary_term_is_not_reported_as_typo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Собственный механизм словаря LanguageTool молча не работает.
+
+    Проверено прямым опытом: в dict/spelling_global.txt добавлено
+    несуществующее слово, сервер поднят заново — LanguageTool всё равно флажит
+    его как опечатку. Иллюзию работы создавал «ПожСервис»: заглавная буква
+    внутри слова, такие токены спеллер пропускает сам.
+
+    Практическое следствие: «противодымную» предлагалось заменить на
+    «противошумную» в каждом документе компании. Поэтому сверка со словарём
+    делается в нашем коде.
+    """
+    matches = [
+        {
+            "message": "опечатка",
+            "rule": {"category": {"id": "TYPOS"}},
+            "context": {
+                "text": "Проверена противодымная вентиляция",
+                "offset": 9,
+                "length": 14,
+            },
+        },
+    ]
+    monkeypatch.setattr(languagetool, "glossary_terms", lambda: ["противодымная"])
+    monkeypatch.setattr(languagetool, "_get_client", lambda: _MatchesClient(matches))
+    assert await languagetool.check("Проверена противодымная вентиляция") == []
+
+
+async def test_word_outside_the_glossary_is_still_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matches = [
+        {
+            "message": "опечатка",
+            "rule": {"category": {"id": "TYPOS"}},
+            "context": {"text": "на обьекте работы", "offset": 3, "length": 7},
+        },
+    ]
+    monkeypatch.setattr(languagetool, "glossary_terms", lambda: ["противодымная"])
+    monkeypatch.setattr(languagetool, "_get_client", lambda: _MatchesClient(matches))
+    assert len(await languagetool.check("на обьекте работы")) == 1
+
+
+def test_glossary_is_read_from_the_shared_file() -> None:
+    """Единый источник: тот же список уходит в промпт модели."""
+    terms = languagetool.glossary_terms()
+    assert "АПС" in terms
+    assert "противодымная" in terms
+    assert all(not t.startswith("#") for t in terms)
+
+
 async def test_check_keeps_grammar_findings(monkeypatch: pytest.MonkeyPatch) -> None:
     """GRAMMAR отдаётся как орфография, и это замер, а не вкус.
 

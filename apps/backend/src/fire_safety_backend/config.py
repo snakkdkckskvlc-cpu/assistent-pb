@@ -163,6 +163,11 @@ LLM_NUM_CTX = int(os.environ.get("LLM_NUM_CTX", "4096"))
 # 3 500 при одном запросе, то есть примерно вчетверо дольше на ровном месте.
 LLM_NUM_CTX_LEGAL = int(os.environ.get("LLM_NUM_CTX_LEGAL", "0")) or _auto_num_ctx_legal()
 LLM_NUM_PREDICT_SPELLCHECK = 1500
+# Перечисление ошибок — не творческая задача: на один и тот же текст ответ
+# обязан быть один и тот же. При общей LLM_TEMPERATURE=0.2 замер на размеченном
+# наборе давал то 19, то 18 находок из 22 — разброс не от правок, а от
+# сэмплирования, и на нём нельзя отличить улучшение от шума.
+LLM_TEMPERATURE_SPELLCHECK = float(os.environ.get("LLM_TEMPERATURE_SPELLCHECK", "0"))
 LLM_NUM_PREDICT_LEGAL = 3500
 # Резерв под ответ на ОДНУ часть договора. Меньше общего LLM_NUM_PREDICT_LEGAL:
 # на части приходится и находок меньше, а каждый зарезервированный токен ответа
