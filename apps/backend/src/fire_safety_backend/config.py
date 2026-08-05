@@ -175,6 +175,16 @@ LLM_NUM_PREDICT_LEGAL = 3500
 LLM_NUM_PREDICT_LEGAL_PART = 1800
 LLM_NUM_PREDICT_LETTER = 1500
 
+# Свободный вопрос по документу (pipelines/ask.py). Две ступени с разной ценой:
+# уточнение вопроса видит только вопрос и оглавление — ему хватает коротких
+# ответов, и стоит оно секунды. Ответ по документу — основной расход.
+LLM_NUM_PREDICT_ASK_REFINE = 400
+LLM_NUM_PREDICT_ASK = 1200
+# Ноль по той же причине, что и в проверке орфографии: выписывание сведений из
+# документа — не творческая задача, и на один и тот же файл ответ обязан быть
+# один и тот же.
+LLM_TEMPERATURE_ASK = float(os.environ.get("LLM_TEMPERATURE_ASK", "0"))
+
 # --- OCR ---
 TESSERACT_CMD = os.environ.get("TESSERACT_CMD")  # None → авто из PATH
 TESSERACT_LANG = "rus+eng"

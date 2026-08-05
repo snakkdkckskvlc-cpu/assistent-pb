@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Вопрос по документу — Ассистент</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><a href="/">🔥 Ассистент</a></div>
+    <div class="status" id="health"></div>
+  </header>
+
+  <main class="page">
+    <a class="back" href="/">← На главную</a>
+    <div class="section">
+      <h2>🔍 Вопрос по документу</h2>
+      <p class="hint">
+        Загрузите файл и спросите своими словами. Ответ берётся ТОЛЬКО из этого файла —
+        ничего из общих знаний не добавляется, а каждое утверждение подкрепляется цитатой
+        с указанием места в документе.
+      </p>
+
+      <div class="field">
+        <span class="field-label">Документ (DOCX / PDF / скан / TXT)</span>
+        <div class="file-picker">
+          <label class="btn btn-secondary" for="file">📎 Выбрать файл</label>
+          <input type="file" id="file" class="visually-hidden" accept=".docx,.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.txt">
+          <span class="file-name" id="file-name">Файл не выбран</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>… или вставить текст</label>
+        <textarea id="text" placeholder="Вставьте текст документа…"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="question">Ваш вопрос</label>
+        <textarea id="question" rows="2" placeholder="Например: дай информацию о сотрудниках"></textarea>
+      </div>
+
+      <div class="actions">
+        <button class="btn" id="submit">🔍 Найти в документе</button>
+      </div>
+      <p class="hint">
+        Вопрос сначала уточняется до точного задания, потом по нему читается документ —
+        уточнённое задание показывается вместе с ответом, чтобы было видно, на что
+        отвечали. Номера страниц настоящие только у PDF: у DOCX и вставленного текста
+        страниц не существует, поэтому там ссылки на фрагменты.
+      </p>
+
+      <div id="progress" class="progress" style="display:none"></div>
+      <div id="error" class="error-box" style="display:none"></div>
+      <div id="result" class="result"></div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    updateHealth();
+
+    function renderAskResult(result, container) {
+      const parts = [];
+      const stats = result.stats || {};
+      const sources = result.источники || [];
+
+      if (result._source_warning) {
+        parts.push(`<div class="verdict">⚠ ${escapeHtml(result._source_warning)}</div>`);
+      }
+      if (result._place_warning) {
+        parts.push(`<div class="verdict">ℹ ${escapeHtml(result._place_warning)}</div>`);
+      }
+
+      parts.push(`<h3>Ответ</h3>`);
+      parts.push(`<div class="corrected-text">${escapeHtml(result.ответ || "")}</div>`);
+
+      if (sources.length) {
+        parts.push(`<h3>Откуда это взято</h3>`);
+        parts.push(`<table><thead><tr><th>Место</th><th>Цитата из документа</th><th>Что подтверждает</th></tr></thead><tbody>`);
+        for (const s of sources) {
+          // Непроверенная ссылка помечается явно: цитата, которой в документе
+          // нет, выглядит убедительнее настоящей, и молчать о ней нельзя.
+          const ok = s.проверено
+            ? `<span class="chip orph">✓ ${escapeHtml(s.место || "")}</span>`
+            : `<span class="chip style" title="${escapeHtml(s.почему || "")}">⚠ ${escapeHtml(s.место || "")}</span>`;
+          parts.push(`<tr>
+            <td>${ok}</td>
+            <td>${escapeHtml(s.цитата || "")}</td>
+            <td>${escapeHtml(s.что_подтверждает || "")}${s.проверено ? "" : `<br><span class="hint">${escapeHtml(s.почему || "")}</span>`}</td>
+          </tr>`);
+        }
+        parts.push(`</tbody></table>`);
+        const unverified = sources.length - (stats.подтверждено || 0);
+        if (unverified > 0) {
+          parts.push(`<p class="hint">⚠ Не подтверждено цитатой в документе: ${unverified} из ${sources.length}.
+            Такие строки проверьте по файлу вручную.</p>`);
+        }
+      } else if (result.найдено === false) {
+        parts.push(`<p class="hint">Ссылок нет: в документе таких сведений не нашлось.</p>`);
+      }
+
+      if (result.уточнённое_задание) {
+        parts.push(`<h3>Как был понят вопрос</h3>`);
+        parts.push(`<div class="corrected-text">${escapeHtml(result.уточнённое_задание)}</div>`);
+        parts.push(`<p class="hint">Если поняли не так — переформулируйте вопрос и спросите ещё раз.</p>`);
+      }
+
+      if (stats.кусков) {
+        parts.push(`<p class="hint">Прочитано частей документа: ${stats.кусков} ·
+          ссылок ${stats.ссылок || 0}, из них подтверждено ${stats.подтверждено || 0} ·
+          нумерация: ${escapeHtml(stats.нумерация || "")}</p>`);
+      }
+
+      container.innerHTML = parts.join("");
+    }
+
+    const fileInput = document.getElementById("file");
+    const fileNameEl = document.getElementById("file-name");
+    fileInput.addEventListener("change", () => {
+      fileNameEl.textContent = fileInput.files[0] ? fileInput.files[0].name : "Файл не выбран";
+      fileNameEl.classList.toggle("has-file", !!fileInput.files[0]);
+    });
+
+    document.getElementById("submit").addEventListener("click", () => {
+      const file = fileInput.files[0];
+      const text = document.getElementById("text").value;
+      const question = document.getElementById("question").value;
+      if (!question.trim()) {
+        const err = document.getElementById("error");
+        err.style.display = "block";
+        err.textContent = "Напишите вопрос — что искать в документе.";
+        return;
+      }
+      submitForm({
+        endpoint: "/api/ask",
+        buildRequest: () => {
+          const fd = new FormData();
+          if (file) fd.append("file", file);
+          if (text.trim()) fd.append("text", text);
+          fd.append("question", question);
+          return { url: "/api/ask", body: fd };
+        },
+        resultContainer: document.getElementById("result"),
+        progressContainer: document.getElementById("progress"),
+        renderResult: renderAskResult,
+      });
+    });
+  </script>
+</body>
+</html>
