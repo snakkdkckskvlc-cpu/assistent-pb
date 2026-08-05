@@ -261,7 +261,35 @@ def _levenshtein(a: str, b: str, cap: int) -> int:
     return prev[-1]
 
 
-def _edit_shape_reason(before: str, after: str) -> str | None:
+def _misspelled_words(lt_errors: list[dict]) -> frozenset[str]:
+    """Слова, которые СЛОВАРЬ считает написанными неверно.
+
+    Нужны, чтобы отличить исправление опечатки от правки грамматики. Замерено
+    на четырёх настоящих договорах (не на том, где настраивалось, а на
+    остальных): модель выдавала там 7-9 правок на 2000 символов, и почти все
+    оказались сменой падежа — «и любые» → «и любых», «доступа на» → «доступ
+    на», «45 (сорока пяти)» → «45 (сорок пяти)» в прописной сумме договора.
+
+    Форма такой правки неотличима от исправления опечатки: одно слово, пара
+    букв. Отличает её словарь: «любые» — нормальное русское слово, значит
+    исправлять там нечего, и правка не про орфографию. Промпт согласование слов
+    и так объявляет вне задачи.
+
+    Список берётся из находок LanguageTool по этому же тексту — он уже
+    посчитан, лишних обращений не нужно.
+    """
+    words: set[str] = set()
+    for e in lt_errors:
+        if e.get("type") != "орфография":
+            continue
+        for word in re.findall(r"[^\W\d_]+", str(e.get("before", "")), flags=re.UNICODE):
+            words.add(word.casefold())
+    return frozenset(words)
+
+
+def _edit_shape_reason(
+    before: str, after: str, misspelled: frozenset[str] = frozenset()
+) -> str | None:
     """Допустима ли ФОРМА правки. None — допустима.
 
     ### Зачем ограничивать форму, а не содержание
@@ -319,10 +347,15 @@ def _edit_shape_reason(before: str, after: str) -> str | None:
     x, y = differing[0]
     if _levenshtein(x.casefold(), y.casefold(), _MAX_WORD_EDITS) > _MAX_WORD_EDITS:
         return "подменяет слово, а не исправляет написание"
+    # Слово, которое словарь считает верным, исправлять нечего: правка одного
+    # слова на пару букв — это либо опечатка, либо смена падежа, и отличает их
+    # именно словарь. Согласование слов промпт объявляет вне задачи.
+    if misspelled and x.casefold() not in misspelled:
+        return f"слово «{x}» написано верно — это не орфография"
     return None
 
 
-def _unsafe_reason(before: str, after: str) -> str | None:
+def _unsafe_reason(before: str, after: str, misspelled: frozenset[str] = frozenset()) -> str | None:
     """Почему эту правку нельзя применять. None — правка допустимая.
 
     ### Откуда взялось
@@ -353,10 +386,12 @@ def _unsafe_reason(before: str, after: str) -> str | None:
         return "теряет аббревиатуру"
     if before.replace("ё", "е").replace("Ё", "Е") == after and "ё" in before.lower():
         return "убирает букву ё"
-    return _edit_shape_reason(before, after)
+    return _edit_shape_reason(before, after, misspelled)
 
 
-def _keep_applicable(errors: list[dict], text: str) -> list[dict]:
+def _keep_applicable(
+    errors: list[dict], text: str, misspelled: frozenset[str] = frozenset()
+) -> list[dict]:
     """Оставляет только правки, которые реально применятся к документу.
 
     Отбрасываются две породы находок модели: пустышки (`before` совпадает с
@@ -386,7 +421,7 @@ def _keep_applicable(errors: list[dict], text: str) -> list[dict]:
                 continue
             if _normalize_before(part_anchored) == _normalize_before(part_after):
                 continue
-            unsafe = _unsafe_reason(part_anchored, part_after)
+            unsafe = _unsafe_reason(part_anchored, part_after, misspelled)
             if unsafe is not None:
                 log.warning(
                     "Правка модели %s, отбрасываю: %r -> %r",
@@ -587,7 +622,7 @@ async def run_spellcheck(
     # Привязка к исходнику ДО дедупликации: иначе цитата модели с уже
     # применённым исправлением («Наша компания — надёжный партнёр») сравнивалась
     # бы с находками LT в другом написании.
-    all_errors = _keep_applicable(all_errors, text)
+    all_errors = _keep_applicable(all_errors, text, _misspelled_words(lt_errors))
     all_errors = _dedup_errors(all_errors)
     # Исправленный текст собирается применением правок, а не отдельным
     # проходом модели: раньше её просили вернуть переписанный фрагмент

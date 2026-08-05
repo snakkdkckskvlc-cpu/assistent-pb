@@ -150,3 +150,27 @@ def test_atomic_edits_context_never_comes_from_the_changed_part() -> None:
         assert len(before.split()) == len(after.split()), (
             f"контекст разъехался: {before!r} -> {after!r}"
         )
+
+
+# --- словарь отличает опечатку от грамматики ---
+
+
+def test_word_the_dictionary_accepts_is_not_a_spelling_fix() -> None:
+    """Замерено на четырёх настоящих договорах: модель правила там падежи —
+    «и любые» → «и любых», «доступа на» → «доступ на», «45 (сорока пяти)» →
+    «45 (сорок пяти)» в прописной сумме. Форма такой правки неотличима от
+    исправления опечатки: одно слово, пара букв. Отличает её словарь."""
+    known = frozenset({"обьекте"})
+    assert _edit_shape_reason("и любые расходы", "и любых расходы", known) is not None
+    assert _edit_shape_reason("доступа на объект", "доступ на объект", known) is not None
+
+
+def test_word_the_dictionary_flags_may_be_fixed() -> None:
+    known = frozenset({"обьекте"})
+    assert _edit_shape_reason("на обьекте работы", "на объекте работы", known) is None
+
+
+def test_without_a_dictionary_the_check_does_not_fire() -> None:
+    """Пустой словарь означает «сведений нет», а не «всё написано верно»:
+    LanguageTool мог быть недоступен, и глушить на этом все правки нельзя."""
+    assert _edit_shape_reason("и любые расходы", "и любых расходы") is None
