@@ -122,3 +122,31 @@ def test_atomic_edits_on_a_single_word_fix() -> None:
     assert _atomic_edits("на обьекте работы", "на объекте работы") == [
         ("на обьекте работы", "на объекте работы")
     ]
+
+
+def test_atomic_edits_splits_adjacent_changes_word_by_word() -> None:
+    """difflib склеивает СОСЕДНИЕ изменения в один replace, и верная правка
+    уезжала вместе с неверной: точка на двоеточие (нельзя) и запятая при
+    причастном обороте (можно) стояли рядом и судились одним куском."""
+    edits = _atomic_edits(
+        "сообщаем следующее. Договор заключенный сторонами",
+        "сообщаем следующее: Договор, заключенный сторонами",
+    )
+    allowed = [(b, a) for b, a in edits if _edit_shape_reason(b, a) is None]
+    rejected = [(b, a) for b, a in edits if _edit_shape_reason(b, a) is not None]
+    assert any("Договор," in a for _, a in allowed), "запятая обязана уцелеть"
+    assert any(":" in a for _, a in rejected), "двоеточие обязано отсеяться"
+
+
+def test_atomic_edits_context_never_comes_from_the_changed_part() -> None:
+    """Соседнее слово внутри изменённого блока на двух сторонах разное. Взяв
+    его в контекст, мы сравнивали бы не то: правка выглядела бы меняющей состав
+    слов, даже если она ставит одну запятую."""
+    edits = _atomic_edits(
+        "сообщаем следующее. Договор заключенный",
+        "сообщаем следующее: Договор, заключенный",
+    )
+    for before, after in edits:
+        assert len(before.split()) == len(after.split()), (
+            f"контекст разъехался: {before!r} -> {after!r}"
+        )

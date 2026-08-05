@@ -100,3 +100,52 @@ def test_findings_are_marked_as_rule_source() -> None:
     """Источник виден в интерфейсе и участвует в дедупликации."""
     got = _find("Работы выполнены не своевременно.")
     assert got[0]["source"] == ru_rules.SOURCE
+
+
+# --- причастный оборот ---
+
+
+def _participle(text: str) -> list[dict]:
+    return [e for e in _find(text) if e["rule"] == "причастный оборот"]
+
+
+def test_participle_clause_gets_both_commas() -> None:
+    """Обе запятые или ни одной. Открывающая без закрывающей — это новая
+    ошибка, внесённая инструментом, а не исправление."""
+    got = _participle("Договор заключенный сторонами предусматривает гарантийный срок.")
+    assert len(got) == 1
+    assert got[0]["before"] == "Договор заключенный сторонами"
+    assert got[0]["after"] == "Договор, заключенный сторонами,"
+
+
+def test_participle_clause_spans_several_words() -> None:
+    got = _participle("Оборудование установленное на первом этаже прошло испытания.")
+    assert got[0]["after"] == "Оборудование, установленное на первом этаже,"
+
+
+def test_participle_before_the_noun_needs_no_commas() -> None:
+    """Обратный порядок: «Смонтированная система прошла» — обособлять нечего."""
+    assert _participle("Смонтированная система оповещения не прошла испытания.") == []
+
+
+def test_short_participle_is_a_predicate_not_a_clause() -> None:
+    """«письмо составлено» — сказуемое, а не оборот."""
+    assert _participle("Настоящее письмо составлено в двух экземплярах.") == []
+
+
+def test_already_separated_clause_is_left_alone() -> None:
+    assert _participle("Оборудование, поставленное субподрядчиком, было установлено.") == []
+
+
+def test_adjective_pair_is_not_mistaken_for_a_clause() -> None:
+    """Без отсева по окончаниям правило давало 22 ложных срабатывания на
+    1,3 млн символов нормативки: «Опасные производственные», «Предельно
+    допустимое». Первое слово оборота обязано быть существительным."""
+    assert _participle("Опасные производственные объекты подлежат учёту.") == []
+    assert _participle("Предельно допустимое значение установлено нормативом.") == []
+
+
+def test_rule_stays_silent_when_the_clause_end_is_not_found() -> None:
+    """Не нашли сказуемое — молчим. Лучше пропустить, чем поставить одну
+    запятую из двух."""
+    assert _participle("Договор заключенный сторонами") == []
