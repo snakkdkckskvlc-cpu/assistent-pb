@@ -133,5 +133,12 @@
     "effective_date": "2025-02-03",
     "status": "actual",
     "note": "Ред. от 03.02.2025 N 90. Полный текст всех 24 разделов и приложений"
+  },
+  "GK_RF_otvetstvennost_i_podryad_dopolnenie.txt": {
+    "doc_type": "code",
+    "act_number": "ГК РФ ч.1 гл.25, ч.2 гл.37",
+    "title": "Гражданский кодекс РФ: ответственность за нарушение обязательств и недостающие статьи о подряде",
+    "effective_date": "2025-01-01",
+    "status": "actual"
   }
 }

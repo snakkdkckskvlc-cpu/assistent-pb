@@ -29,6 +29,7 @@ packages/rag/corpus/**
 !packages/rag/corpus/_meta.json
 !packages/rag/corpus/GK_RF_part1_dogovor.txt
 !packages/rag/corpus/GK_RF_part2_podryad_usluga.txt
+!packages/rag/corpus/GK_RF_otvetstvennost_i_podryad_dopolnenie.txt
 !packages/rag/corpus/KoAP_20.4_administrativnaya_otvetstvennost.txt
 !packages/rag/corpus/PPR-1479_pravila_protivopozharnogo_rezhima.txt
 !packages/rag/corpus/69-FZ_o_pozharnoy_bezopasnosti.pdf

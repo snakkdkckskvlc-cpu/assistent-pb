@@ -158,6 +158,36 @@ _GERUNDS = (
 _SUBJECT_PRONOUNS = frozenset({"мы", "я", "он", "она", "оно", "они", "вы", "ты"})
 
 
+# Вводные обороты в начале предложения, закрытый список. «Таким образом» сюда
+# НЕ входит намеренно: оно бывает и обстоятельством («таким образом мы получили
+# результат»), и различить это правилом нельзя.
+_INTRO_PHRASES = (
+    "К сожалению",
+    "Как Вам известно",
+    "Как известно",
+    "Во-первых",
+    "Во-вторых",
+    "В-третьих",
+    "Кроме того",
+    "Следовательно",
+    "Напротив",
+    "Итак",
+)
+
+# Глаголы речи и мнения, после которых придаточное с «что» обособляется:
+# «Уверены, что…», «сообщаем, что…».
+_SPEECH_VERBS = (
+    "уверены",
+    "считаем",
+    "сообщаем",
+    "подтверждаем",
+    "полагаем",
+    "надеемся",
+    "информируем",
+    "уведомляем",
+)
+
+
 class Finding(NamedTuple):
     before: str
     after: str
@@ -294,6 +324,40 @@ def _gerund_clause(match: re.Match[str], text: str) -> Finding | None:
     )
 
 
+def _address_comma(match: re.Match[str], text: str) -> Finding | None:
+    """Запятая после обращения: «Уважаемый Иван Иванович, просим…».
+
+    Границей обращения считается переход от слов с заглавной буквы к слову со
+    строчной: имя и отчество пишутся с заглавной, а тело предложения — нет.
+    """
+    return Finding(
+        before=match.group(0).rstrip(),
+        after=f"{match.group('addr').rstrip()},",
+        type="пунктуация",
+        reason="После обращения ставится запятая.",
+    )
+
+
+def _intro_comma(match: re.Match[str], text: str) -> Finding | None:
+    """Вводный оборот в начале предложения обособляется запятой."""
+    return Finding(
+        before=match.group(0).rstrip(),
+        after=f"{match.group('intro')},",
+        type="пунктуация",
+        reason="Вводный оборот обособляется запятой.",
+    )
+
+
+def _speech_verb_comma(match: re.Match[str], text: str) -> Finding | None:
+    """Запятая перед «что» после глагола речи или мнения."""
+    return Finding(
+        before=match.group(0),
+        after=f"{match.group('verb')}, что",
+        type="пунктуация",
+        reason="Перед союзом «что» в сложноподчинённом предложении нужна запятая.",
+    )
+
+
 def _comma_before_odnako(match: re.Match[str], text: str) -> Finding | None:
     return Finding(
         before=match.group(0),
@@ -315,6 +379,32 @@ _RULES: tuple[_Rule, ...] = (
             rf"\b(?P<prep>[Вв])\s+течении\s+(?P<rest>(?:\w+\s+){{0,2}}?(?:{'|'.join(_TIME_NOUNS)})\w*)"
         ),
         build=_v_techenie,
+    ),
+    _Rule(
+        name="запятая после обращения",
+        pattern=re.compile(
+            r"(?:(?<=^)|(?<=[.!?]\s)|(?<=\n))"
+            r"(?P<addr>Уважаем(?:ый|ая|ые)(?:\s+[А-ЯЁ][а-яё]+){1,3})\s+(?=[а-яё])",
+            re.MULTILINE,
+        ),
+        build=_address_comma,
+    ),
+    _Rule(
+        name="вводный оборот",
+        pattern=re.compile(
+            r"(?:(?<=^)|(?<=[.!?]\s)|(?<=\n))"
+            rf"(?P<intro>{'|'.join(_INTRO_PHRASES)})\s+(?=[а-яёА-ЯЁ])",
+            re.MULTILINE,
+        ),
+        build=_intro_comma,
+    ),
+    _Rule(
+        name="запятая перед «что»",
+        pattern=re.compile(
+            rf"\b(?P<verb>{'|'.join(_SPEECH_VERBS)})\s+что\b",
+            re.IGNORECASE,
+        ),
+        build=_speech_verb_comma,
     ),
     _Rule(
         name="деепричастный оборот",

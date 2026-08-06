@@ -188,3 +188,54 @@ def test_word_outside_the_gerund_list_is_ignored() -> None:
     """Список закрытый: открытое «слово на -в или -я» ловило бы «время» и
     «статья»."""
     assert _gerund("Время выполнения работ мы согласуем отдельно.") == []
+
+
+# --- обращение, вводный оборот, «что» после глагола речи ---
+
+
+def _by_rule(text: str, name: str) -> list[dict]:
+    return [e for e in _find(text) if e["rule"] == name]
+
+
+def test_comma_after_the_address() -> None:
+    got = _by_rule(
+        "Уважаемый Иван Иванович просим Вас рассмотреть заявку.", "запятая после обращения"
+    )
+    assert len(got) == 1
+    assert got[0]["after"] == "Уважаемый Иван Иванович,"
+
+
+def test_address_already_separated_is_left_alone() -> None:
+    assert _by_rule("Уважаемый Иван Иванович, просим Вас.", "запятая после обращения") == []
+
+
+def test_address_boundary_is_the_switch_to_lowercase() -> None:
+    """Границей обращения считается переход от заглавных к строчной: имя и
+    отчество пишутся с заглавной, тело предложения — нет."""
+    got = _by_rule("Уважаемая Мария Петровна просим согласовать дату.", "запятая после обращения")
+    assert got[0]["after"] == "Уважаемая Мария Петровна,"
+
+
+def test_intro_phrase_gets_a_comma() -> None:
+    assert _by_rule("К сожалению сроки поставки сдвинуты.", "вводный оборот")[0]["after"] == (
+        "К сожалению,"
+    )
+
+
+def test_intro_phrase_already_separated_is_left_alone() -> None:
+    assert _by_rule("К сожалению, сроки сдвинуты.", "вводный оборот") == []
+
+
+def test_ambiguous_intro_phrase_is_not_in_the_list() -> None:
+    """«Таким образом» бывает и обстоятельством («таким образом мы получили
+    результат»), и различить это правилом нельзя — поэтому его в списке нет."""
+    assert _by_rule("Таким образом работы завершены.", "вводный оборот") == []
+
+
+def test_comma_before_chto_after_a_speech_verb() -> None:
+    got = _by_rule("Уверены что сотрудничество продолжится.", "запятая перед «что»")
+    assert got[0]["after"] == "Уверены, что"
+
+
+def test_comma_before_chto_already_there() -> None:
+    assert _by_rule("Уверены, что сотрудничество продолжится.", "запятая перед «что»") == []

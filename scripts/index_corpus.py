@@ -34,6 +34,17 @@ from _venv import ensure_venv  # noqa: E402
 
 ensure_venv()
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+for _rel in ("apps/backend/src", "packages/rag/src"):
+    sys.path.insert(0, str(_REPO_ROOT / _rel))
+
+# Индексация обязана идти в тех же условиях, что боевой запуск. Без netguard
+# скрипт ходит на huggingface.co за метаданными модели эмбеддингов — видно в
+# логе прогона. Приложению это запрещено, и собирать индекс в других условиях
+# значит собирать его не для того приложения.
+from fire_safety_backend.infrastructure import netguard  # noqa: E402
+
+netguard.install()
 
 log = logging.getLogger("index_corpus")
 

@@ -33,12 +33,33 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip().casefold()
 
 
+_CLAUSE_NUMBER = re.compile(r"\b(\d+\.\d+(?:\.\d+)*)\b")
+
+
+def _clause_numbers(text: str) -> set[str]:
+    """Номера пунктов договора, встреченные в тексте: «5.2», «7.1.3»."""
+    return set(_CLAUSE_NUMBER.findall(text or ""))
+
+
 def _overlaps(quote: str, anchor: str) -> bool:
     """Указывают ли цитата и якорь на одно место договора."""
     q, a = _normalize(quote), _normalize(anchor)
     if not q or not a:
         return False
     if a in q or q in a:
+        return True
+
+    # Номер пункта — самая надёжная привязка в договоре: он уникален, и модель
+    # почти всегда его цитирует. Перекрытия в 40 символов для этого мало:
+    # замерено, что в договоре 03 верная находка засчитывалась ОДНОВРЕМЕННО как
+    # пропуск и как ложное срабатывание, потому что модель процитировала пункт
+    # своими границами.
+    #
+    # Требование к якорю строгое: номер должен стоять в его НАЧАЛЕ, то есть
+    # якорь и есть этот пункт. Иначе упоминание «в порядке п. 5.2» внутри
+    # чужого пункта склеило бы разные находки.
+    anchor_clause = _CLAUSE_NUMBER.match(a.lstrip())
+    if anchor_clause and anchor_clause.group(1) in _clause_numbers(q):
         return True
     # Частичное перекрытие: модель процитировала кусок, захватив соседнее
     # предложение и обрезав конец. Ищем общий фрагмент достаточной длины.
