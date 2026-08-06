@@ -22,6 +22,7 @@ from .services import history as history_service
 from .services import retention
 from .views import (
     addressees,
+    ask,
     auth,
     batch,
     data,
@@ -141,6 +142,7 @@ def create_app() -> FastAPI:
     for module in (
         spellcheck,
         legal,
+        ask,
         letter,
         batch,
         tasks,
