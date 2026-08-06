@@ -562,6 +562,7 @@ async def run_spellcheck(
             user=_with_known_errors(chunk, lt_errors),
             temperature=config.LLM_TEMPERATURE_SPELLCHECK,
             num_predict=config.LLM_NUM_PREDICT_SPELLCHECK,
+            model=config.LLM_MODEL_SPELLCHECK,
             on_delta=make_progress_counter(
                 task, config.LLM_NUM_PREDICT_SPELLCHECK, chunk_base, chunk_span
             ),

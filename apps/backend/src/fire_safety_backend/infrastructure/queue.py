@@ -59,6 +59,13 @@ class TaskQueue:
         # event loop, действующему в момент импорта модуля, и упадёт
         # при переиспользовании (например, в тестах с новым event loop).
         self._queue: asyncio.Queue[tuple[Task, Callable[[Task], Awaitable[Any]]]] | None = None
+        # Ожидающие заявки в порядке поступления. Отдельно от _queue: очередь
+        # asyncio отдаёт строго первого в списке, а нам нужно ВЫБИРАТЬ —
+        # см. _next_pending.
+        self._pending: list[tuple[Task, Callable[[Task], Awaitable[Any]]]] = []
+        # Кто считался последним. По этому списку идёт круговой обход
+        # владельцев: недавно обслуженный уходит в конец.
+        self._recent_owners: list[str] = []
         self._worker_task: asyncio.Task | None = None
         # Колбэк «задача завершена» (успех или ошибка). Назначается снаружи
         # (lifespan main.py пишет историю задач) — сама очередь не знает о
@@ -85,6 +92,7 @@ class TaskQueue:
         task = Task(id=uuid.uuid4().hex[:12], kind=kind, owner=owner)
         self._tasks[task.id] = task
         self._evict_finished()
+        self._pending.append((task, coro_factory))
         await self._queue.put((task, coro_factory))
         log.info("Task queued: %s [%s] от %s", task.id, kind, owner or "—")
         return task
@@ -123,20 +131,42 @@ class TaskQueue:
         запросы к одной модели последовательно."""
         return next((t for t in self._tasks.values() if t.status == "running"), None)
 
+    def planned_order(self) -> list[Task]:
+        """Ожидающие задачи в том порядке, в котором они РЕАЛЬНО пойдут.
+
+        Считается тем же круговым обходом, что и в _next_pending: показывать
+        позицию по времени поступления было бы враньём — при круговом обходе
+        задача, отправленная позже, часто считается раньше.
+        """
+        pending = list(self._pending)
+        recent = list(self._recent_owners)
+        order: list[Task] = []
+        while pending:
+
+            def staleness(item: tuple[Task, Any], recent: list[str] = recent) -> tuple[int, str]:
+                owner = item[0].owner
+                idx = recent.index(owner) if owner in recent else -1
+                return (idx, item[0].created_at)
+
+            chosen = min(pending, key=staleness)
+            pending.remove(chosen)
+            owner = chosen[0].owner
+            if owner in recent:
+                recent.remove(owner)
+            recent.append(owner)
+            order.append(chosen[0])
+        return order
+
     def queued_ahead(self, task_id: str) -> list[Task]:
         """Задачи, которые будут посчитаны раньше указанной. Пустой список —
         задача следующая, уже считается или завершена."""
         task = self._tasks.get(task_id)
         if task is None or task.status != "queued":
             return []
-        return sorted(
-            (
-                t
-                for t in self._tasks.values()
-                if t.status == "queued" and t.created_at < task.created_at
-            ),
-            key=lambda t: t.created_at,
-        )
+        order = self.planned_order()
+        if task not in order:
+            return []
+        return order[: order.index(task)]
 
     def position(self, task_id: str) -> int:
         """Место в очереди: 1 — следующая на выполнение. 0 — не в очереди.
@@ -159,9 +189,43 @@ class TaskQueue:
             return tasks
         return [t for t in tasks if t.owner == owner]
 
+    def _next_pending(self) -> tuple[Task, Callable[[Task], Awaitable[Any]]]:
+        """Следующая задача: круговой обход по владельцам, а не строгая очередь.
+
+        Зачем. Сотрудников тридцать, а считающая задача одна. При честном FIFO
+        человек, отправивший десять документов подряд, занимает сервер на весь
+        день, и все остальные ждут за ним — даже те, кто пришёл с одним
+        письмом. Отказ выглядит как «программа не работает», хотя она работает
+        и занята чужой пачкой.
+
+        Правило: из ожидающих берётся самая ранняя заявка того владельца,
+        которого обслуживали дольше всех. Внутри одного владельца порядок
+        остаётся честным FIFO, между владельцами — по кругу. Один человек с
+        десятью документами больше не отодвигает девятерых с одним.
+        """
+        if len(self._pending) == 1:
+            return self._pending.pop(0)
+
+        # Владелец, который дольше всех не получал очереди, — первый.
+        def staleness(item: tuple[Task, Any]) -> tuple[int, str]:
+            owner = item[0].owner
+            recent = self._recent_owners.index(owner) if owner in self._recent_owners else -1
+            return (recent, item[0].created_at)
+
+        chosen = min(self._pending, key=staleness)
+        self._pending.remove(chosen)
+        owner = chosen[0].owner
+        if owner in self._recent_owners:
+            self._recent_owners.remove(owner)
+        self._recent_owners.append(owner)
+        return chosen
+
     async def _worker(self) -> None:
         while True:
-            task, coro_factory = await self._queue.get()
+            await self._queue.get()
+            # Что именно считать, решает _next_pending, а не порядок в
+            # asyncio.Queue: она здесь только будильник «работа появилась».
+            task, coro_factory = self._next_pending()
             task.status = "running"
             task.started_at = datetime.now(UTC).isoformat()
             log.info("Task start: %s [%s]", task.id, task.kind)

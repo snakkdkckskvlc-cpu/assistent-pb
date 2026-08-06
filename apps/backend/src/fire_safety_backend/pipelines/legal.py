@@ -674,6 +674,7 @@ async def run_legal_analysis(
             user=user_msg,
             num_ctx=config.LLM_NUM_CTX_LEGAL,
             num_predict=part_num_predict,
+            model=config.LLM_MODEL_LEGAL,
             on_delta=make_progress_counter(
                 task,
                 part_num_predict,
@@ -795,5 +796,6 @@ async def _final_pass(text: str, findings: list[dict], task: Task | None) -> dic
         user=user_msg,
         num_ctx=config.LLM_NUM_CTX_LEGAL,
         num_predict=config.LLM_NUM_PREDICT_LEGAL_PART,
+        model=config.LLM_MODEL_LEGAL,
         on_delta=make_progress_counter(task, config.LLM_NUM_PREDICT_LEGAL_PART, 95, 5),
     )

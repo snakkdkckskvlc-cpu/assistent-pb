@@ -55,6 +55,7 @@ async def chat(
     num_ctx: int | None = None,
     num_predict: int | None = None,
     on_delta: Callable[[str], None] | None = None,
+    model: str | None = None,
 ) -> str:
     """Вызов чата. Возвращает строку с полным ответом модели.
 
@@ -73,8 +74,9 @@ async def chat(
         options["num_predict"] = num_predict
     if config.LLM_NUM_THREAD is not None:
         options["num_thread"] = config.LLM_NUM_THREAD
+    model = model or config.LLM_MODEL
     payload: dict[str, Any] = {
-        "model": config.LLM_MODEL,
+        "model": model,
         "stream": on_delta is not None,
         "messages": [
             {"role": "system", "content": system},
@@ -96,7 +98,7 @@ async def chat(
     url = f"{config.OLLAMA_HOST}/api/chat"
     log.info(
         "LLM chat → %s (json=%s, stream=%s, chars=%d)",
-        config.LLM_MODEL,
+        model,
         json_mode,
         on_delta is not None,
         len(user),
