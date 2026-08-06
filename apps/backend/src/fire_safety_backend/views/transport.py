@@ -111,9 +111,13 @@ async def delete_place(place_id: int) -> None:
 
 
 @router.get("/trips")
-async def list_trips(vehicle_id: int | None = None, limit: int = 100) -> list[Trip]:
+async def list_trips(
+    vehicle_id: int | None = None, waybill_id: int | None = None, limit: int = 100
+) -> list[Trip]:
     limit = max(1, min(limit, 500))
-    return await asyncio.to_thread(service.list_trips, vehicle_id=vehicle_id, limit=limit)
+    return await asyncio.to_thread(
+        service.list_trips, vehicle_id=vehicle_id, waybill_id=waybill_id, limit=limit
+    )
 
 
 @router.post("/trips", status_code=201)

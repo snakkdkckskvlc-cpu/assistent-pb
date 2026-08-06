@@ -12,6 +12,19 @@ from .transport import (
     VehicleState,
     VehicleUpdate,
 )
+from .waybill import (
+    Downtime,
+    Driver,
+    DriverCreate,
+    DriverUpdate,
+    Organization,
+    OrganizationCreate,
+    Trailer,
+    TrailerCreate,
+    Waybill,
+    WaybillCreate,
+    WaybillUpdate,
+)
 
 __all__ = [
     "Addressee",
@@ -28,4 +41,15 @@ __all__ = [
     "VehicleCreate",
     "VehicleState",
     "VehicleUpdate",
+    "Downtime",
+    "Driver",
+    "DriverCreate",
+    "DriverUpdate",
+    "Organization",
+    "OrganizationCreate",
+    "Trailer",
+    "TrailerCreate",
+    "Waybill",
+    "WaybillCreate",
+    "WaybillUpdate",
 ]

@@ -19,6 +19,16 @@ VEHICLE_CATEGORIES = ("", "M1", "M2", "M3", "N1", "N2", "N3")
 # зарезервированы под подключение мониторинга и обмен с 1С.
 TRIP_SOURCES = ("manual", "glonass", "1c")
 
+# Категории, для которых печатается форма № 3 (легковой автомобиль). Всё
+# остальное — форма 4-С. Это только подстановка по умолчанию: бланк хранится
+# в карточке машины и правится вручную.
+_PASSENGER_CATEGORIES = ("M1", "M2", "M3")
+
+
+def waybill_form_for(category: str) -> str:
+    """Бланк по категории ПТС: «3» легковой, «4-S» грузовой."""
+    return "3" if category.strip().upper() in _PASSENGER_CATEGORIES else "4-S"
+
 
 class VehicleState(BaseModel):
     code: str
@@ -49,6 +59,17 @@ class Vehicle(BaseModel):
     created_at: str
     # Открытый рейс: машина в поездке и выдать её второй раз нельзя.
     open_trip_id: int | None = None
+    # Реквизиты, которые печатаются в путевом листе
+    org_id: int | None = None
+    org_name: str = ""
+    waybill_form: str = "3"
+    garage_number: str = ""
+    vehicle_code: str = ""
+    fuel_code: str = ""
+    column_number: str = ""
+    brigade: str = ""
+    default_driver_id: int | None = None
+    default_driver_name: str = ""
 
 
 class VehicleCreate(BaseModel):
@@ -65,6 +86,15 @@ class VehicleCreate(BaseModel):
     tracker_id: str = Field(default="", max_length=64)
     fuel_norm_l_100km: float | None = Field(default=None, gt=0, le=200)
     notes: str = Field(default="", max_length=500)
+    org_id: int | None = None
+    # Пусто — выведем из категории ПТС при заведении
+    waybill_form: str = ""
+    garage_number: str = Field(default="", max_length=20)
+    vehicle_code: str = Field(default="", max_length=20)
+    fuel_code: str = Field(default="", max_length=20)
+    column_number: str = Field(default="", max_length=20)
+    brigade: str = Field(default="", max_length=20)
+    default_driver_id: int | None = None
 
     @field_validator("call_name")
     @classmethod
@@ -111,6 +141,14 @@ class VehicleUpdate(BaseModel):
     fuel_norm_l_100km: float | None = Field(default=None, gt=0, le=200)
     notes: str | None = Field(default=None, max_length=500)
     is_active: bool | None = None
+    org_id: int | None = None
+    waybill_form: str | None = None
+    garage_number: str | None = Field(default=None, max_length=20)
+    vehicle_code: str | None = Field(default=None, max_length=20)
+    fuel_code: str | None = Field(default=None, max_length=20)
+    column_number: str | None = Field(default=None, max_length=20)
+    brigade: str | None = Field(default=None, max_length=20)
+    default_driver_id: int | None = None
 
     @field_validator("category")
     @classmethod
@@ -177,6 +215,17 @@ class Trip(BaseModel):
     notes: str = ""
     created_by: str = ""
     created_at: str
+    # Оборотная сторона путевого листа
+    waybill_id: int | None = None
+    seq: int | None = None
+    customer_code: str = ""
+    user_name: str = ""
+    consignor: str = ""
+    ttd_numbers: str = ""
+    trailer_in: str = ""
+    trailer_out: str = ""
+    empty_run_km: float | None = None
+    cargo_weight_kg: int | None = None
 
 
 class TripCreate(BaseModel):
@@ -191,6 +240,16 @@ class TripCreate(BaseModel):
     odometer_start_km: float | None = Field(default=None, ge=0, le=10_000_000)
     fuel_issued_l: float = Field(default=0.0, ge=0, le=2000)
     notes: str = Field(default="", max_length=500)
+    waybill_id: int | None = None
+    seq: int | None = Field(default=None, ge=1, le=1000)
+    customer_code: str = Field(default="", max_length=20)
+    user_name: str = Field(default="", max_length=100)
+    consignor: str = Field(default="", max_length=200)
+    ttd_numbers: str = Field(default="", max_length=200)
+    trailer_in: str = Field(default="", max_length=20)
+    trailer_out: str = Field(default="", max_length=20)
+    empty_run_km: float | None = Field(default=None, ge=0, le=100_000)
+    cargo_weight_kg: int | None = Field(default=None, ge=0, le=1_000_000)
 
     @field_validator("driver", "destination_text", "purpose", "notes")
     @classmethod

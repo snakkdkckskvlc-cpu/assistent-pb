@@ -23,7 +23,9 @@ from ..models.transport import (
     VehicleCreate,
     VehicleState,
     VehicleUpdate,
+    waybill_form_for,
 )
+from .units import km_to_m, l_to_ml, m_to_km, ml_to_l, x100_to_float, x100_to_int
 
 # Состояния машины. Заливаются при первом запуске; список правится в БД без
 # выпуска новой версии — поэтому это сид, а не константа-перечисление.
@@ -51,36 +53,6 @@ def seed_defaults() -> None:
             )
 
 
-# ── Пересчёт единиц ───────────────────────────────────────────────────────
-# Округление до целого делается ровно здесь, на входе. Дальше арифметика идёт
-# в целых, поэтому суммы за месяц не «уплывают» на копейки против бухгалтерии.
-
-
-def _km_to_m(km: float | None) -> int | None:
-    return None if km is None else round(km * 1000)
-
-
-def _m_to_km(m: int | None) -> float | None:
-    return None if m is None else round(m / 1000, 3)
-
-
-def _l_to_ml(litres: float | None) -> int | None:
-    return None if litres is None else round(litres * 1000)
-
-
-def _ml_to_l(ml: int | None) -> float | None:
-    return None if ml is None else round(ml / 1000, 3)
-
-
-def _norm_to_int(l_100km: float | None) -> int | None:
-    """Литры на 100 км → сотые доли (7.8 → 780)."""
-    return None if l_100km is None else round(l_100km * 100)
-
-
-def _norm_to_float(hs: int | None) -> float | None:
-    return None if hs is None else round(hs / 100, 2)
-
-
 # ── Состояния ─────────────────────────────────────────────────────────────
 
 
@@ -98,12 +70,14 @@ def list_states() -> list[VehicleState]:
 # ── Машины ────────────────────────────────────────────────────────────────
 
 _VEHICLE_SELECT = """
-SELECT v.*, s.title AS state_title,
+SELECT v.*, s.title AS state_title, o.name AS org_name, d.full_name AS default_driver_name,
        (SELECT t.id FROM trip t
          WHERE t.vehicle_id = v.id AND t.returned_at IS NULL
          ORDER BY t.departed_at DESC LIMIT 1) AS open_trip_id
   FROM vehicle v
   LEFT JOIN vehicle_state s ON s.code = v.state_code
+  LEFT JOIN organization o ON o.id = v.org_id
+  LEFT JOIN driver d ON d.id = v.default_driver_id
 """
 
 
@@ -126,12 +100,17 @@ def get_vehicle(vehicle_id: int) -> Vehicle:
 
 def create_vehicle(payload: VehicleCreate) -> Vehicle:
     with connect() as conn:
+        # Организаций две, и у большинства машин она одна и та же — берём
+        # отмеченную основной, чтобы не заставлять выбирать её каждый раз.
+        row = conn.execute("SELECT id FROM organization WHERE is_default = 1 LIMIT 1").fetchone()
+        default_org = row["id"] if row else None
         try:
             cur = conn.execute(
                 "INSERT INTO vehicle (call_name, plate, brand, model, year, category, "
                 "fuel_type, tank_ml, odometer_m, state_code, has_glonass, tracker_id, "
-                "fuel_norm_hs_x100, notes) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "fuel_norm_hs_x100, notes, org_id, waybill_form, garage_number, "
+                "vehicle_code, fuel_code, column_number, brigade, default_driver_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     payload.call_name,
                     payload.plate,
@@ -140,13 +119,21 @@ def create_vehicle(payload: VehicleCreate) -> Vehicle:
                     payload.year,
                     payload.category,
                     payload.fuel_type,
-                    _l_to_ml(payload.tank_l),
-                    _km_to_m(payload.odometer_km) or 0,
+                    l_to_ml(payload.tank_l),
+                    km_to_m(payload.odometer_km) or 0,
                     _STATE_IDLE,
                     int(payload.has_glonass),
                     payload.tracker_id,
-                    _norm_to_int(payload.fuel_norm_l_100km),
+                    x100_to_int(payload.fuel_norm_l_100km),
                     payload.notes,
+                    payload.org_id or default_org,
+                    payload.waybill_form or waybill_form_for(payload.category),
+                    payload.garage_number,
+                    payload.vehicle_code,
+                    payload.fuel_code,
+                    payload.column_number,
+                    payload.brigade,
+                    payload.default_driver_id,
                 ),
             )
         except sqlite3.IntegrityError as e:
@@ -165,14 +152,22 @@ _VEHICLE_UPDATABLE: dict[str, tuple[str, Any]] = {
     "year": ("year", int),
     "category": ("category", str),
     "fuel_type": ("fuel_type", str),
-    "tank_l": ("tank_ml", _l_to_ml),
-    "odometer_km": ("odometer_m", _km_to_m),
+    "tank_l": ("tank_ml", l_to_ml),
+    "odometer_km": ("odometer_m", km_to_m),
     "state_code": ("state_code", str),
     "has_glonass": ("has_glonass", int),
     "tracker_id": ("tracker_id", str),
-    "fuel_norm_l_100km": ("fuel_norm_hs_x100", _norm_to_int),
+    "fuel_norm_l_100km": ("fuel_norm_hs_x100", x100_to_int),
     "notes": ("notes", str),
     "is_active": ("is_active", int),
+    "org_id": ("org_id", int),
+    "waybill_form": ("waybill_form", str),
+    "garage_number": ("garage_number", str),
+    "vehicle_code": ("vehicle_code", str),
+    "fuel_code": ("fuel_code", str),
+    "column_number": ("column_number", str),
+    "brigade": ("brigade", str),
+    "default_driver_id": ("default_driver_id", int),
 }
 
 
@@ -240,17 +235,27 @@ def _row_to_vehicle(row: sqlite3.Row) -> Vehicle:
         year=row["year"],
         category=row["category"] or "",
         fuel_type=row["fuel_type"] or "",
-        tank_l=_ml_to_l(row["tank_ml"]),
-        odometer_km=_m_to_km(row["odometer_m"]) or 0.0,
+        tank_l=ml_to_l(row["tank_ml"]),
+        odometer_km=m_to_km(row["odometer_m"]) or 0.0,
         state_code=row["state_code"],
         state_title=row["state_title"] or row["state_code"],
         has_glonass=bool(row["has_glonass"]),
         tracker_id=row["tracker_id"] or "",
-        fuel_norm_l_100km=_norm_to_float(row["fuel_norm_hs_x100"]),
+        fuel_norm_l_100km=x100_to_float(row["fuel_norm_hs_x100"]),
         notes=row["notes"] or "",
         is_active=bool(row["is_active"]),
         created_at=row["created_at"],
         open_trip_id=row["open_trip_id"],
+        org_id=row["org_id"],
+        org_name=row["org_name"] or "",
+        waybill_form=row["waybill_form"] or "3",
+        garage_number=row["garage_number"] or "",
+        vehicle_code=row["vehicle_code"] or "",
+        fuel_code=row["fuel_code"] or "",
+        column_number=row["column_number"] or "",
+        brigade=row["brigade"] or "",
+        default_driver_id=row["default_driver_id"],
+        default_driver_name=row["default_driver_name"] or "",
     )
 
 
@@ -276,7 +281,7 @@ def create_place(payload: PlaceCreate) -> Place:
                     payload.address,
                     payload.lat,
                     payload.lon,
-                    _km_to_m(payload.distance_from_base_km),
+                    km_to_m(payload.distance_from_base_km),
                     int(payload.is_base),
                 ),
             )
@@ -310,7 +315,7 @@ def _row_to_place(row: sqlite3.Row) -> Place:
         address=row["address"] or "",
         lat=row["lat"],
         lon=row["lon"],
-        distance_from_base_km=_m_to_km(row["distance_from_base_m"]),
+        distance_from_base_km=m_to_km(row["distance_from_base_m"]),
         is_base=bool(row["is_base"]),
         created_at=row["created_at"],
     )
@@ -328,15 +333,23 @@ SELECT t.*, v.call_name AS vehicle_name,
 """
 
 
-def list_trips(*, vehicle_id: int | None = None, limit: int = 100) -> list[Trip]:
-    where, params = "", []
+def list_trips(
+    *, vehicle_id: int | None = None, waybill_id: int | None = None, limit: int = 100
+) -> list[Trip]:
+    clauses, params = [], []
     if vehicle_id is not None:
-        where = "WHERE t.vehicle_id = ?"
+        clauses.append("t.vehicle_id = ?")
         params.append(vehicle_id)
+    if waybill_id is not None:
+        clauses.append("t.waybill_id = ?")
+        params.append(waybill_id)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    # Рейсы одного листа — это его оборотная сторона, и там они идут по
+    # номеру ездки, а не от новых к старым.
+    order = "t.seq, t.id" if waybill_id is not None else "t.departed_at DESC, t.id DESC"
     with connect() as conn:
         rows = conn.execute(
-            f"{_TRIP_SELECT} {where} ORDER BY t.departed_at DESC, t.id DESC LIMIT ?",
-            (*params, limit),
+            f"{_TRIP_SELECT} {where} ORDER BY {order} LIMIT ?", (*params, limit)
         ).fetchall()
     return [_row_to_trip(r) for r in rows]
 
@@ -365,7 +378,7 @@ def open_trip(payload: TripCreate, *, created_by: str = "") -> Trip:
         if already:
             raise ValueError("Машина уже в рейсе — сначала отметьте возврат")
 
-        odometer_start = _km_to_m(payload.odometer_start_km)
+        odometer_start = km_to_m(payload.odometer_start_km)
         if odometer_start is None:
             odometer_start = vehicle["odometer_m"]
 
@@ -377,11 +390,23 @@ def open_trip(payload: TripCreate, *, created_by: str = "") -> Trip:
             if point is not None:
                 destination = point["name"]
 
+        # Номер ездки в листе: продолжаем нумерацию того же листа, а не
+        # заводим свою — на обороте бланка эти номера идут подряд.
+        seq = payload.seq
+        if seq is None and payload.waybill_id is not None:
+            row = conn.execute(
+                "SELECT MAX(seq) AS last FROM trip WHERE waybill_id = ?",
+                (payload.waybill_id,),
+            ).fetchone()
+            seq = (row["last"] or 0) + 1
+
         cur = conn.execute(
             "INSERT INTO trip (vehicle_id, driver, place_from_id, place_to_id, "
             "destination_text, purpose, odometer_start_m, fuel_issued_ml, "
-            "fuel_norm_hs_x100, source, notes, created_by) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?)",
+            "fuel_norm_hs_x100, source, notes, created_by, waybill_id, seq, "
+            "customer_code, user_name, consignor, ttd_numbers, trailer_in, "
+            "trailer_out, empty_run_m, cargo_weight_kg) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 payload.vehicle_id,
                 payload.driver,
@@ -390,10 +415,20 @@ def open_trip(payload: TripCreate, *, created_by: str = "") -> Trip:
                 destination,
                 payload.purpose,
                 odometer_start,
-                _l_to_ml(payload.fuel_issued_l) or 0,
+                l_to_ml(payload.fuel_issued_l) or 0,
                 vehicle["fuel_norm_hs_x100"],
                 payload.notes,
                 created_by,
+                payload.waybill_id,
+                seq,
+                payload.customer_code,
+                payload.user_name,
+                payload.consignor,
+                payload.ttd_numbers,
+                payload.trailer_in,
+                payload.trailer_out,
+                km_to_m(payload.empty_run_km),
+                payload.cargo_weight_kg,
             ),
         )
         trip_id = cur.lastrowid
@@ -417,7 +452,7 @@ def close_trip(trip_id: int, payload: TripClose) -> Trip:
         if row["returned_at"] is not None:
             raise ValueError("Рейс уже закрыт")
 
-        odometer_end = _km_to_m(payload.odometer_end_km)
+        odometer_end = km_to_m(payload.odometer_end_km)
         if (
             odometer_end is not None
             and row["odometer_start_m"] is not None
@@ -429,7 +464,7 @@ def close_trip(trip_id: int, payload: TripClose) -> Trip:
 
         fuel = row["fuel_issued_ml"]
         if payload.fuel_issued_l is not None:
-            fuel = _l_to_ml(payload.fuel_issued_l)
+            fuel = l_to_ml(payload.fuel_issued_l)
 
         conn.execute(
             "UPDATE trip SET returned_at = CURRENT_TIMESTAMP, odometer_end_m = ?, "
@@ -489,13 +524,23 @@ def _row_to_trip(row: sqlite3.Row) -> Trip:
         purpose=row["purpose"] or "",
         departed_at=row["departed_at"],
         returned_at=row["returned_at"],
-        odometer_start_km=_m_to_km(start),
-        odometer_end_km=_m_to_km(end),
-        distance_km=_m_to_km(distance_m),
-        fuel_issued_l=_ml_to_l(row["fuel_issued_ml"]) or 0.0,
+        odometer_start_km=m_to_km(start),
+        odometer_end_km=m_to_km(end),
+        distance_km=m_to_km(distance_m),
+        fuel_issued_l=ml_to_l(row["fuel_issued_ml"]) or 0.0,
         fuel_by_norm_l=fuel_by_norm_l,
         source=row["source"] or "manual",
         notes=row["notes"] or "",
         created_by=row["created_by"] or "",
         created_at=row["created_at"],
+        waybill_id=row["waybill_id"],
+        seq=row["seq"],
+        customer_code=row["customer_code"] or "",
+        user_name=row["user_name"] or "",
+        consignor=row["consignor"] or "",
+        ttd_numbers=row["ttd_numbers"] or "",
+        trailer_in=row["trailer_in"] or "",
+        trailer_out=row["trailer_out"] or "",
+        empty_run_km=m_to_km(row["empty_run_m"]),
+        cargo_weight_kg=row["cargo_weight_kg"],
     )

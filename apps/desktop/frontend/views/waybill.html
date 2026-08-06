@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Путевые листы — Ассистент</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><a href="/">🔥 Ассистент</a></div>
+    <div class="status" id="health"></div>
+  </header>
+
+  <main class="page">
+    <a class="back" href="/transport.html">← Транспорт</a>
+
+    <div class="section">
+      <h2>📋 Путевые листы</h2>
+      <p class="hint">
+        Типовые межотраслевые формы: № 3 для легкового автомобиля, № 4-С для грузового.
+        Бланк подставляется по категории ТС из карточки машины. Заполняется всё, кроме подписей.
+      </p>
+      <div class="actions">
+        <button class="btn" id="wb-new">Выписать лист</button>
+        <button class="btn secondary" id="wb-refresh">Обновить</button>
+      </div>
+      <div id="wb-list" class="result"></div>
+    </div>
+
+    <div class="section" id="wb-editor" style="display:none">
+      <h2 id="wb-title">Путевой лист</h2>
+      <p class="hint" id="wb-subtitle"></p>
+      <div id="wb-form"></div>
+
+      <div class="section" id="wb-trailers-box" style="display:none">
+        <h3>Прицепы</h3>
+        <p class="hint">В бланке формы 4-С места на четыре прицепа.</p>
+        <div id="wb-trailers"></div>
+      </div>
+
+      <div class="section" id="wb-downtimes-box" style="display:none">
+        <h3>Простои на линии</h3>
+        <div id="wb-downtimes"></div>
+        <div class="actions"><button class="btn secondary" id="dt-add">Добавить простой</button></div>
+      </div>
+
+      <div class="section">
+        <h3>Оборотная сторона — выполнение задания</h3>
+        <p class="hint">Ездки этого листа. Добавляются на странице «Транспорт» при выдаче машины.</p>
+        <div id="wb-trips"></div>
+      </div>
+
+      <div class="actions">
+        <button class="btn" id="wb-save">Сохранить лист</button>
+        <button class="btn secondary" id="wb-close-editor">Закрыть</button>
+        <button class="btn secondary" id="wb-delete">Удалить лист</button>
+        <span class="hint" id="wb-status"></span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>👤 Водители</h2>
+      <p class="hint">
+        Номер удостоверения и СНИЛС — обязательные реквизиты путевого листа. Это персональные
+        данные: доступ только вошедшим, диск должен быть зашифрован.
+      </p>
+      <div id="dr-form"></div>
+      <div class="actions">
+        <button class="btn secondary" id="dr-save">Добавить водителя</button>
+        <span class="hint" id="dr-status"></span>
+      </div>
+      <div id="dr-list" class="result"></div>
+    </div>
+
+    <div class="section">
+      <h2>🚛 Прицепы</h2>
+      <div id="tr-form"></div>
+      <div class="actions">
+        <button class="btn secondary" id="tr-save">Добавить прицеп</button>
+        <span class="hint" id="tr-status"></span>
+      </div>
+      <div id="tr-list" class="result"></div>
+    </div>
+
+    <div class="section">
+      <h2>🏢 Организации</h2>
+      <p class="hint">Наименование, адрес и ОКПО печатаются в шапке листа. Лист с чужим наименованием юридически дефектен.</p>
+      <div id="org-list" class="result"></div>
+    </div>
+
+    <div id="error" class="error-box" style="display:none"></div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    updateHealth();
+
+    // Поля бланка описаны данными, а не разметкой: их около сотни, и руками
+    // написанный HTML на две формы разошёлся бы с моделью при первой правке.
+    // forms — в каком бланке поле есть: "3" легковой, "4" грузовой, "34" оба.
+    const T = { text: "text", num: "number", date: "date", dt: "datetime-local", area: "area", check: "check" };
+    const SECTIONS = [
+      ["Лист", [
+        ["form", "Форма бланка", T.text, "34", { readonly: true }],
+        ["org_id", "Организация", "org", "34"],
+        ["series", "Серия", T.text, "34"],
+        ["number", "Номер", T.text, "34"],
+        ["date_from", "Срок действия с", T.date, "34"],
+        ["date_to", "по", T.date, "34"],
+        ["vehicle_id", "Машина", "vehicle", "34", { readonly: true }],
+        ["driver_id", "Водитель", "driver", "34"],
+        ["column_number", "Колонна", T.text, "4"],
+        ["brigade", "Бригада", T.text, "4"],
+        ["work_mode", "Режим работы", T.text, "4"],
+        ["escorts", "Сопровождающие лица", T.text, "4"],
+        ["status", "Состояние листа", "status", "34"],
+      ]],
+      ["Задание водителю", [
+        ["communication_type", "Вид сообщения", T.text, "3"],
+        ["transport_type", "Вид перевозки", T.text, "3"],
+        ["customer_name", "В чьё распоряжение", T.text, "34"],
+        ["customer_address", "Адрес заказчика", T.text, "4"],
+        ["pickup_address", "Адрес подачи / пункт погрузки", T.text, "34"],
+        ["delivery_address", "Пункт разгрузки", T.text, "4"],
+        ["cargo_name", "Наименование груза", T.text, "4"],
+        ["planned_arrival_at", "Время прибытия по заданию", T.dt, "4"],
+        ["planned_trips", "Количество ездок", T.num, "4"],
+        ["planned_distance_km", "Расстояние, км", T.num, "4"],
+        ["planned_cargo_kg", "Перевезти, кг", T.num, "4"],
+        ["fuel_to_issue_l", "Выдать горючего, л", T.num, "4"],
+      ]],
+      ["Работа водителя и автомобиля", [
+        ["scheduled_departure_at", "Выезд из гаража по графику", T.dt, "4"],
+        ["scheduled_return_at", "Возвращение по графику", T.dt, "4"],
+        ["departure_at", "Выезд фактически", T.dt, "34"],
+        ["return_at", "Возвращение фактически", T.dt, "34"],
+        ["odometer_start_km", "Одометр при выезде, км", T.num, "34"],
+        ["odometer_end_km", "Одометр при возвращении, км", T.num, "34"],
+        ["zero_run_start_km", "Нулевой пробег при выезде, км", T.num, "4"],
+        ["zero_run_end_km", "Нулевой пробег при возвращении, км", T.num, "4"],
+      ]],
+      ["Движение горючего", [
+        ["fuel_brand", "Марка горючего", T.text, "34"],
+        ["fuel_code", "Код марки", T.text, "34"],
+        ["fuel_sheet_number", "По заправочному листу №", T.text, "3"],
+        ["fuel_start_l", "Остаток при выезде, л", T.num, "34"],
+        ["fuel_issued_l", "Выдано, л", T.num, "34"],
+        ["fuel_end_l", "Остаток при возвращении, л", T.num, "34"],
+        ["fuel_returned_l", "Сдано, л", T.num, "4"],
+        ["fuel_norm_l_100km", "Норма, л на 100 км", T.num, "34"],
+        ["fuel_coeff_equipment", "Коэффициент изменения нормы: спецоборудование", T.num, "4"],
+        ["fuel_coeff_engine", "Коэффициент изменения нормы: двигатель", T.num, "4"],
+        ["equipment_time_min", "Время работы спецоборудования, мин", T.num, "4"],
+        ["engine_time_min", "Время работы двигателя, мин", T.num, "4"],
+        ["fuel_used_norm_l", "Расход по норме, л", T.num, "34"],
+        ["fuel_used_fact_l", "Расход фактически, л", T.num, "34"],
+      ]],
+      ["Медосмотр, техконтроль, приём-передача", [
+        ["medical_pre_mark", "Предрейсовый медосмотр: отметка", T.text, "34"],
+        ["medical_pre_at", "дата и время", T.dt, "34"],
+        ["medical_pre_position", "должность медработника", T.text, "34"],
+        ["medical_pre_name", "расшифровка подписи", T.text, "34"],
+        ["medical_post_mark", "Послерейсовый медосмотр: отметка", T.text, "34"],
+        ["medical_post_at", "дата и время", T.dt, "34"],
+        ["medical_post_position", "должность медработника", T.text, "34"],
+        ["medical_post_name", "расшифровка подписи", T.text, "34"],
+        ["tech_control_mark", "Предрейсовый контроль: отметка", T.text, "34"],
+        ["tech_control_at", "дата и время", T.dt, "34"],
+        ["tech_control_name", "Контролёр технического состояния", T.text, "34"],
+        ["licence_checked", "Водительское удостоверение проверено", T.check, "4"],
+        ["mechanic_name", "Механик (выезд разрешён)", T.text, "34"],
+        ["dispatcher_name", "Диспетчер-нарядчик", T.text, "34"],
+        ["accepted_by_driver", "Автомобиль принял (водитель)", T.text, "34"],
+        ["return_condition", "При возвращении автомобиль", T.text, "4"],
+        ["vehicle_handed_by", "Автомобиль сдал (водитель)", T.text, "34"],
+        ["vehicle_taken_by", "Автомобиль принял (механик)", T.text, "34"],
+      ]],
+      ["Результаты работы за смену", [
+        ["total_time_min", "Всего в наряде, мин", T.num, "34"],
+        ["driving_time_min", "В том числе в движении, мин", T.num, "4"],
+        ["idle_vehicle_min", "В простое: автомобиля, мин", T.num, "4"],
+        ["idle_loading_min", "Под погрузкой и разгрузкой, мин", T.num, "4"],
+        ["idle_repair_min", "По техническим неисправностям, мин", T.num, "4"],
+        ["idle_extra_min", "Сверхнормативный простой, мин", T.num, "4"],
+        ["trips_done", "Количество ездок", T.num, "4"],
+        ["stops_done", "Заездов", T.num, "4"],
+        ["run_total_km", "Пробег общий, км", T.num, "34"],
+        ["run_loaded_km", "В том числе с грузом, км", T.num, "4"],
+        ["run_trailer_km", "В том числе на прицепах, км", T.num, "4"],
+        ["cargo_done_kg", "Перевезено, кг", T.num, "4"],
+        ["cargo_tkm", "Выполнено, ткм", T.num, "4"],
+        ["days_in_work", "Автомобиль, дни в работе", T.num, "4"],
+      ]],
+      ["Товарно-транспортные документы и таксировка", [
+        ["ttd_count", "ТТД в количестве, шт", T.num, "4"],
+        ["ttd_handed_by", "Сдал водитель", T.text, "4"],
+        ["ttd_taken_by", "Принял диспетчер", T.text, "4"],
+        ["taxation_text", "Таксировка (прописью)", T.text, "4"],
+        ["taxer_name", "Таксировщик", T.text, "4"],
+      ]],
+      ["Расчёт заработной платы", [
+        ["salary_km_rub", "За километраж, руб.", T.num, "3"],
+        ["salary_hours_rub", "За часы, руб.", T.num, "3"],
+        ["salary_vehicle_rub", "Зарплата автомобиля, руб.", T.num, "4"],
+        ["salary_trailer_rub", "Зарплата прицепа, руб.", T.num, "4"],
+        ["salary_total_rub", "Итого, руб.", T.num, "34"],
+        ["calc_position", "Расчёт произвёл: должность", T.text, "3"],
+        ["calc_name", "расшифровка подписи", T.text, "3"],
+      ]],
+      ["Отметки", [
+        ["delay_notes", "Опоздания, ожидания, простои, заезды в гараж", T.area, "3"],
+        ["special_marks", "Особые отметки", T.area, "4"],
+        ["owner_marks", "Отметки организации-владельца", T.area, "4"],
+      ]],
+    ];
+
+    const DRIVER_FIELDS = [
+      ["full_name", "ФИО полностью", T.text],
+      ["tab_number", "Табельный номер", T.text],
+      ["licence_series", "Удостоверение: серия", T.text],
+      ["licence_number", "номер", T.text],
+      ["licence_issued_at", "выдано", T.date],
+      ["licence_class", "Класс (категории)", T.text],
+      ["snils", "СНИЛС", T.text],
+      ["licence_card", "Лицензионная карточка", "card"],
+    ];
+
+    const TRAILER_FIELDS = [
+      ["mark", "Марка", T.text],
+      ["reg_number", "Регистрационный номер", T.text],
+      ["series", "Серия", T.text],
+      ["code", "Код марки", T.text],
+    ];
+
+    let ORGS = [], DRIVERS = [], TRAILERS = [], VEHICLES = [], CURRENT = null;
+
+    function showError(e) {
+      const box = document.getElementById("error");
+      box.style.display = "block";
+      box.textContent = e.message || String(e);
+    }
+
+    async function api(url, options) {
+      const r = await fetch(url, options);
+      if (r.status === 204) return null;
+      const data = await r.json().catch(() => null);
+      if (!r.ok) throw new Error((data && data.detail) || `HTTP ${r.status}`);
+      return data;
+    }
+
+    // datetime-local не понимает «2026-08-14 09:30» из SQLite, а date не
+    // понимает время. Режем к тому виду, который поле принимает, иначе
+    // браузер молча показывает пустое значение и сохранение стирает данные.
+    function toInput(value, type) {
+      if (!value) return "";
+      const s = String(value).replace(" ", "T");
+      if (type === T.date) return s.slice(0, 10);
+      if (type === T.dt) return s.slice(0, 16);
+      return s;
+    }
+
+    function fieldHtml(name, label, type, opts) {
+      const id = `f-${name}`;
+      const ro = opts && opts.readonly ? " disabled" : "";
+      if (type === T.check) {
+        return `<div class="field"><label><input type="checkbox" id="${id}"> ${escapeHtml(label)}</label></div>`;
+      }
+      if (type === T.area) {
+        return `<div class="field"><label for="${id}">${escapeHtml(label)}</label>
+          <textarea id="${id}" style="min-height:70px"${ro}></textarea></div>`;
+      }
+      if (["org", "driver", "vehicle", "card", "status"].includes(type)) {
+        return `<div class="field"><label for="${id}">${escapeHtml(label)}</label>
+          <select id="${id}"${ro}></select></div>`;
+      }
+      const step = type === T.num ? ' step="0.01"' : "";
+      return `<div class="field"><label for="${id}">${escapeHtml(label)}</label>
+        <input id="${id}" type="${type}"${step}${ro}></div>`;
+    }
+
+    function optionsFor(type) {
+      if (type === "org") return [["", "— не выбрана —"], ...ORGS.map((o) => [o.id, o.name])];
+      if (type === "driver") return [["", "— не выбран —"], ...DRIVERS.map((d) => [d.id, d.full_name])];
+      if (type === "vehicle") return VEHICLES.map((v) => [v.id, `${v.call_name} · ${v.plate}`]);
+      if (type === "card") return [["", "не указана"], ["стандартная", "стандартная"], ["ограниченная", "ограниченная"]];
+      if (type === "status") return [["draft", "черновик"], ["issued", "выписан"], ["closed", "закрыт"]];
+      return [];
+    }
+
+    function fillSelect(id, type, value) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.innerHTML = optionsFor(type)
+        .map(([v, t]) => `<option value="${v}">${escapeHtml(String(t))}</option>`)
+        .join("");
+      el.value = value === null || value === undefined ? "" : String(value);
+    }
+
+    // ── Редактор листа ───────────────────────────────────────────────────
+
+    function renderEditor(wb) {
+      CURRENT = wb;
+      const isCargo = wb.form === "4-S";
+      const mark = isCargo ? "4" : "3";
+      const box = document.getElementById("wb-form");
+
+      box.innerHTML = SECTIONS.map(([title, fields]) => {
+        const visible = fields.filter(([, , , forms]) => forms.includes(mark));
+        if (!visible.length) return "";
+        const body = visible
+          .map(([name, label, type, , opts]) => fieldHtml(name, label, type, opts))
+          .join("");
+        return `<div class="section"><h3>${escapeHtml(title)}</h3>${body}</div>`;
+      }).join("");
+
+      for (const [, fields] of SECTIONS) {
+        for (const [name, , type, forms] of fields) {
+          if (!forms.includes(mark)) continue;
+          const el = document.getElementById(`f-${name}`);
+          if (!el) continue;
+          if (["org", "driver", "vehicle", "card", "status"].includes(type)) {
+            fillSelect(`f-${name}`, type, wb[name]);
+          } else if (type === T.check) {
+            el.checked = Boolean(wb[name]);
+          } else {
+            el.value = wb[name] === null || wb[name] === undefined ? "" : toInput(wb[name], type);
+          }
+        }
+      }
+
+      document.getElementById("wb-title").textContent =
+        `Путевой лист ${isCargo ? "грузового автомобиля (форма 4-С)" : "легкового автомобиля (форма № 3)"}`;
+      const fact = wb.fuel_balance_l === null ? "—" : `${wb.fuel_balance_l} л`;
+      const saving =
+        wb.fuel_saving_l === null
+          ? "нет нормы или пробега"
+          : wb.fuel_saving_l >= 0
+            ? `экономия ${wb.fuel_saving_l} л`
+            : `перерасход ${Math.abs(wb.fuel_saving_l)} л`;
+      document.getElementById("wb-subtitle").textContent =
+        `${wb.vehicle_name} · ${wb.org_name || "организация не выбрана"} · расход фактически ${fact} · ${saving}`;
+
+      document.getElementById("wb-trailers-box").style.display = isCargo ? "block" : "none";
+      document.getElementById("wb-downtimes-box").style.display = isCargo ? "block" : "none";
+      if (isCargo) {
+        renderTrailerSlots(wb);
+        renderDowntimes(wb.downtimes || []);
+      }
+      renderWaybillTrips(wb.id);
+      document.getElementById("wb-editor").style.display = "block";
+      document.getElementById("wb-editor").scrollIntoView({ behavior: "smooth" });
+    }
+
+    function renderTrailerSlots(wb) {
+      const chosen = (wb.trailers || []).map((t) => t.id);
+      const box = document.getElementById("wb-trailers");
+      box.innerHTML = [0, 1, 2, 3]
+        .map(
+          (i) => `<div class="field"><label for="tr-slot-${i}">Прицеп ${i + 1}</label>
+            <select id="tr-slot-${i}">
+              <option value="">— нет —</option>
+              ${TRAILERS.map(
+                (t) =>
+                  `<option value="${t.id}"${chosen[i] === t.id ? " selected" : ""}>${escapeHtml(
+                    `${t.mark} ${t.reg_number}`.trim()
+                  )}</option>`
+              ).join("")}
+            </select></div>`
+        )
+        .join("");
+    }
+
+    function renderDowntimes(items) {
+      const box = document.getElementById("wb-downtimes");
+      const rows = items.length ? items : [{}];
+      box.innerHTML = rows
+        .map(
+          (d, i) => `<div class="section" data-downtime="${i}">
+            <div class="field"><label>Наименование</label><input type="text" data-dt="name" value="${escapeHtml(d.name || "")}"></div>
+            <div class="field"><label>Причина</label><input type="text" data-dt="reason" value="${escapeHtml(d.reason || "")}"></div>
+            <div class="field"><label>Начало</label><input type="datetime-local" data-dt="started_at" value="${toInput(d.started_at, T.dt)}"></div>
+            <div class="field"><label>Окончание</label><input type="datetime-local" data-dt="ended_at" value="${toInput(d.ended_at, T.dt)}"></div>
+            <div class="field"><label>Ответственное лицо</label><input type="text" data-dt="responsible_name" value="${escapeHtml(d.responsible_name || "")}"></div>
+          </div>`
+        )
+        .join("");
+    }
+
+    async function renderWaybillTrips(waybillId) {
+      const trips = await api(`/api/transport/trips?waybill_id=${waybillId}&limit=200`);
+      const box = document.getElementById("wb-trips");
+      box.innerHTML = trips.length
+        ? `<table><thead><tr><th>№</th><th>Откуда</th><th>Куда</th><th>Выезд</th><th>Возврат</th>
+             <th>Пройдено</th><th>Груз</th><th>ТТД</th></tr></thead><tbody>${trips
+            .map(
+              (t) => `<tr>
+                <td>${t.seq ?? "—"}</td>
+                <td>${escapeHtml(t.place_from_name || "—")}</td>
+                <td>${escapeHtml(t.place_to_name || t.destination_text || "—")}</td>
+                <td>${escapeHtml(String(t.departed_at || "").slice(0, 16))}</td>
+                <td>${escapeHtml(String(t.returned_at || "").slice(0, 16))}</td>
+                <td>${t.distance_km === null ? "—" : t.distance_km + " км"}</td>
+                <td>${t.cargo_weight_kg === null ? "—" : t.cargo_weight_kg + " кг"}</td>
+                <td>${escapeHtml(t.ttd_numbers || "")}</td>
+              </tr>`
+            )
+            .join("")}</tbody></table>`
+        : '<p class="hint">Ездок по этому листу ещё нет.</p>';
+    }
+
+    function collectWaybill() {
+      const mark = CURRENT.form === "4-S" ? "4" : "3";
+      const out = {};
+      for (const [, fields] of SECTIONS) {
+        for (const [name, , type, forms, opts] of fields) {
+          if (!forms.includes(mark) || (opts && opts.readonly)) continue;
+          const el = document.getElementById(`f-${name}`);
+          if (!el) continue;
+          if (type === T.check) out[name] = el.checked;
+          // Пустое поле у числа и у ссылки на справочник — это «не заполнено»,
+          // то есть NULL. У текста — пустая строка: разницы для бланка нет,
+          // а Number("") дал бы 0 и напечатал ноль там, где прочерк.
+          else if (el.value === "") out[name] = [T.num, "org", "driver"].includes(type) ? null : "";
+          else if ([T.num, "org", "driver"].includes(type)) out[name] = Number(el.value);
+          else out[name] = el.value;
+        }
+      }
+      return out;
+    }
+
+    document.getElementById("wb-save").addEventListener("click", async () => {
+      const status = document.getElementById("wb-status");
+      status.textContent = "Сохраняю…";
+      try {
+        let wb = await api(`/api/transport/waybills/${CURRENT.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(collectWaybill()),
+        });
+        if (wb.form === "4-S") {
+          const ids = [0, 1, 2, 3]
+            .map((i) => document.getElementById(`tr-slot-${i}`).value)
+            .filter(Boolean)
+            .map(Number);
+          wb = await api(`/api/transport/waybills/${wb.id}/trailers`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(ids),
+          });
+          const items = [...document.querySelectorAll("[data-downtime]")]
+            .map((box) => {
+              const get = (k) => box.querySelector(`[data-dt="${k}"]`).value;
+              return {
+                name: get("name"),
+                reason: get("reason"),
+                started_at: get("started_at") || null,
+                ended_at: get("ended_at") || null,
+                responsible_name: get("responsible_name"),
+              };
+            })
+            .filter((d) => d.name || d.reason || d.started_at);
+          wb = await api(`/api/transport/waybills/${wb.id}/downtimes`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(items),
+          });
+        }
+        status.textContent = "Сохранено.";
+        renderEditor(wb);
+        await loadWaybills();
+      } catch (e) {
+        status.textContent = e.message || String(e);
+      }
+    });
+
+    document.getElementById("dt-add").addEventListener("click", () => {
+      const items = [...document.querySelectorAll("[data-downtime]")].map((box) => {
+        const get = (k) => box.querySelector(`[data-dt="${k}"]`).value;
+        return {
+          name: get("name"),
+          reason: get("reason"),
+          started_at: get("started_at"),
+          ended_at: get("ended_at"),
+          responsible_name: get("responsible_name"),
+        };
+      });
+      renderDowntimes([...items, {}]);
+    });
+
+    document.getElementById("wb-close-editor").addEventListener("click", () => {
+      document.getElementById("wb-editor").style.display = "none";
+      CURRENT = null;
+    });
+
+    document.getElementById("wb-delete").addEventListener("click", async () => {
+      if (!CURRENT || !confirm("Удалить путевой лист? Ездки по нему сохранятся.")) return;
+      try {
+        await api(`/api/transport/waybills/${CURRENT.id}`, { method: "DELETE" });
+        document.getElementById("wb-editor").style.display = "none";
+        CURRENT = null;
+        await loadWaybills();
+      } catch (e) {
+        showError(e);
+      }
+    });
+
+    document.getElementById("wb-new").addEventListener("click", async () => {
+      if (!VEHICLES.length) return showError(new Error("Сначала заведите машину на странице «Транспорт»"));
+      const names = VEHICLES.map((v, i) => `${i + 1}. ${v.call_name}`).join("\n");
+      const pick = prompt(`На какую машину выписать лист?\n\n${names}\n\nНомер:`, "1");
+      if (pick === null) return;
+      const vehicle = VEHICLES[Number(pick) - 1];
+      if (!vehicle) return showError(new Error("Такой машины в списке нет"));
+      const today = new Date().toISOString().slice(0, 10);
+      const date = prompt("Срок действия (дата):", today);
+      if (date === null) return;
+      try {
+        const wb = await api("/api/transport/waybills", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vehicle_id: vehicle.id, date_from: date, date_to: date }),
+        });
+        await loadWaybills();
+        renderEditor(wb);
+      } catch (e) {
+        showError(e);
+      }
+    });
+
+    // ── Списки ───────────────────────────────────────────────────────────
+
+    async function loadWaybills() {
+      const rows = await api("/api/transport/waybills?limit=200");
+      const box = document.getElementById("wb-list");
+      box.innerHTML = rows.length
+        ? `<table><thead><tr><th>Срок</th><th>Форма</th><th>Серия и №</th><th>Машина</th>
+             <th>Водитель</th><th>Организация</th><th>Состояние</th><th></th></tr></thead>
+           <tbody>${rows
+             .map(
+               (w) => `<tr>
+                 <td>${escapeHtml(w.date_from)}${w.date_to !== w.date_from ? " — " + escapeHtml(w.date_to) : ""}</td>
+                 <td>${w.form === "4-S" ? "4-С грузовой" : "№ 3 легковой"}</td>
+                 <td>${escapeHtml([w.series, w.number].filter(Boolean).join(" ") || "—")}</td>
+                 <td>${escapeHtml(w.vehicle_name)}</td>
+                 <td>${escapeHtml(w.driver_name || "—")}</td>
+                 <td>${escapeHtml(w.org_name || "—")}</td>
+                 <td>${escapeHtml({ draft: "черновик", issued: "выписан", closed: "закрыт" }[w.status] || w.status)}</td>
+                 <td><button class="btn secondary" data-open="${w.id}">открыть</button></td>
+               </tr>`
+             )
+             .join("")}</tbody></table>`
+        : '<p class="hint">Листов пока нет.</p>';
+    }
+
+    async function loadDrivers() {
+      DRIVERS = await api("/api/transport/drivers");
+      document.getElementById("dr-list").innerHTML = DRIVERS.length
+        ? `<table><thead><tr><th>ФИО</th><th>Таб. №</th><th>Удостоверение</th><th>Класс</th>
+             <th>СНИЛС</th><th>Карточка</th><th></th></tr></thead><tbody>${DRIVERS.map(
+            (d) => `<tr>
+              <td>${escapeHtml(d.full_name)}</td>
+              <td>${escapeHtml(d.tab_number || "—")}</td>
+              <td>${escapeHtml([d.licence_series, d.licence_number].filter(Boolean).join(" ") || "—")}
+                  ${d.licence_issued_at ? `<br><span class="hint">выдано ${escapeHtml(d.licence_issued_at)}</span>` : ""}</td>
+              <td>${escapeHtml(d.licence_class || "—")}</td>
+              <td>${escapeHtml(d.snils || "—")}</td>
+              <td>${escapeHtml(d.licence_card || "—")}</td>
+              <td><button class="btn secondary" data-del-driver="${d.id}">убрать</button></td>
+            </tr>`
+          ).join("")}</tbody></table>`
+        : '<p class="hint">Водителей пока нет.</p>';
+    }
+
+    async function loadTrailers() {
+      TRAILERS = await api("/api/transport/trailers");
+      document.getElementById("tr-list").innerHTML = TRAILERS.length
+        ? `<table><tbody>${TRAILERS.map(
+            (t) => `<tr>
+              <td>${escapeHtml(t.mark || "—")}</td>
+              <td><b>${escapeHtml(t.reg_number)}</b></td>
+              <td>${escapeHtml(t.series || "")}</td>
+              <td>${escapeHtml(t.code || "")}</td>
+              <td><button class="btn secondary" data-del-trailer="${t.id}">убрать</button></td>
+            </tr>`
+          ).join("")}</tbody></table>`
+        : '<p class="hint">Прицепов пока нет.</p>';
+    }
+
+    async function loadOrgs() {
+      ORGS = await api("/api/transport/orgs");
+      document.getElementById("org-list").innerHTML = `<table><thead><tr>
+          <th>Наименование</th><th>Адрес</th><th>Телефон</th><th>ОКПО</th><th>ОГРН</th><th></th>
+        </tr></thead><tbody>${ORGS.map(
+          (o) => `<tr>
+            <td>${escapeHtml(o.name)}</td>
+            <td>${escapeHtml(o.address)}</td>
+            <td>${escapeHtml(o.phone)}</td>
+            <td>${escapeHtml(o.okpo) || '<span class="hint">не заполнен</span>'}</td>
+            <td>${escapeHtml(o.ogrn)}</td>
+            <td>${o.is_default ? '<span class="chip ok">основная</span>' : ""}</td>
+          </tr>`
+        ).join("")}</tbody></table>`;
+    }
+
+    document.getElementById("dr-form").innerHTML = DRIVER_FIELDS.map(([n, l, t]) =>
+      fieldHtml(`dr-${n}`, l, t)
+    ).join("");
+    fillSelect("f-dr-licence_card", "card", "");
+
+    document.getElementById("tr-form").innerHTML = TRAILER_FIELDS.map(([n, l, t]) =>
+      fieldHtml(`tr-${n}`, l, t)
+    ).join("");
+
+    document.getElementById("dr-save").addEventListener("click", async () => {
+      const status = document.getElementById("dr-status");
+      status.textContent = "Сохраняю…";
+      try {
+        const payload = {};
+        for (const [n] of DRIVER_FIELDS) {
+          const v = document.getElementById(`f-dr-${n}`).value;
+          payload[n] = n === "licence_issued_at" ? v || null : v;
+        }
+        await api("/api/transport/drivers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        status.textContent = "Водитель добавлен.";
+        DRIVER_FIELDS.forEach(([n, , t]) => {
+          if (t !== "card") document.getElementById(`f-dr-${n}`).value = "";
+        });
+        await loadDrivers();
+      } catch (e) {
+        status.textContent = e.message || String(e);
+      }
+    });
+
+    document.getElementById("tr-save").addEventListener("click", async () => {
+      const status = document.getElementById("tr-status");
+      status.textContent = "Сохраняю…";
+      try {
+        const payload = {};
+        for (const [n] of TRAILER_FIELDS) payload[n] = document.getElementById(`f-tr-${n}`).value;
+        await api("/api/transport/trailers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        status.textContent = "Прицеп добавлен.";
+        TRAILER_FIELDS.forEach(([n]) => (document.getElementById(`f-tr-${n}`).value = ""));
+        await loadTrailers();
+      } catch (e) {
+        status.textContent = e.message || String(e);
+      }
+    });
+
+    document.addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-open], button[data-del-driver], button[data-del-trailer]");
+      if (!btn) return;
+      try {
+        if (btn.dataset.open) {
+          renderEditor(await api(`/api/transport/waybills/${btn.dataset.open}`));
+          return;
+        }
+        if (btn.dataset.delDriver) {
+          if (!confirm("Убрать водителя? Выписанные на него листы сохранятся.")) return;
+          await api(`/api/transport/drivers/${btn.dataset.delDriver}`, { method: "DELETE" });
+          await loadDrivers();
+        } else if (btn.dataset.delTrailer) {
+          if (!confirm("Убрать прицеп?")) return;
+          await api(`/api/transport/trailers/${btn.dataset.delTrailer}`, { method: "DELETE" });
+          await loadTrailers();
+        }
+      } catch (err) {
+        showError(err);
+      }
+    });
+
+    document.getElementById("wb-refresh").addEventListener("click", () => reloadAll());
+
+    async function reloadAll() {
+      try {
+        document.getElementById("error").style.display = "none";
+        VEHICLES = await api("/api/transport/vehicles");
+        await loadOrgs();
+        await loadDrivers();
+        await loadTrailers();
+        await loadWaybills();
+      } catch (e) {
+        showError(e);
+      }
+    }
+
+    reloadAll();
+  </script>
+</body>
+</html>

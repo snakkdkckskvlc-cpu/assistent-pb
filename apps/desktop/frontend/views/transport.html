@@ -13,6 +13,7 @@
 
   <main class="page">
     <a class="back" href="/">← На главную</a>
+    <p class="history-link"><a href="/waybill.html">📋 Путевые листы, водители, прицепы</a></p>
 
     <div class="section">
       <h2>🚚 Выдать машину</h2>
@@ -119,6 +120,43 @@
         <div class="field">
           <label><input id="v-glonass" type="checkbox"> На машине стоит ГЛОНАСС</label>
         </div>
+        <h3>Реквизиты для путевого листа</h3>
+        <div class="field">
+          <label for="v-org">Организация-владелец</label>
+          <select id="v-org"></select>
+        </div>
+        <div class="field">
+          <label for="v-form">Бланк путевого листа</label>
+          <select id="v-form">
+            <option value="">по категории ТС</option>
+            <option value="3">№ 3 — легковой автомобиль</option>
+            <option value="4-S">№ 4-С — грузовой автомобиль</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="v-driver">Закреплённый водитель</label>
+          <select id="v-driver"></select>
+        </div>
+        <div class="field">
+          <label for="v-garage">Гаражный номер</label>
+          <input id="v-garage" type="text">
+        </div>
+        <div class="field">
+          <label for="v-vcode">Код марки автомобиля</label>
+          <input id="v-vcode" type="text">
+        </div>
+        <div class="field">
+          <label for="v-fcode">Код марки горючего</label>
+          <input id="v-fcode" type="text">
+        </div>
+        <div class="field">
+          <label for="v-column">Колонна</label>
+          <input id="v-column" type="text">
+        </div>
+        <div class="field">
+          <label for="v-brigade">Бригада</label>
+          <input id="v-brigade" type="text">
+        </div>
         <div class="actions">
           <button class="btn" id="v-save">Сохранить</button>
           <span class="hint" id="v-status"></span>
@@ -211,11 +249,12 @@
             <td>${v.odometer_km.toLocaleString("ru-RU")} км</td>
             <td>${v.fuel_norm_l_100km ? v.fuel_norm_l_100km + " л/100" : '<span class="hint">нет нормы</span>'}</td>
             <td>${v.has_glonass ? "📡" : ""}</td>
+            <td>${v.waybill_form === "4-S" ? "4-С" : "№ 3"}</td>
             <td>${v.open_trip_id ? '<span class="chip warn">в рейсе</span>' : `<span class="chip ok">${escapeHtml(v.state_title)}</span>`}</td>
             <td><button class="btn secondary" data-del-vehicle="${v.id}">убрать</button></td>
           </tr>`).join("");
         box.innerHTML = `<table><thead><tr>
-            <th>Машина</th><th>Марка</th><th>Кат.</th><th>Пробег</th><th>Норма</th><th></th><th>Состояние</th><th></th>
+            <th>Машина</th><th>Марка</th><th>Кат.</th><th>Пробег</th><th>Норма</th><th></th><th>Бланк</th><th>Состояние</th><th></th>
           </tr></thead><tbody>${rows}</tbody></table>`;
       }
 
@@ -225,6 +264,19 @@
         ? free.map((v) => `<option value="${v.id}">${escapeHtml(v.call_name)}${v.plate ? " · " + escapeHtml(v.plate) : ""}</option>`).join("")
         : '<option value="">— свободных машин нет —</option>';
       document.getElementById("t-submit").disabled = !free.length;
+    }
+
+    async function loadRefs() {
+      const [orgs, drivers] = await Promise.all([
+        api("/api/transport/orgs"),
+        api("/api/transport/drivers"),
+      ]);
+      document.getElementById("v-org").innerHTML =
+        '<option value="">— основная —</option>' +
+        orgs.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join("");
+      document.getElementById("v-driver").innerHTML =
+        '<option value="">— не закреплён —</option>' +
+        drivers.map((d) => `<option value="${d.id}">${escapeHtml(d.full_name)}</option>`).join("");
     }
 
     async function loadPlaces() {
@@ -292,6 +344,7 @@
     async function reloadAll() {
       try {
         document.getElementById("error").style.display = "none";
+        await loadRefs();
         await loadVehicles();
         await loadPlaces();
         await loadTrips();
@@ -361,10 +414,19 @@
             odometer_km: Number(val("v-odo") || 0),
             fuel_norm_l_100km: numOrNull("v-norm"),
             has_glonass: document.getElementById("v-glonass").checked,
+            org_id: numOrNull("v-org"),
+            waybill_form: val("v-form"),
+            default_driver_id: numOrNull("v-driver"),
+            garage_number: val("v-garage"),
+            vehicle_code: val("v-vcode"),
+            fuel_code: val("v-fcode"),
+            column_number: val("v-column"),
+            brigade: val("v-brigade"),
           }),
         });
         status.textContent = "Машина добавлена.";
-        ["v-name", "v-plate", "v-brand", "v-model", "v-year", "v-tank", "v-norm"].forEach(
+        ["v-name", "v-plate", "v-brand", "v-model", "v-year", "v-tank", "v-norm",
+         "v-garage", "v-vcode", "v-fcode", "v-column", "v-brigade"].forEach(
           (id) => (document.getElementById(id).value = "")
         );
         document.getElementById("v-odo").value = "0";

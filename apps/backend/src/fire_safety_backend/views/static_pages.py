@@ -14,7 +14,16 @@ from . import auth
 
 router = APIRouter(tags=["frontend"])
 
-_ALLOWED_VIEWS = {"spellcheck", "legal", "letter", "history", "batch", "ask", "transport"}
+_ALLOWED_VIEWS = {
+    "spellcheck",
+    "legal",
+    "letter",
+    "history",
+    "batch",
+    "ask",
+    "transport",
+    "waybill",
+}
 _LOGIN_PAGE = "login"
 
 

@@ -15,6 +15,7 @@ from . import (
     static_pages,
     tasks,
     transport,
+    waybills,
 )
 
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     "static_pages",
     "tasks",
     "transport",
+    "waybills",
 ]
