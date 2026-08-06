@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from fire_safety_backend.infrastructure.queue import TaskQueue
+from fire_safety_backend.infrastructure.queue import Task, TaskQueue
 
 
 async def _noop(task):
@@ -70,3 +70,32 @@ def test_tasks_without_owner_do_not_break_planning(q: TaskQueue) -> None:
     _submit(q, "", 2)
     _submit(q, "ivanov")
     assert len(q.planned_order()) == 3
+
+
+def test_single_pending_task_still_marks_its_owner_served() -> None:
+    """Короткое замыкание на «одна задача в очереди» отменено, и это не
+    придирка к стилю.
+
+    На нашем железе это ОСНОВНОЙ путь: задача идёт минутами, и воркер почти
+    всегда просыпается ровно на одной заявке. Замыкание возвращало задачу, не
+    отметив владельца обслуженным, — и круговой обход не работал вовсе: Иванов
+    отправлял документ, потом второй, следом Петрова, и Иванов обслуживался
+    дважды подряд. Ровно то, ради чего правка делалась, не происходило.
+    """
+    q = TaskQueue()
+
+    async def noop(task):  # pragma: no cover — до выполнения не доходит
+        return None
+
+    first = Task(id="i1", kind="legal", owner="ivanov")
+    q._tasks[first.id] = first
+    q._pending.append((first, noop))
+    q._next_pending()
+    assert q._recent_owners == ["ivanov"], "владелец обязан быть отмечен обслуженным"
+
+    second = Task(id="i2", kind="legal", owner="ivanov")
+    third = Task(id="p1", kind="legal", owner="petrova")
+    q._tasks.update({second.id: second, third.id: third})
+    q._pending.extend([(second, noop), (third, noop)])
+    chosen, _ = q._next_pending()
+    assert chosen.owner == "petrova", "после Иванова очередь обязана перейти к Петровой"

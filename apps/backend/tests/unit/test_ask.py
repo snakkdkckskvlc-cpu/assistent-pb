@@ -14,6 +14,7 @@ from fire_safety_backend.pipelines.ask import (
     _merge_answers,
     answer_text,
     build_blocks,
+    rescue_misplaced_sources,
     verify_sources,
 )
 
@@ -160,3 +161,37 @@ def test_empty_answer_with_quotes_is_not_thrown_away() -> None:
     assert merged["источники"]
     assert merged["ответ"]
     assert "[]" not in merged["ответ"]
+
+
+# --- Модель кладёт источники не в то поле ---
+
+
+def test_sources_put_into_the_answer_field_are_moved_back() -> None:
+    """Третья форма ответа помимо строки и списка строк: модель кладёт в
+    «ответ» список ИСТОЧНИКОВ, а «источники» оставляет пустым. Наблюдалось на
+    замере: на вопрос «сколько человек в бригаде» пользователь получил бы текст
+    «цитата: … Ковалёва И. П. …» при пустой таблице ссылок — правдоподобный
+    ответ не на тот вопрос и без единого подтверждения."""
+    result = rescue_misplaced_sources(
+        {
+            "ответ": [
+                {"место": "стр. 1", "цитата": "в лице Ковалёва И. П.", "что_подтверждает": "ФИО"},
+                "Обычная строка ответа.",
+            ],
+            "источники": [],
+            "найдено": True,
+        }
+    )
+    assert len(result["источники"]) == 1
+    assert result["источники"][0]["цитата"] == "в лице Ковалёва И. П."
+    assert result["ответ"] == ["Обычная строка ответа."]
+
+
+def test_normal_answer_is_untouched() -> None:
+    original = {"ответ": ["Начало работ — 3 дня."], "источники": [{"место": "стр. 1"}]}
+    assert rescue_misplaced_sources(original) == original
+
+
+def test_string_answer_is_untouched() -> None:
+    original = {"ответ": "Исполнитель — Иванов.", "источники": []}
+    assert rescue_misplaced_sources(original) == original

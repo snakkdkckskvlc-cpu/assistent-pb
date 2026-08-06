@@ -362,6 +362,7 @@ def check(text: str) -> list[dict]:
             if finding is None:
                 continue
             seen.add(span)
+            start = text.find(finding.before, match.start())
             found.append(
                 {
                     "type": finding.type,
@@ -370,6 +371,11 @@ def check(text: str) -> list[dict]:
                     "reason": finding.reason,
                     "source": SOURCE,
                     "rule": rule.name,
+                    # Смещение нужно, чтобы правка применялась ПО МЕСТУ, а не
+                    # глобальной заменой: короткая находка иначе переписывает
+                    # весь документ (см. pipelines/spellcheck.py::_apply_to_text).
+                    "offset": start if start >= 0 else None,
+                    "length": len(finding.before) if start >= 0 else None,
                 }
             )
     return found

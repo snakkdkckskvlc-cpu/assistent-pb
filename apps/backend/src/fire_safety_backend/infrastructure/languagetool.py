@@ -70,13 +70,23 @@ _own_server: subprocess.Popen | None = None
 # (падеж после предлога), а согласование промпт объявляет вне задачи. То есть
 # проверка стала чуть шире объявленной. Замер показывает, что на деловом
 # тексте это единичные случаи, и они по делу.
+#
+# CASING отсюда УБРАНА по замеру: на пяти настоящих договорах она дала 5
+# находок, полезных ноль. Единственное, что она уверенно предлагает, — поднять
+# заглавную в начале строки, а в шапке договора там стоит «г. Липецк», где
+# «г.» это город, и правка «Г. Липецк» просто неверна. Настоящие ошибки
+# регистра в деловых документах редки, а эта категория портит каждую шапку.
 _CATEGORY_TO_TYPE = {
     "TYPOS": "орфография",
     "GRAMMAR": "орфография",
     "PUNCTUATION": "пунктуация",
     "TYPOGRAPHY": "пунктуация",
-    "CASING": "пунктуация",
 }
+
+# Правила, выключаемые на стороне сервера. WHITESPACE_RULE ругается на двойные
+# пробелы, а в шапках договоров ими сделано выравнивание («г. Липецк
+# <пробелы> «12» февраля»): это оформление документа, а не ошибка автора.
+_DISABLED_RULES = "WHITESPACE_RULE"
 
 _SENTENCE_END_CHARS = {".", "!", "?", "…"}
 
@@ -262,6 +272,13 @@ def _match_to_error(match: dict) -> dict:
         "after": after,
         "reason": match.get("message") or match.get("shortMessage") or "",
         "source": "languagetool",
+        # Смещение в ИСХОДНОМ тексте (не в контексте!). Без него правка
+        # применялась глобальной заменой, и однобуквенная находка переписывала
+        # весь документ: правило UPPERCASE_SENTENCE_START на шапке «г. Липецк»
+        # давало before='г', after='Г' и портило 26 строк из 68 — «сигнализации»
+        # превращалась в «сиГнализации». Замерено на настоящем договоре.
+        "offset": match.get("offset"),
+        "length": match.get("length"),
     }
 
 
@@ -308,7 +325,14 @@ async def check(text: str, language: str = "ru-RU") -> list[dict]:
         return []
     url = f"{config.LANGUAGETOOL_HOST}/v2/check"
     try:
-        r = await _get_client().post(url, data={"text": text, "language": language})
+        r = await _get_client().post(
+            url,
+            data={
+                "text": text,
+                "language": language,
+                "disabledRules": _DISABLED_RULES,
+            },
+        )
         r.raise_for_status()
     except httpx.HTTPError as e:
         log.warning("LanguageTool недоступен (%s) — пропускаю, идём только на LLM", e)

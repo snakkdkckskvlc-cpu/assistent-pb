@@ -28,9 +28,26 @@ def q() -> TaskQueue:
     return queue
 
 
+async def _noop(task: Task) -> None:  # pragma: no cover — до выполнения не доходит
+    return None
+
+
 def _fill(queue: TaskQueue, *tasks: Task) -> None:
+    """Кладёт задачи в очередь так же, как это делает submit().
+
+    Раньше здесь была запись только в `_tasks`, минуя список ожидающих. Из-за
+    этого тесты перестали проверять настоящий путь: `planned_order()` строится
+    по `_pending`, видел пустоту — и позиция у всех выходила первой. Три теста
+    падали, и это была не ложная тревога, а честный сигнал, что фикстура
+    разошлась с реализацией.
+
+    Настоящий `submit()` здесь не годится: он требует запущенного цикла и
+    поднимает воркер, который тут же начнёт задачи выполнять.
+    """
     for t in tasks:
         queue._tasks[t.id] = t
+        if t.status == "queued":
+            queue._pending.append((t, _noop))
 
 
 # --- Позиция ---
@@ -97,13 +114,16 @@ def test_eta_uses_history(client, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tasks_view.history, "typical_duration", lambda kind, limit=10: 120.0)
     ahead = _task("ahead", age_sec=30)
     mine = _task("mine", age_sec=10)
-    real_queue._tasks.update({"ahead": ahead, "mine": mine})
+    # Через _fill, а не прямой записью в _tasks: позиция считается по списку
+    # ожидающих, и задача, которой там нет, позиции не имеет вовсе.
+    _fill(real_queue, ahead, mine)
     try:
         # Впереди одна задача плюс своя — два раза по 120 секунд.
         assert tasks_view._eta_seconds(mine) == pytest.approx(240.0)
     finally:
         real_queue._tasks.pop("ahead", None)
         real_queue._tasks.pop("mine", None)
+        real_queue._pending.clear()
 
 
 def test_eta_is_none_without_history(client, monkeypatch: pytest.MonkeyPatch) -> None:

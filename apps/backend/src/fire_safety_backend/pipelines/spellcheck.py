@@ -74,15 +74,49 @@ def _with_known_errors(chunk: str, lt_errors: list[dict]) -> str:
 def _apply_to_text(text: str, errors: list[dict]) -> str:
     """Собирает исправленный текст из найденных правок.
 
-    Нужно в быстром режиме: модель не вызывается, а показать результат целиком
-    всё равно надо. Замены идут в порядке убывания длины «было» — короткий
-    фрагмент может оказаться частью длинного, и заменив его первым, мы
-    разрушили бы длинный.
+    ### Правки применяются ПО МЕСТУ, а не глобальной заменой
+
+    Раньше здесь стоял `text.replace(before, after)` на весь документ. Для
+    находки в одно слово это катастрофа: правило LanguageTool
+    UPPERCASE_SENTENCE_START на шапке «г. Липецк» даёт `before='г'`,
+    `after='Г'` — и замена проходит по КАЖДОЙ букве «г» в договоре.
+
+    Замерено на настоящем договоре: испорчено 26 строк из 68, «сигнализации»
+    превратилась в «сиГнализации». В обоих режимах, быстром и глубоком. Мои
+    запреты на форму правки этот путь не закрывали: они проверяют находки
+    модели, а словарь и домашние правила их обходят.
+
+    Теперь находка со смещением применяется ровно в своё место. Смещения
+    обрабатываются С КОНЦА документа к началу — иначе первая же правка сдвинула
+    бы позиции всех последующих.
+
+    Находки без смещения (модель) применяются заменой, как раньше: их цитаты
+    привязаны к тексту и проверены на длину и форму (см. _keep_applicable).
     """
-    out = text
-    for e in sorted(errors, key=lambda x: len(str(x.get("before", ""))), reverse=True):
+    spans: list[tuple[int, int, str]] = []
+    plain: list[dict] = []
+    for e in errors:
         before, after = str(e.get("before", "")), str(e.get("after", ""))
-        if before and after and before != after and before not in after:
+        if not before or not after or before == after:
+            continue
+        offset, length = e.get("offset"), e.get("length")
+        if isinstance(offset, int) and isinstance(length, int) and length > 0:
+            if text[offset : offset + length] == before:
+                spans.append((offset, offset + length, after))
+                continue
+            # Смещение не сошлось с текстом — молча применять «примерно туда»
+            # нельзя, это тот же класс порчи. Отдаём находку общему пути.
+            log.info("Смещение находки не совпало с текстом, применяю заменой: %r", before[:40])
+        plain.append(e)
+
+    out = text
+    # С конца к началу: правка не должна сдвигать позиции ещё не применённых.
+    for start, end, after in sorted(spans, key=lambda s: s[0], reverse=True):
+        out = out[:start] + after + out[end:]
+
+    for e in sorted(plain, key=lambda x: len(str(x.get("before", ""))), reverse=True):
+        before, after = str(e.get("before", "")), str(e.get("after", ""))
+        if before not in after:
             out = out.replace(before, after)
     return out
 

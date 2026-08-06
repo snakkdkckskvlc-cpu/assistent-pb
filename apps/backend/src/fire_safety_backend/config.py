@@ -199,6 +199,9 @@ LLM_NUM_PREDICT_ASK = 1200
 # документа — не творческая задача, и на один и тот же файл ответ обязан быть
 # один и тот же.
 LLM_TEMPERATURE_ASK = float(os.environ.get("LLM_TEMPERATURE_ASK", "0"))
+# Отдельного окна у этого пайплайна НЕТ намеренно. Напрашивается большое, чтобы
+# читать документ одним запросом, — пробовали и откатили по замеру: вдвое
+# медленнее при том же качестве, разбор в docstring pipelines/ask.py.
 
 # --- OCR ---
 TESSERACT_CMD = os.environ.get("TESSERACT_CMD")  # None → авто из PATH

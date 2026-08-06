@@ -13,7 +13,11 @@
 
 from __future__ import annotations
 
-from fire_safety_backend.pipelines.spellcheck import _keep_applicable, _unsafe_reason
+from fire_safety_backend.pipelines.spellcheck import (
+    _apply_to_text,
+    _keep_applicable,
+    _unsafe_reason,
+)
 
 # --- Цифры ---
 
@@ -98,3 +102,60 @@ def test_deterministic_sources_are_not_second_guessed() -> None:
     пропускать их через эвристику незачем."""
     errors = [{"before": "2.2", "after": "2,2", "source": "languagetool"}]
     assert _keep_applicable(errors, "2.2 пункт") == errors
+
+
+# --- Правки применяются по месту, а не глобальной заменой ---
+
+
+def test_short_finding_does_not_rewrite_the_whole_document() -> None:
+    """Самый тяжёлый дефект из найденных ревью. Правило LanguageTool
+    UPPERCASE_SENTENCE_START на шапке «г. Липецк» даёт before='г', after='Г', и
+    глобальная замена проходила по КАЖДОЙ букве «г» в договоре: замерено 26
+    испорченных строк из 68, «сигнализации» → «сиГнализации».
+
+    Запреты на форму правки этот путь не закрывали: они проверяют находки
+    модели, а словарь и домашние правила их обходят."""
+    text = "г. Липецк\nмонтаж сигнализации\nгарантийный срок"
+    errors = [{"before": "г", "after": "Г", "source": "languagetool", "offset": 0, "length": 1}]
+    out = _apply_to_text(text, errors)
+    assert out.splitlines()[0] == "Г. Липецк"
+    assert out.splitlines()[1] == "монтаж сигнализации", "остальной текст обязан остаться цел"
+    assert out.splitlines()[2] == "гарантийный срок"
+
+
+def test_several_positional_edits_do_not_shift_each_other() -> None:
+    """Правки применяются с конца к началу: иначе первая же сдвинула бы
+    позиции всех последующих."""
+    text = "обьект и обьявление"
+    errors = [
+        {"before": "обьект", "after": "объект", "source": "languagetool", "offset": 0, "length": 6},
+        {
+            "before": "обьявление",
+            "after": "объявление",
+            "source": "languagetool",
+            "offset": 9,
+            "length": 10,
+        },
+    ]
+    assert _apply_to_text(text, errors) == "объект и объявление"
+
+
+def test_finding_whose_offset_does_not_match_falls_back_to_replace() -> None:
+    """Смещение не сошлось с текстом — применять «примерно туда» нельзя, это
+    тот же класс порчи. Находка уходит на общий путь."""
+    text = "работы на обьекте"
+    errors = [
+        {
+            "before": "обьекте",
+            "after": "объекте",
+            "source": "languagetool",
+            "offset": 999,
+            "length": 7,
+        }
+    ]
+    assert _apply_to_text(text, errors) == "работы на объекте"
+
+
+def test_model_finding_without_offset_still_applies() -> None:
+    errors = [{"before": "Уверены что", "after": "Уверены, что", "source": "llm"}]
+    assert _apply_to_text("Уверены что сроки", errors) == "Уверены, что сроки"

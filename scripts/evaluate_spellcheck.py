@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -65,14 +66,56 @@ def _normalize(text: str) -> str:
     return " ".join(str(text).split()).casefold()
 
 
-def _matches(before: str, anchor: str) -> bool:
+def _span(fragment: str, text: str) -> tuple[int, int] | None:
+    """Где фрагмент стоит в документе. None — не нашли.
+
+    Ищется дословно, затем по последовательности слов со свободными знаками
+    между ними: цитата модели может отличаться от документа пробелами.
+    """
+    if not fragment.strip():
+        return None
+    pos = text.find(fragment)
+    if pos >= 0:
+        return pos, pos + len(fragment)
+    words = re.findall(r"\w+", fragment, flags=re.UNICODE)
+    if len(words) < 2:
+        return None
+    pattern = r"[^\w]*".join(re.escape(w) for w in words)
+    m = re.search(pattern, text, flags=re.IGNORECASE | re.UNICODE)
+    return (m.start(), m.end()) if m else None
+
+
+def _matches(before: str, anchor: str, text: str = "") -> bool:
+    """Попала ли правка В ТО ЖЕ МЕСТО документа, что ожидаемая ошибка.
+
+    ### Почему по отрезкам, а не по вложенности строк
+
+    Раньше здесь стояло «одна строка содержится в другой». Этого мало: правка
+    может ПЕРЕКРЫВАТЬ ожидаемое место, выходя за его границы, — «компания
+    надёжный партнёр и дорожит» против якоря «Наша компания надёжный партнёр».
+    Ни одна строка не содержит другую, и верная правка попадала одновременно в
+    пропущенные И в лишние: полнота занижалась, шум завышался.
+
+    Дефект нашли при внешнем ревью, и он обесценивал сравнения: вчера на таких
+    цифрах принимались решения откатить промпт и откатить упаковку документа.
+
+    Теперь оба фрагмента ищутся в исходном тексте, и правка засчитывается, если
+    отрезки пересекаются. Вложенность строк осталась запасным путём — на случай,
+    когда фрагмент в тексте не находится вовсе.
+    """
     b, a = _normalize(before), _normalize(anchor)
     if len(b) < _MIN_OVERLAP or len(a) < _MIN_OVERLAP:
         return False
+    if text:
+        bs, as_ = _span(before, text), _span(anchor, text)
+        if bs and as_:
+            return bs[0] < as_[1] and as_[0] < bs[1]
     return b in a or a in b
 
 
-def _score(findings: list[dict], expected: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+def _score(
+    findings: list[dict], expected: list[dict], text: str = ""
+) -> tuple[list[dict], list[dict], list[dict]]:
     """Возвращает (найденные, пропущенные, лишние).
 
     Каждая находка засчитывается не больше одного раза, иначе одна удачная
@@ -83,7 +126,7 @@ def _score(findings: list[dict], expected: list[dict]) -> tuple[list[dict], list
     missed: list[dict] = []
 
     for exp in expected:
-        hit = next((f for f in unused if _matches(f.get("before", ""), exp["anchor"])), None)
+        hit = next((f for f in unused if _matches(f.get("before", ""), exp["anchor"], text)), None)
         if hit is None:
             missed.append(exp)
         else:
@@ -130,7 +173,7 @@ async def _run_one(path: Path, deep: bool) -> dict:
     took = time.time() - started
 
     findings = [e for e in result.get("errors", []) if isinstance(e, dict)]
-    found, missed, extra = _score(findings, spec["errors"])
+    found, missed, extra = _score(findings, spec["errors"], text)
     clean = spec.get("чистые_фрагменты", [])
     false_positives = [f for f in extra if _in_clean_part(f.get("before", ""), clean)]
 
@@ -151,10 +194,17 @@ def _print_report(reports: list[dict], deep: bool) -> None:
     hit = sum(r["найдено"] for r in reports)
     seconds = sum(r["секунд"] for r in reports)
 
+    false_positives = sum(len(r["false_positives"]) for r in reports)
+    extra = sum(len(r["extra"]) for r in reports)
+
     print()
     print("=" * 62)
     print(f"Режим: {'полный (LanguageTool + модель)' if deep else 'быстрый (только LanguageTool)'}")
     print(f"Найдено: {hit} из {total}  ({100 * hit / total:.0f}%)   время: {seconds:.1f} c")
+    # Шум — во второй строке сводки, а не только в подробностях. Полнота без
+    # него накручивается тривиально: разреши модели «находить» больше, и
+    # процент вырастет вместе с числом мусорных правок.
+    print(f"Шум: {false_positives} ложных в чистых фрагментах, {extra} находок сверх набора")
     print("=" * 62)
 
     for r in reports:

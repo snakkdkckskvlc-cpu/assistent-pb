@@ -181,3 +181,24 @@ class TestReplacementPairs:
     def test_malformed_entries_do_not_crash(self) -> None:
         """Модель иногда отступает от схемы — список строк вместо объектов."""
         assert _replacements(["строка", None, 42, {"before": "а", "after": "б"}]) == [("а", "б")]
+
+
+def test_finding_without_a_replacement_does_not_delete_the_word() -> None:
+    """LanguageTool отдаёт находку без вариантов замены, когда знает, что слово
+    подозрительно, но не знает, чем его заменить: замерено, что так приходят 10
+    находок из 27.
+
+    В corrected_text они отсеивались, а здесь условие было слабее — и пара
+    ('заводом-изготовителем', '') доезжала до подстановки, ВЫРЕЗАЯ слово из
+    договора. На пяти настоящих договорах так пропадали «заводом-изготовителем»,
+    «сдачи-приёмки», «с ГОСТ»: текст в интерфейсе и текст в скачанном файле
+    расходились, причём хуже был файл — а именно его отправляют заказчику."""
+    from fire_safety_backend.infrastructure.generators.corrected_docx import _replacements
+
+    pairs = _replacements(
+        [
+            {"before": "заводом-изготовителем", "after": ""},
+            {"before": "обьекте", "after": "объекте"},
+        ]
+    )
+    assert pairs == [("обьекте", "объекте")]
