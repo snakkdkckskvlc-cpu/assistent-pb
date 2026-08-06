@@ -20,6 +20,7 @@ from .infrastructure.queue import queue
 from .services import addressees as addressee_service
 from .services import history as history_service
 from .services import retention
+from .services import transport as transport_service
 from .views import (
     addressees,
     ask,
@@ -35,6 +36,7 @@ from .views import (
     spellcheck,
     static_pages,
     tasks,
+    transport,
 )
 
 logging.basicConfig(
@@ -94,6 +96,7 @@ async def lifespan(app: FastAPI):
 
     init_db()
     addressee_service.seed_defaults()
+    transport_service.seed_defaults()
     # Возобновить прерванные задачи нельзя — работа модели не сохраняется.
     # Но и оставить их «в очереди» навсегда нельзя: человек ждал бы ответа,
     # которого не будет.
@@ -151,6 +154,7 @@ def create_app() -> FastAPI:
         feedback,
         history,
         data,
+        transport,
     ):
         app.include_router(module.router, dependencies=guarded)
 

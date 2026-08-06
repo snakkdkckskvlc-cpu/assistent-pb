@@ -142,6 +142,112 @@ CREATE TABLE IF NOT EXISTS task_results (
 );
 
 CREATE INDEX IF NOT EXISTS idx_task_results_owner ON task_results(owner);
+
+-- ── Транспорт ─────────────────────────────────────────────────────────────
+-- Модуль строится ручным вводом вперёд, а не вокруг трекера: ГЛОНАСС стоит на
+-- 3 машинах из 12, и если сделать основой его, девять машин останутся без
+-- учёта. Данные трекера — уточнение поверх ручной записи, поэтому все поля
+-- заполнимы человеком, а признак источника хранится отдельно (trip.source).
+--
+-- Все величины — ЦЕЛЫЕ, в мелких единицах: расстояние в метрах (_m), топливо
+-- в миллилитрах (_ml), деньги в копейках (_kop). Топливный учёт складывается
+-- сотнями рейсов, и накопленная погрешность float'а превратилась бы в
+-- расхождение с бухгалтерией, которое нечем объяснить. В человеческие
+-- километры и литры пересчёт идёт на границе API (services/transport.py).
+
+-- Состояние машины — таблица, а не константы в коде: перечень состояний в
+-- автопарке меняется («на консервации», «передана в аренду»), и добавление
+-- строки не должно требовать выпуска новой версии программы.
+CREATE TABLE IF NOT EXISTS vehicle_state (
+    code TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    is_available INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS vehicle (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Как машину называют вслух: «Логан 145». Секретарь ищет её по этому
+    -- имени, а не по госномеру, поэтому оно обязательное и уникальное.
+    call_name TEXT NOT NULL UNIQUE COLLATE NOCASE_UNICODE,
+    plate TEXT NOT NULL DEFAULT '',
+    brand TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    year INTEGER,
+    -- Категория из ПТС (M1, N1, N2, N3): от неё зависят периодичность
+    -- техосмотра и нужен ли тахограф.
+    category TEXT NOT NULL DEFAULT '',
+    fuel_type TEXT NOT NULL DEFAULT '',
+    tank_ml INTEGER,
+    odometer_m INTEGER NOT NULL DEFAULT 0,
+    state_code TEXT NOT NULL DEFAULT 'idle' REFERENCES vehicle_state(code),
+    has_glonass INTEGER NOT NULL DEFAULT 0,
+    -- Идентификатор машины в системе мониторинга. Пусто, пока не известно,
+    -- что за платформа стоит у поставщика (см. docs/02-product/
+    -- transport-checklist.md, раздел 2) — это и есть точка подключения.
+    tracker_id TEXT NOT NULL DEFAULT '',
+    -- Норма расхода, сотые доли литра на 100 км (7.8 л → 780). NULL, пока нет
+    -- приказа директора, утверждающего нормы по парку: расход списывается не
+    -- по паспортному значению, а по утверждённой норме на базе распоряжения
+    -- Минтранса АМ-23-р. Пока NULL — расход по норме не считается вовсе,
+    -- показывается только факт выдачи.
+    fuel_norm_hs_x100 INTEGER,
+    notes TEXT NOT NULL DEFAULT '',
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Постоянные точки: площадки НЛМК, ТЭЦ, склады, база. distance_from_base_m
+-- заполняется вручную — справочник расстояний дешевле маршрутизатора, пока
+-- точек десятки; координаты нужны, чтобы позже показать их на карте.
+CREATE TABLE IF NOT EXISTS place (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE_UNICODE,
+    address TEXT NOT NULL DEFAULT '',
+    lat REAL,
+    lon REAL,
+    distance_from_base_m INTEGER,
+    is_base INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Рейс — одна поездка «оттуда-туда». НЕ путевой лист: лист является
+-- юридическим документом с отметками предрейсового медосмотра и техконтроля
+-- выпуска, без которых он недействителен, и одним листом может закрываться
+-- несколько рейсов. Таблица waybill появится отдельно, когда станет известно,
+-- как медосмотр проводится в компании (transport-checklist.md, раздел 3);
+-- ссылка trip.waybill_id добавится миграцией.
+CREATE TABLE IF NOT EXISTS trip (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vehicle_id INTEGER NOT NULL REFERENCES vehicle(id) ON DELETE CASCADE,
+    driver TEXT NOT NULL DEFAULT '',
+    place_from_id INTEGER REFERENCES place(id),
+    place_to_id INTEGER REFERENCES place(id),
+    -- Свободный текст на случай разовой точки, которой нет в справочнике:
+    -- заставлять секретаря заводить точку ради одной поездки — верный способ
+    -- получить учёт мимо программы.
+    destination_text TEXT NOT NULL DEFAULT '',
+    purpose TEXT NOT NULL DEFAULT '',
+    departed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    returned_at TEXT,
+    odometer_start_m INTEGER,
+    odometer_end_m INTEGER,
+    fuel_issued_ml INTEGER NOT NULL DEFAULT 0,
+    -- Снимок нормы на момент рейса. Норма меняется приказом (зимняя надбавка,
+    -- новый коэффициент), и без снимка пересчёт прошлого месяца дал бы цифры,
+    -- отличные от тех, по которым уже списали топливо.
+    fuel_norm_hs_x100 INTEGER,
+    -- manual | glonass | 1c — откуда пришла запись. Ручной ввод остаётся
+    -- основным; поле нужно, чтобы позже не гадать, какие рейсы можно
+    -- перезаписывать данными трекера, а какие правил человек.
+    source TEXT NOT NULL DEFAULT 'manual',
+    notes TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_trip_vehicle ON trip(vehicle_id, departed_at);
+CREATE INDEX IF NOT EXISTS idx_trip_open ON trip(returned_at) WHERE returned_at IS NULL;
 """
 
 

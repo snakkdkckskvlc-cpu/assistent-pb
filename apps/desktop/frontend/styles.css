@@ -100,7 +100,7 @@ body {
   color: var(--muted);
   margin-bottom: 6px;
 }
-textarea, input[type="text"], select {
+textarea, input[type="text"], input[type="number"], select {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border);

@@ -14,6 +14,7 @@ from . import (
     spellcheck,
     static_pages,
     tasks,
+    transport,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "spellcheck",
     "static_pages",
     "tasks",
+    "transport",
 ]
