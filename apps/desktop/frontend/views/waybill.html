@@ -52,6 +52,7 @@
 
       <div class="actions">
         <button class="btn" id="wb-save">Сохранить лист</button>
+        <button class="btn" id="wb-print">📄 Скачать бланк</button>
         <button class="btn secondary" id="wb-close-editor">Закрыть</button>
         <button class="btn secondary" id="wb-delete">Удалить лист</button>
         <span class="hint" id="wb-status"></span>
@@ -331,6 +332,7 @@
       document.getElementById("wb-title").textContent =
         `Путевой лист ${isCargo ? "грузового автомобиля (форма 4-С)" : "легкового автомобиля (форма № 3)"}`;
       const fact = wb.fuel_balance_l === null ? "—" : `${wb.fuel_balance_l} л`;
+      const byNorm = wb.fuel_by_norm_l === null ? "—" : `${wb.fuel_by_norm_l} л`;
       const saving =
         wb.fuel_saving_l === null
           ? "нет нормы или пробега"
@@ -338,7 +340,8 @@
             ? `экономия ${wb.fuel_saving_l} л`
             : `перерасход ${Math.abs(wb.fuel_saving_l)} л`;
       document.getElementById("wb-subtitle").textContent =
-        `${wb.vehicle_name} · ${wb.org_name || "организация не выбрана"} · расход фактически ${fact} · ${saving}`;
+        `${wb.vehicle_name} · ${wb.org_name || "организация не выбрана"} · ` +
+        `расход по норме ${byNorm}, фактически ${fact} · ${saving}`;
 
       document.getElementById("wb-trailers-box").style.display = isCargo ? "block" : "none";
       document.getElementById("wb-downtimes-box").style.display = isCargo ? "block" : "none";
@@ -428,46 +431,55 @@
       return out;
     }
 
+    // Сохранение вынесено функцией, а не спрятано в обработчике: печать
+    // обязана сохранить лист ПЕРЕД сборкой бланка, и делать это «нажатием»
+    // на соседнюю кнопку с ожиданием по таймеру — гонка, которая рано или
+    // поздно напечатает старые данные.
+    async function saveWaybill() {
+      let wb = await api(`/api/transport/waybills/${CURRENT.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(collectWaybill()),
+      });
+      if (wb.form === "4-S") {
+        const ids = [0, 1, 2, 3]
+          .map((i) => document.getElementById(`tr-slot-${i}`).value)
+          .filter(Boolean)
+          .map(Number);
+        wb = await api(`/api/transport/waybills/${wb.id}/trailers`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(ids),
+        });
+        const items = [...document.querySelectorAll("[data-downtime]")]
+          .map((box) => {
+            const get = (k) => box.querySelector(`[data-dt="${k}"]`).value;
+            return {
+              name: get("name"),
+              reason: get("reason"),
+              started_at: get("started_at") || null,
+              ended_at: get("ended_at") || null,
+              responsible_name: get("responsible_name"),
+            };
+          })
+          .filter((d) => d.name || d.reason || d.started_at);
+        wb = await api(`/api/transport/waybills/${wb.id}/downtimes`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(items),
+        });
+      }
+      renderEditor(wb);
+      await loadWaybills();
+      return wb;
+    }
+
     document.getElementById("wb-save").addEventListener("click", async () => {
       const status = document.getElementById("wb-status");
       status.textContent = "Сохраняю…";
       try {
-        let wb = await api(`/api/transport/waybills/${CURRENT.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(collectWaybill()),
-        });
-        if (wb.form === "4-S") {
-          const ids = [0, 1, 2, 3]
-            .map((i) => document.getElementById(`tr-slot-${i}`).value)
-            .filter(Boolean)
-            .map(Number);
-          wb = await api(`/api/transport/waybills/${wb.id}/trailers`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(ids),
-          });
-          const items = [...document.querySelectorAll("[data-downtime]")]
-            .map((box) => {
-              const get = (k) => box.querySelector(`[data-dt="${k}"]`).value;
-              return {
-                name: get("name"),
-                reason: get("reason"),
-                started_at: get("started_at") || null,
-                ended_at: get("ended_at") || null,
-                responsible_name: get("responsible_name"),
-              };
-            })
-            .filter((d) => d.name || d.reason || d.started_at);
-          wb = await api(`/api/transport/waybills/${wb.id}/downtimes`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(items),
-          });
-        }
+        await saveWaybill();
         status.textContent = "Сохранено.";
-        renderEditor(wb);
-        await loadWaybills();
       } catch (e) {
         status.textContent = e.message || String(e);
       }
@@ -485,6 +497,31 @@
         };
       });
       renderDowntimes([...items, {}]);
+    });
+
+    // Перед печатью лист сохраняется: иначе в бланк уйдёт то, что лежит в
+    // базе, а человек смотрит на изменённую форму и уверен, что печатает её.
+    document.getElementById("wb-print").addEventListener("click", async () => {
+      if (!CURRENT) return;
+      const status = document.getElementById("wb-status");
+      const btn = document.getElementById("wb-print");
+      btn.disabled = true;
+      status.textContent = "Сохраняю и собираю бланк…";
+      try {
+        await saveWaybill();
+        const { docx_path } = await api(`/api/transport/waybills/${CURRENT.id}/print`, {
+          method: "POST",
+        });
+        status.textContent = "";
+        const res = await downloadFile(`/api/download/${encodeURIComponent(docx_path)}`, docx_path);
+        if (res && res.ok === false && res.error !== "cancelled") {
+          status.textContent = "Не удалось сохранить: " + res.error;
+        }
+      } catch (e) {
+        status.textContent = e.message || String(e);
+      } finally {
+        btn.disabled = false;
+      }
     });
 
     document.getElementById("wb-close-editor").addEventListener("click", () => {

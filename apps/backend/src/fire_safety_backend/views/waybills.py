@@ -8,9 +8,13 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from .. import config
+from ..infrastructure import secure_files
+from ..infrastructure.generators.waybill_docx import build_waybill_docx
 from ..models.waybill import (
     Downtime,
     Driver,
@@ -24,6 +28,8 @@ from ..models.waybill import (
     WaybillCreate,
     WaybillUpdate,
 )
+from ..services import ownership
+from ..services import transport as transport_service
 from ..services import waybills as service
 from . import auth
 
@@ -173,3 +179,34 @@ async def set_downtimes(waybill_id: int, items: list[Downtime]) -> Waybill:
         return await asyncio.to_thread(service.set_downtimes, waybill_id, items)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post("/waybills/{waybill_id}/print")
+async def print_waybill(waybill_id: int, user: auth.User = Depends(auth.current_user)) -> dict:
+    """Собирает печатную форму листа — № 3 или 4-С по признаку в самом листе.
+
+    Быстрая операция без модели, поэтому синхронно, мимо очереди задач — как
+    и сборка письма (views/letter.py).
+    """
+    try:
+        data = await asyncio.to_thread(service.print_data, waybill_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    trips = await asyncio.to_thread(transport_service.list_trips, waybill_id=waybill_id, limit=500)
+
+    filename = f"waybill_{uuid.uuid4().hex[:12]}.docx"
+    output_path = config.OUTPUT_DIR / filename
+    try:
+        # В листе фамилия водителя, номер удостоверения и СНИЛС — на диске он
+        # лежит зашифрованным, как и остальные документы.
+        with secure_files.encrypted_output(output_path) as writable:
+            await asyncio.to_thread(
+                build_waybill_docx, data, [t.model_dump() for t in trips], writable
+            )
+    except secure_files.StorageUnprotected as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Не удалось собрать бланк: {e}") from e
+
+    await asyncio.to_thread(ownership.claim, filename, user.login)
+    return {"docx_path": filename, "form": data.get("form", "3")}

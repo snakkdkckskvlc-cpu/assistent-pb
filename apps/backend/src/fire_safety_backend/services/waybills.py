@@ -585,6 +585,49 @@ def set_downtimes(waybill_id: int, items: list[Downtime]) -> Waybill:
     return get_waybill(waybill_id)
 
 
+def print_data(waybill_id: int) -> dict[str, Any]:
+    """Данные листа для печати, включая реквизиты организации и водителя.
+
+    Отдельно от get_waybill намеренно. В печатный бланк входят СНИЛС и номер
+    водительского удостоверения — обязательные реквизиты документа, но
+    персональные данные. Добавь их в модель Waybill — и они начали бы уезжать
+    клиенту в КАЖДОМ ответе журнала листов, включая список. Здесь же словарь
+    собирается под один конкретный вызов и дальше генератора DOCX не уходит.
+    """
+    waybill = get_waybill(waybill_id)
+    data: dict[str, Any] = waybill.model_dump()
+    data["trailers"] = [t.model_dump() for t in waybill.trailers]
+    data["downtimes"] = [d.model_dump() for d in waybill.downtimes]
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT o.address AS org_address, o.phone AS org_phone, o.okpo AS org_okpo, "
+            "o.ogrn AS org_ogrn, v.vehicle_code, "
+            "d.licence_series, d.licence_number, d.licence_issued_at, d.licence_class, "
+            "d.snils, d.licence_card "
+            "FROM waybill w "
+            "LEFT JOIN organization o ON o.id = w.org_id "
+            "JOIN vehicle v ON v.id = w.vehicle_id "
+            "LEFT JOIN driver d ON d.id = w.driver_id "
+            "WHERE w.id = ?",
+            (waybill_id,),
+        ).fetchone()
+
+    if row is not None:
+        for key in ("org_address", "org_phone", "org_okpo", "org_ogrn", "vehicle_code"):
+            data[key] = row[key] or ""
+        for column in (
+            "licence_series",
+            "licence_number",
+            "licence_issued_at",
+            "licence_class",
+            "snils",
+            "licence_card",
+        ):
+            data[f"driver_{column}"] = row[column] or ""
+    return data
+
+
 def _to_columns(fields: dict[str, Any]) -> dict[str, Any]:
     """Поля модели → столбцы БД с пересчётом единиц."""
     out: dict[str, Any] = {}
@@ -639,7 +682,7 @@ def _downtimes_by_waybill(
     return out
 
 
-def _fuel_figures(row: sqlite3.Row) -> tuple[float | None, float | None]:
+def _fuel_figures(row: sqlite3.Row) -> tuple[float | None, float | None, float | None]:
     """Расход по цепочке бланка и экономия против нормы.
 
     Расход фактически = остаток при выезде + выдано − остаток при возвращении −
@@ -679,7 +722,7 @@ def _fuel_figures(row: sqlite3.Row) -> tuple[float | None, float | None]:
             norm_ml = round(run_m / 1000 * row["fuel_norm_hs_x100"] / 100 * 10)
 
     saving_ml = None if fact_ml is None or norm_ml is None else norm_ml - fact_ml
-    return ml_to_l(fact_ml), ml_to_l(saving_ml)
+    return ml_to_l(fact_ml), ml_to_l(saving_ml), ml_to_l(norm_ml)
 
 
 def _row_to_waybill(
@@ -692,7 +735,7 @@ def _row_to_waybill(
         value = row[column]
         data[field] = None if value is None else from_db(value)
 
-    fact_l, saving_l = _fuel_figures(row)
+    fact_l, saving_l, norm_l = _fuel_figures(row)
     mark = " ".join(x for x in (row["vehicle_brand"], row["vehicle_model"]) if x)
     return Waybill(
         id=row["id"],
@@ -705,6 +748,7 @@ def _row_to_waybill(
         driver_tab_number=row["driver_tab_number"] or "",
         fuel_balance_l=fact_l,
         fuel_saving_l=saving_l,
+        fuel_by_norm_l=norm_l,
         trailers=trailers,
         downtimes=downtimes,
         created_by=row["created_by"] or "",

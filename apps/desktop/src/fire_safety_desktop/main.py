@@ -267,14 +267,48 @@ class _Api:
         # второго URL, ни хитростей с обратным слэшем на Windows.
         return bool(name) and not any(c in name for c in "/\\?#@:")
 
+    @staticmethod
+    def _session_cookies() -> dict[str, str]:
+        """Cookie окна webview — чтобы мост ходил на backend от имени вошедшего.
+
+        Мост запрашивает файл ОТДЕЛЬНЫМ http-клиентом, а не тем, чем живёт
+        страница. Своих cookie у него нет, и передать их из JS нельзя:
+        сессионная cookie помечена httponly ровно затем, чтобы её не читал
+        скрипт. Без этого /api/download отвечает 401, а кнопка «Скачать»
+        выглядит сломанной без единого сообщения.
+        """
+        try:
+            raw = webview.windows[0].get_cookies()
+        except Exception as e:  # окно ещё не готово или движок не умеет
+            log.warning("save_file: не удалось прочитать cookie окна: %s", e)
+            return {}
+        out: dict[str, str] = {}
+        for item in raw or []:
+            # pywebview отдаёт http.cookies.SimpleCookie; на части платформ —
+            # объекты с полями name/value. Поддерживаем оба вида.
+            items = getattr(item, "items", None)
+            if callable(items):
+                for name, morsel in item.items():
+                    out[name] = getattr(morsel, "value", morsel)
+            elif getattr(item, "name", None):
+                out[item.name] = getattr(item, "value", "")
+        return out
+
     def save_file(self, download_path: str, suggested_name: str) -> dict:
         if not self._is_safe_download_path(download_path):
             log.warning("save_file: отклонён небезопасный путь %r", download_path)
             return {"ok": False, "error": "недопустимый путь для скачивания"}
         try:
-            r = httpx.get(f"{self._base_url}{download_path}", timeout=30)
+            r = httpx.get(
+                f"{self._base_url}{download_path}",
+                timeout=30,
+                cookies=self._session_cookies(),
+            )
+            if r.status_code == 401:
+                return {"ok": False, "error": "сессия истекла — войдите заново"}
             r.raise_for_status()
         except Exception as e:
+            log.warning("save_file: не удалось скачать %r: %s", download_path, e)
             return {"ok": False, "error": str(e)}
 
         window = webview.windows[0]

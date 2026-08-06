@@ -303,6 +303,10 @@ class Waybill(WaybillFields):
     fuel_balance_l: float | None = None
     # Экономия (> 0) или перерасход (< 0) против нормы. None без нормы.
     fuel_saving_l: float | None = None
+    # Расход по норме: пробег × норма. Считается, когда норма утверждена и
+    # пробег известен; иначе None и в бланке прочерк. Отдаётся отдельно от
+    # fuel_used_norm_l: то — цифра, вписанная человеком, и она главнее.
+    fuel_by_norm_l: float | None = None
     trailers: list[Trailer] = Field(default_factory=list)
     downtimes: list[Downtime] = Field(default_factory=list)
     created_by: str = ""
