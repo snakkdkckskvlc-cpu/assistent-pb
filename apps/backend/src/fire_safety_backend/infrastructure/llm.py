@@ -46,6 +46,63 @@ def _get_client() -> httpx.AsyncClient:
     return _client
 
 
+def _sec(stats: dict[str, Any], key: str) -> float:
+    """Длительность из ответа Ollama — она приходит в НАНОСЕКУНДАХ."""
+    value = stats.get(key)
+    return value / 1e9 if isinstance(value, (int, float)) else 0.0
+
+
+def _log_stats(stats: dict[str, Any], effective_ctx: int) -> None:
+    """Разложение времени запроса по фазам.
+
+    Зачем отдельной строкой в логе, а не «замерим, когда понадобится». Юр.
+    анализ договора идёт 40 минут, а по расчёту должен около 18: чтение
+    промпта 18–20 тыс. токенов при 165–260 т/с плюс генерация ~12 000 при
+    12 т/с. Пока в логе одно число — сколько токенов прочитано, — непонятно,
+    где именно теряются недостающие двадцать минут, и любая оптимизация идёт
+    вслепую. Ollama отдаёт разбивку в том же чанке, что и prompt_eval_count,
+    и стоит она ноль.
+
+    Отдельно считается «прочее»: total минус загрузка, чтение и генерация.
+    Если оно велико, время уходит не на арифметику модели (сэмплинг,
+    softmax на длинном контексте, накладные расходы Ollama), и это ровно тот
+    случай, когда крутить num_thread бессмысленно.
+    """
+    prompt_tokens = stats.get("prompt_eval_count")
+    if prompt_tokens is None:
+        return
+
+    load = _sec(stats, "load_duration")
+    read = _sec(stats, "prompt_eval_duration")
+    write = _sec(stats, "eval_duration")
+    total = _sec(stats, "total_duration")
+    out_tokens = stats.get("eval_count") or 0
+    other = max(0.0, total - load - read - write)
+
+    log.info(
+        "LLM тайминг: чтение %d ток за %.1f с (%.0f ток/с), генерация %d ток за %.1f с "
+        "(%.1f ток/с), загрузка %.1f с, прочее %.1f с, всего %.1f с",
+        prompt_tokens,
+        read,
+        prompt_tokens / read if read > 0 else 0.0,
+        out_tokens,
+        write,
+        out_tokens / write if write > 0 else 0.0,
+        load,
+        other,
+        total,
+    )
+
+    log.info("LLM prompt: обработано %d токенов из окна %d", prompt_tokens, effective_ctx)
+    if prompt_tokens >= effective_ctx * 0.95:
+        log.error(
+            "LLM: промпт (%d токенов) вплотную к окну %d — вход почти наверняка "
+            "обрезан, модель видела не весь запрос",
+            prompt_tokens,
+            effective_ctx,
+        )
+
+
 async def chat(
     system: str,
     user: str,
@@ -114,10 +171,11 @@ async def chat(
         content = data.get("message", {}).get("content", "")
         if not content:
             raise LLMError(f"Empty response from Ollama: {data}")
+        _log_stats(data, options["num_ctx"])
         return content
 
     content_parts: list[str] = []
-    prompt_eval_count: int | None = None
+    stats: dict[str, Any] = {}
     try:
         async with _get_client().stream("POST", url, json=payload) as r:
             r.raise_for_status()
@@ -135,20 +193,11 @@ async def chat(
                 # молча отбрасывает начало запроса (вместе с системным
                 # промптом) и ничего об этом не сообщает.
                 if chunk.get("prompt_eval_count") is not None:
-                    prompt_eval_count = chunk["prompt_eval_count"]
+                    stats = chunk
     except httpx.HTTPError as e:
         raise LLMError(f"Ollama request failed: {e}") from e
 
-    effective_ctx = options["num_ctx"]
-    if prompt_eval_count is not None:
-        log.info("LLM prompt: обработано %d токенов из окна %d", prompt_eval_count, effective_ctx)
-        if prompt_eval_count >= effective_ctx * 0.95:
-            log.error(
-                "LLM: промпт (%d токенов) вплотную к окну %d — вход почти наверняка "
-                "обрезан, модель видела не весь запрос",
-                prompt_eval_count,
-                effective_ctx,
-            )
+    _log_stats(stats, options["num_ctx"])
 
     content = "".join(content_parts)
     if not content:

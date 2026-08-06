@@ -14,6 +14,7 @@ from fire_safety_rag.hybrid_retriever import (
     _matches_where,
     _normalize_bm25,
     _normalize_vector,
+    _tokenize,
     _tokenize_query,
 )
 
@@ -36,6 +37,69 @@ def test_tokenizer_keeps_digits() -> None:
 
 def test_tokenizer_lowercases() -> None:
     assert _tokenize_query("НЕУСТОЙКА") == ["неустойка"]
+
+
+def test_word_forms_collapse_to_one_token() -> None:
+    """Ради этого лемматизация и вводилась.
+
+    В договоре «о взыскании неустойки», в ГК «Уменьшение неустойки», в
+    запросе «неустойка» — до лемматизации три РАЗНЫХ токена, и лексическая
+    половина поиска их не связывала. Для русского это не мелочь: падежные
+    формы в юридическом тексте норма, а не исключение.
+    """
+    assert "неустойка" in _tokenize_query("о взыскании неустойки")
+    assert "неустойка" in _tokenize_query("Уменьшение неустойки")
+    assert "неустойка" in _tokenize_query("неустойка")
+
+
+def test_numbers_survive_lemmatization() -> None:
+    """Номера статей и сводов правил анализатор трогать не должен.
+
+    «333» и «13130» — не слова; отдать их морфологии значит рискнуть тем,
+    ради чего цифры вообще сохраняются в токенах.
+    """
+    tokens = _tokenize_query("статья 333 ГК РФ, СП 5.13130 и 123-ФЗ")
+    for expected in ("333", "5", "13130", "123", "фз"):
+        assert expected in tokens, tokens
+
+
+def test_stopwords_are_dropped() -> None:
+    """Служебные слова не несут различающей силы, а длину документа раздувают."""
+    tokens = _tokenize_query("и в на что бы неустойка")
+    assert tokens == ["неустойка"]
+
+
+def test_stopwords_are_dropped_after_lemmatization() -> None:
+    """«была» приводится к «быть» — отсев обязан идти ПОСЛЕ анализатора.
+
+    Иначе половина форм служебных слов просачивалась бы обратно в индекс.
+    """
+    assert _tokenize_query("была бы неустойка") == ["неустойка"]
+
+
+def test_corpus_and_query_share_one_pipeline() -> None:
+    """Разойдись конвейеры — лексический поиск перестал бы находить что-либо,
+    и отказ был бы тихим: гибрид просто отдавал бы чисто векторную выдачу."""
+    text = "Уменьшение неустойки судом"
+    assert set(_tokenize(text)) == set(_tokenize_query(text))
+
+
+def test_missing_pymorphy3_degrades_to_word_forms(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Без пакета поиск обязан работать по словоформам, а не падать.
+
+    Установщик Windows у этого проекта ломался уже не раз; лемматизация —
+    улучшение качества, а не условие работы.
+    """
+    from fire_safety_rag import hybrid_retriever as hr
+
+    hr._morph.cache_clear()
+    hr._lemma.cache_clear()
+    monkeypatch.setattr(hr, "_morph", lambda: None)
+    try:
+        assert hr._lemma("неустойки") == "неустойки"
+        assert hr._tokenize_query("Уменьшение неустойки") == ["уменьшение", "неустойки"]
+    finally:
+        hr._lemma.cache_clear()
 
 
 # --- where-фильтр -----------------------------------------------------------
