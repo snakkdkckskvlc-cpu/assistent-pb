@@ -61,36 +61,6 @@
       </div>
     </div>
 
-    <div class="section">
-      <h2>Водители</h2>
-      <p class="hint">
-        Номер удостоверения и СНИЛС — обязательные реквизиты путевого листа. Это персональные
-        данные: доступ только вошедшим, диск должен быть зашифрован.
-      </p>
-      <div id="dr-form"></div>
-      <div class="actions">
-        <button class="btn secondary" id="dr-save">Добавить водителя</button>
-        <span class="hint" id="dr-status"></span>
-      </div>
-      <div id="dr-list" class="result"></div>
-    </div>
-
-    <div class="section">
-      <h2>Прицепы</h2>
-      <div id="tr-form"></div>
-      <div class="actions">
-        <button class="btn secondary" id="tr-save">Добавить прицеп</button>
-        <span class="hint" id="tr-status"></span>
-      </div>
-      <div id="tr-list" class="result"></div>
-    </div>
-
-    <div class="section">
-      <h2>Организации</h2>
-      <p class="hint">Наименование, адрес и ОКПО печатаются в шапке листа. Лист с чужим наименованием юридически дефектен.</p>
-      <div id="org-list" class="result"></div>
-    </div>
-
     <div id="error" class="error-box" style="display:none"></div>
   </main>
 
@@ -101,7 +71,6 @@
     // Поля бланка описаны данными, а не разметкой: их около сотни, и руками
     // написанный HTML на две формы разошёлся бы с моделью при первой правке.
     // forms — в каком бланке поле есть: "3" легковой, "4" грузовой, "34" оба.
-    const T = { text: "text", num: "number", date: "date", dt: "datetime-local", area: "area", check: "check" };
     const SECTIONS = [
       ["Лист", [
         ["form", "Форма бланка", T.text, "34", { readonly: true }],
@@ -217,24 +186,6 @@
       ]],
     ];
 
-    const DRIVER_FIELDS = [
-      ["full_name", "ФИО полностью", T.text],
-      ["tab_number", "Табельный номер", T.text],
-      ["licence_series", "Удостоверение: серия", T.text],
-      ["licence_number", "номер", T.text],
-      ["licence_issued_at", "выдано", T.date],
-      ["licence_class", "Класс (категории)", T.text],
-      ["snils", "СНИЛС", T.text],
-      ["licence_card", "Лицензионная карточка", "card"],
-    ];
-
-    const TRAILER_FIELDS = [
-      ["mark", "Марка", T.text],
-      ["reg_number", "Регистрационный номер", T.text],
-      ["series", "Серия", T.text],
-      ["code", "Код марки", T.text],
-    ];
-
     let ORGS = [], DRIVERS = [], TRAILERS = [], VEHICLES = [], CURRENT = null;
 
     function showError(e) {
@@ -260,25 +211,6 @@
       if (type === T.date) return s.slice(0, 10);
       if (type === T.dt) return s.slice(0, 16);
       return s;
-    }
-
-    function fieldHtml(name, label, type, opts) {
-      const id = `f-${name}`;
-      const ro = opts && opts.readonly ? " disabled" : "";
-      if (type === T.check) {
-        return `<div class="field"><label><input type="checkbox" id="${id}"> ${escapeHtml(label)}</label></div>`;
-      }
-      if (type === T.area) {
-        return `<div class="field"><label for="${id}">${escapeHtml(label)}</label>
-          <textarea id="${id}" style="min-height:70px"${ro}></textarea></div>`;
-      }
-      if (["org", "driver", "vehicle", "card", "status"].includes(type)) {
-        return `<div class="field"><label for="${id}">${escapeHtml(label)}</label>
-          <select id="${id}"${ro}></select></div>`;
-      }
-      const step = type === T.num ? ' step="0.01"' : "";
-      return `<div class="field"><label for="${id}">${escapeHtml(label)}</label>
-        <input id="${id}" type="${type}"${step}${ro}></div>`;
     }
 
     function optionsFor(type) {
@@ -723,124 +655,24 @@
         : '<p class="hint">Листов пока нет.</p>';
     }
 
-    async function loadDrivers() {
-      DRIVERS = await api("/api/transport/drivers");
-      document.getElementById("dr-list").innerHTML = DRIVERS.length
-        ? `<table><thead><tr><th>ФИО</th><th>Таб. №</th><th>Удостоверение</th><th>Класс</th>
-             <th>СНИЛС</th><th>Карточка</th><th></th></tr></thead><tbody>${DRIVERS.map(
-            (d) => `<tr>
-              <td>${escapeHtml(d.full_name)}</td>
-              <td>${escapeHtml(d.tab_number || "—")}</td>
-              <td>${escapeHtml([d.licence_series, d.licence_number].filter(Boolean).join(" ") || "—")}
-                  ${d.licence_issued_at ? `<br><span class="hint">выдано ${escapeHtml(d.licence_issued_at)}</span>` : ""}</td>
-              <td>${escapeHtml(d.licence_class || "—")}</td>
-              <td>${escapeHtml(d.snils || "—")}</td>
-              <td>${escapeHtml(d.licence_card || "—")}</td>
-              <td><button class="btn secondary" data-del-driver="${d.id}">убрать</button></td>
-            </tr>`
-          ).join("")}</tbody></table>`
-        : '<p class="hint">Водителей пока нет.</p>';
+    // Справочники теперь на странице «Водители и прицепы». Здесь они нужны
+    // только как данные для выпадающих списков редактора листа — таблиц и
+    // форм добавления на этом экране больше нет.
+    async function loadRefs() {
+      [ORGS, DRIVERS, TRAILERS] = await Promise.all([
+        api("/api/transport/orgs"),
+        api("/api/transport/drivers"),
+        api("/api/transport/trailers"),
+      ]);
     }
-
-    async function loadTrailers() {
-      TRAILERS = await api("/api/transport/trailers");
-      document.getElementById("tr-list").innerHTML = TRAILERS.length
-        ? `<table><tbody>${TRAILERS.map(
-            (t) => `<tr>
-              <td>${escapeHtml(t.mark || "—")}</td>
-              <td><b>${escapeHtml(t.reg_number)}</b></td>
-              <td>${escapeHtml(t.series || "")}</td>
-              <td>${escapeHtml(t.code || "")}</td>
-              <td><button class="btn secondary" data-del-trailer="${t.id}">убрать</button></td>
-            </tr>`
-          ).join("")}</tbody></table>`
-        : '<p class="hint">Прицепов пока нет.</p>';
-    }
-
-    async function loadOrgs() {
-      ORGS = await api("/api/transport/orgs");
-      document.getElementById("org-list").innerHTML = `<table><thead><tr>
-          <th>Наименование</th><th>Адрес</th><th>Телефон</th><th>ОКПО</th><th>ОГРН</th><th></th>
-        </tr></thead><tbody>${ORGS.map(
-          (o) => `<tr>
-            <td>${escapeHtml(o.name)}</td>
-            <td>${escapeHtml(o.address)}</td>
-            <td>${escapeHtml(o.phone)}</td>
-            <td>${escapeHtml(o.okpo) || '<span class="hint">не заполнен</span>'}</td>
-            <td>${escapeHtml(o.ogrn)}</td>
-            <td>${o.is_default ? '<span class="chip ok">основная</span>' : ""}</td>
-          </tr>`
-        ).join("")}</tbody></table>`;
-    }
-
-    document.getElementById("dr-form").innerHTML = DRIVER_FIELDS.map(([n, l, t]) =>
-      fieldHtml(`dr-${n}`, l, t)
-    ).join("");
-    fillSelect("f-dr-licence_card", "card", "");
-
-    document.getElementById("tr-form").innerHTML = TRAILER_FIELDS.map(([n, l, t]) =>
-      fieldHtml(`tr-${n}`, l, t)
-    ).join("");
-
-    document.getElementById("dr-save").addEventListener("click", async () => {
-      const status = document.getElementById("dr-status");
-      status.textContent = "Сохраняю…";
-      try {
-        const payload = {};
-        for (const [n] of DRIVER_FIELDS) {
-          const v = document.getElementById(`f-dr-${n}`).value;
-          payload[n] = n === "licence_issued_at" ? v || null : v;
-        }
-        await api("/api/transport/drivers", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        status.textContent = "Водитель добавлен.";
-        DRIVER_FIELDS.forEach(([n, , t]) => {
-          if (t !== "card") document.getElementById(`f-dr-${n}`).value = "";
-        });
-        await loadDrivers();
-      } catch (e) {
-        status.textContent = e.message || String(e);
-      }
-    });
-
-    document.getElementById("tr-save").addEventListener("click", async () => {
-      const status = document.getElementById("tr-status");
-      status.textContent = "Сохраняю…";
-      try {
-        const payload = {};
-        for (const [n] of TRAILER_FIELDS) payload[n] = document.getElementById(`f-tr-${n}`).value;
-        await api("/api/transport/trailers", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        status.textContent = "Прицеп добавлен.";
-        TRAILER_FIELDS.forEach(([n]) => (document.getElementById(`f-tr-${n}`).value = ""));
-        await loadTrailers();
-      } catch (e) {
-        status.textContent = e.message || String(e);
-      }
-    });
 
     document.addEventListener("click", async (e) => {
-      const btn = e.target.closest("button[data-open], button[data-del-driver], button[data-del-trailer]");
+      const btn = e.target.closest("button[data-open]");
       if (!btn) return;
       try {
         if (btn.dataset.open) {
           renderEditor(await api(`/api/transport/waybills/${btn.dataset.open}`));
           return;
-        }
-        if (btn.dataset.delDriver) {
-          if (!confirm("Убрать водителя? Выписанные на него листы сохранятся.")) return;
-          await api(`/api/transport/drivers/${btn.dataset.delDriver}`, { method: "DELETE" });
-          await loadDrivers();
-        } else if (btn.dataset.delTrailer) {
-          if (!confirm("Убрать прицеп?")) return;
-          await api(`/api/transport/trailers/${btn.dataset.delTrailer}`, { method: "DELETE" });
-          await loadTrailers();
         }
       } catch (err) {
         showError(err);
@@ -853,9 +685,7 @@
       try {
         document.getElementById("error").style.display = "none";
         VEHICLES = await api("/api/transport/vehicles");
-        await loadOrgs();
-        await loadDrivers();
-        await loadTrailers();
+        await loadRefs();
         await loadWaybills();
       } catch (e) {
         showError(e);

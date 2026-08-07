@@ -62,6 +62,7 @@ const NAV = [
   // себя ради частого.
   { group: "Справочники", items: [
     ["/reference-fleet.html", "Парк и точки", "book"],
+    ["/reference-people.html", "Водители и прицепы", "user"],
   ] },
 ];
 
@@ -206,6 +207,51 @@ function fmtWhen(iso) {
 }
 
 const num = (v, suffix) => (v === null || v === undefined ? "—" : `${v} ${suffix}`);
+
+// Типы полей и сборка одного поля формы. Общие, потому что справочники
+// водителей и прицепов уехали со страницы путевых листов на свою, а разметку
+// поля обе строят одинаково: разойдись она — разошлись бы и подписи, и то,
+// как выглядит «только для чтения».
+const T = { text: "text", num: "number", date: "date", dt: "datetime-local", area: "area", check: "check" };
+
+function fieldHtml(name, label, type, opts) {
+  const id = `f-${name}`;
+  const ro = opts && opts.readonly ? " disabled" : "";
+  if (type === T.check) {
+    return `<div class="field"><label><input type="checkbox" id="${id}"> ${escapeHtml(label)}</label></div>`;
+  }
+  if (type === T.area) {
+    return `<div class="field"><label for="${id}">${escapeHtml(label)}</label>
+      <textarea id="${id}" style="min-height:70px"${ro}></textarea></div>`;
+  }
+  if (["org", "driver", "vehicle", "card", "status"].includes(type)) {
+    return `<div class="field"><label for="${id}">${escapeHtml(label)}</label>
+      <select id="${id}"${ro}></select></div>`;
+  }
+  const step = type === T.num ? ' step="0.01"' : "";
+  return `<div class="field"><label for="${id}">${escapeHtml(label)}</label>
+    <input id="${id}" type="${type}"${step}${ro}></div>`;
+}
+
+// Реквизиты водителя и прицепа — те же на странице справочника и в путевом
+// листе, поэтому список полей тоже общий.
+const DRIVER_FIELDS = [
+  ["full_name", "ФИО полностью", T.text],
+  ["tab_number", "Табельный номер", T.text],
+  ["licence_series", "Удостоверение: серия", T.text],
+  ["licence_number", "номер", T.text],
+  ["licence_issued_at", "выдано", T.date],
+  ["licence_class", "Класс (категории)", T.text],
+  ["snils", "СНИЛС", T.text],
+  ["licence_card", "Лицензионная карточка", "card"],
+];
+
+const TRAILER_FIELDS = [
+  ["mark", "Марка", T.text],
+  ["reg_number", "Регистрационный номер", T.text],
+  ["series", "Серия", T.text],
+  ["code", "Код марки", T.text],
+];
 
 async function pollTask(taskId, onProgress) {
   while (true) {
