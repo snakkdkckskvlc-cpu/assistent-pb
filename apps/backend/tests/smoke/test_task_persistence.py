@@ -17,8 +17,14 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+
+# Модулем, а не `from ... import DB_PATH`: фикстура подменяет путь к базе
+# атрибутом модуля (tests/conftest.py), а импорт значения связал бы его ДО
+# подмены. Тест тогда читал бы настоящую data/app.db — на CI её нет вовсе
+# (FileNotFoundError), а локально она есть, секрета в ней нет, и проверка
+# проходила вхолостую, ничего не проверяя.
+from fire_safety_backend.infrastructure import db as db_module
 from fire_safety_backend.infrastructure import secure_files, task_store
-from fire_safety_backend.infrastructure.db import DB_PATH
 from fire_safety_backend.infrastructure.queue import Task, queue
 
 _SECRET = "Цена договора 4 500 000 рублей, штраф 40% при просрочке"
@@ -102,7 +108,7 @@ def test_result_in_the_database_is_encrypted(
     secure_files.use_protector(_Xor())
     try:
         task_store.save(_done_task("шифр1", test_login))
-        raw = Path(DB_PATH).read_bytes()
+        raw = Path(db_module.DB_PATH).read_bytes()
         assert _SECRET.encode() not in raw
         assert b"4 500 000" not in raw
         # И при этом читается обратно.
