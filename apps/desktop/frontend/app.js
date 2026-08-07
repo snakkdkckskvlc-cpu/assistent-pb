@@ -400,7 +400,10 @@ async function submitForm({ endpoint, buildRequest, resultContainer, progressCon
     });
 
     progressContainer.style.display = "none";
-    renderResult(result, resultContainer);
+    // Третьим аргументом — id задачи: он нужен там, где результат можно
+    // пересобрать на сервере (проверка текста с частью принятых правок).
+    // Остальные страницы его просто не принимают.
+    renderResult(result, resultContainer, task_id);
     renderFeedbackBlock(resultContainer, taskKind, task_id);
   } catch (e) {
     progressContainer.style.display = "none";

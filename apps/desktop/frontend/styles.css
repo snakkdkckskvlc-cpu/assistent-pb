@@ -240,6 +240,27 @@ td { padding: 8px 8px 8px 0; border-bottom: 1px solid var(--line-soft); vertical
 .chip.bad, .chip.orph { background: var(--red-soft); color: var(--red-text); }
 .chip.style { background: #eaf1fb; color: #1b5aa8; }
 
+/* --- построчные правки орфографии ---
+   Правка стала решением, а не отчётом: раньше исправленный документ приходил
+   со всеми находками сразу, и принять девять из двадцати трёх было нельзя. */
+.fixes-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.fixes-head .row-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.fix-actions { white-space: nowrap; text-align: right; }
+.fix-actions .pick {
+  font: inherit; font-size: 11px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  padding: 3px 9px; border-radius: 6px; margin-left: 4px;
+}
+.fix-actions .pick:hover { border-color: #cdd6df; color: var(--text); }
+.fix-actions .pick.on { border-color: var(--red); background: var(--red-soft); color: var(--red-text); }
+/* Пропущенная строка гаснет, но остаётся читаемой: человек должен видеть,
+   от чего именно отказался, а не терять строку из виду. */
+tr.skipped td { opacity: .45; }
+tr.skipped .fix-actions { opacity: 1; }
+
 /* --- находки договора --- */
 .finding {
   border: 1px solid var(--border); border-left: 3px solid var(--border);

@@ -50,84 +50,149 @@
   <script>
     updateHealth();
 
-    function renderSpellcheckResult(result, container) {
+    function renderSpellcheckResult(result, container, taskId) {
       const stats = result.stats || {};
       const errors = result.errors || [];
       const byType = stats.by_type || {};
       const parts = [];
 
+      // Принято по умолчанию всё: раньше документ и приходил со всеми
+      // правками, и «снять лишнее» — работа меньшая, чем «отметить нужное».
+      const accepted = errors.map(() => true);
+
       if (result._source_warning) {
-        parts.push(`<div class="verdict">⚠ ${escapeHtml(result._source_warning)}</div>`);
-      }
-      parts.push(`<h3>Сводка</h3>`);
-      parts.push(`<p>Найдено ошибок: <b>${stats.total_errors ?? errors.length}</b>`);
-      if (Object.keys(byType).length) {
-        const chips = Object.entries(byType).map(([t, n]) => ` · ${escapeHtml(t)}: ${n}`).join("");
-        parts.push(chips);
-      }
-      parts.push(`</p>`);
-
-      if (errors.length) {
-        parts.push(`<h3>Ошибки</h3>`);
-        parts.push(`<table><thead><tr><th>Тип</th><th>Было</th><th>Стало</th><th>Пояснение</th></tr></thead><tbody>`);
-        for (const e of errors) {
-          const cls = (e.type || "").toLowerCase().includes("орф") ? "orph"
-            : (e.type || "").toLowerCase().includes("пункт") ? "punct" : "style";
-          const srcTag = e.source === "languagetool"
-            ? ` <span class="hint" title="Найдено детерминированным правилом LanguageTool, не LLM">· LanguageTool</span>`
-            : e.source === "правило"
-            ? ` <span class="hint" title="Найдено детерминированным правилом проекта, не LLM">· правило</span>`
-            : "";
-          parts.push(`<tr>
-            <td><span class="chip ${cls}">${escapeHtml(e.type || "")}</span></td>
-            <td>${escapeHtml(e.before || "")}</td>
-            <td>${escapeHtml(e.after || "")}</td>
-            <td>${escapeHtml(e.reason || "")}${srcTag}</td>
-          </tr>`);
-        }
-        parts.push(`</tbody></table>`);
-      } else {
-        parts.push(`<p style="color:var(--green)"><b>✓ Ошибок не найдено.</b></p>`);
+        parts.push(`<div class="verdict">${escapeHtml(result._source_warning)}</div>`);
       }
 
-      if (result._docx_path) {
-        // Честно говорим, что именно получит пользователь: правки внутри
-        // копии оригинала (форматирование на месте) или собранный заново
-        // документ — для PDF, сканов и вставленного руками текста.
-        const note = result._docx_is_copy
-          ? "копия исходного документа с внесёнными правками — форматирование сохранено"
-          : "документ собран из исправленного текста: исходное форматирование сохранить не удалось (источник — не DOCX)";
-        parts.push(`<h3>Исправленный документ</h3>
-          <div class="actions">
-            <button class="btn" id="sc-download">Скачать исправленный DOCX</button>
-            <span class="hint" id="sc-download-status"></span>
-          </div>
-          <p class="hint">${escapeHtml(note)}</p>`);
+      if (!errors.length) {
+        parts.push(`<p style="color:var(--green)"><b>Ошибок не найдено.</b></p>`);
+        container.innerHTML = parts.join("");
+        return;
       }
 
-      if (result.corrected_text) {
-        parts.push(`<h3>Исправленный текст</h3>`);
-        parts.push(`<div class="corrected-text">${escapeHtml(result.corrected_text)}</div>`);
-      }
+      const chips = Object.entries(byType)
+        .map(([t, n]) => {
+          const cls = t.toLowerCase().includes("орф") ? "orph"
+            : t.toLowerCase().includes("пункт") ? "punct" : "style";
+          return `<span class="chip ${cls}">${escapeHtml(t)} ${n}</span>`;
+        }).join(" ");
+
+      parts.push(`<div class="fixes-head">
+        <div class="row-chips">${chips}</div>
+        <div class="actions" style="margin:0">
+          <button class="btn secondary" id="sc-none">Снять все</button>
+          <button class="btn secondary" id="sc-all">Принять все ${errors.length}</button>
+          <button class="btn" id="sc-download">Скачать DOCX</button>
+        </div>
+      </div>
+      <p class="hint" id="sc-note"></p>
+      <span class="hint" id="sc-download-status"></span>`);
+
+      parts.push(`<table><thead><tr>
+        <th style="width:96px">Тип</th><th style="width:22%">Было</th><th style="width:22%">Стало</th>
+        <th>Почему</th><th style="width:170px"></th>
+      </tr></thead><tbody>`);
+      errors.forEach((e, i) => {
+        const cls = (e.type || "").toLowerCase().includes("орф") ? "orph"
+          : (e.type || "").toLowerCase().includes("пункт") ? "punct" : "style";
+        // Источник правки важен для доверия, но не для чтения — уводим в конец
+        // строки: правило LanguageTool и догадка модели весят по-разному.
+        const srcTag = e.source === "languagetool"
+          ? ` <span class="hint" title="Найдено детерминированным правилом LanguageTool, не моделью">· LanguageTool</span>`
+          : e.source === "правило"
+          ? ` <span class="hint" title="Найдено детерминированным правилом проекта, не моделью">· правило</span>`
+          : ` <span class="hint" title="Найдено моделью">· модель</span>`;
+        parts.push(`<tr data-fix="${i}">
+          <td><span class="chip ${cls}">${escapeHtml(e.type || "")}</span></td>
+          <td>${escapeHtml(e.before || "")}</td>
+          <td><b>${escapeHtml(e.after || "")}</b></td>
+          <td>${escapeHtml(e.reason || "")}${srcTag}</td>
+          <td class="fix-actions">
+            <button type="button" class="pick" data-i="${i}" data-v="1">Принять</button>
+            <button type="button" class="pick" data-i="${i}" data-v="0">Пропустить</button>
+          </td>
+        </tr>`);
+      });
+      parts.push(`</tbody></table>`);
+
+      parts.push(`<h3>Исправленный текст</h3>`);
+      parts.push(`<div class="corrected-text" id="sc-text">${escapeHtml(result.corrected_text || "")}</div>`);
 
       container.innerHTML = parts.join("");
 
       const dlBtn = document.getElementById("sc-download");
-      if (dlBtn) {
-        dlBtn.addEventListener("click", async () => {
-          const statusEl = document.getElementById("sc-download-status");
-          dlBtn.disabled = true;
+      const statusEl = document.getElementById("sc-download-status");
+      const noteEl = document.getElementById("sc-note");
+      // Что именно получит человек: правки внутри копии оригинала
+      // (форматирование на месте) или документ, собранный заново из текста.
+      const baseNote = result._docx_is_copy
+        ? "Правки вносятся в копию исходного документа — форматирование сохранится."
+        : "Документ будет собран из исправленного текста: источник не DOCX, исходное форматирование сохранить не удастся.";
+
+      function paint() {
+        container.querySelectorAll("tr[data-fix]").forEach((tr) => {
+          const i = Number(tr.getAttribute("data-fix"));
+          tr.classList.toggle("skipped", !accepted[i]);
+          tr.querySelectorAll(".pick").forEach((b) => {
+            b.classList.toggle("on", (b.getAttribute("data-v") === "1") === accepted[i]);
+          });
+        });
+        const n = accepted.filter(Boolean).length;
+        dlBtn.textContent = n === errors.length
+          ? `Скачать DOCX со всеми правками`
+          : `Скачать DOCX · правок: ${n}`;
+        dlBtn.disabled = n === 0;
+        noteEl.textContent = baseNote + (n < errors.length
+          ? ` Пропущенные ${errors.length - n} в документ не попадут.`
+          : "");
+      }
+
+      container.addEventListener("click", (ev) => {
+        const btn = ev.target.closest(".pick");
+        if (!btn) return;
+        accepted[Number(btn.getAttribute("data-i"))] = btn.getAttribute("data-v") === "1";
+        paint();
+      });
+      document.getElementById("sc-all").addEventListener("click", () => {
+        accepted.fill(true); paint();
+      });
+      document.getElementById("sc-none").addEventListener("click", () => {
+        accepted.fill(false); paint();
+      });
+
+      dlBtn.addEventListener("click", async () => {
+        dlBtn.disabled = true;
+        statusEl.textContent = "Собираю документ…";
+        try {
+          // Документ пересобирается на сервере от ИСХОДНОГО текста — тем же
+          // кодом, что и полный вариант. Иначе текст на экране и текст в файле
+          // разошлись бы, а расходились они здесь уже дорого.
+          const r = await fetch("/api/spellcheck/render", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              task_id: taskId,
+              accepted: accepted.map((v, i) => (v ? i : -1)).filter((i) => i >= 0),
+            }),
+          });
+          if (!r.ok) throw new Error(await r.text() || `HTTP ${r.status}`);
+          const data = await r.json();
+          document.getElementById("sc-text").textContent = data.corrected_text || "";
           statusEl.textContent = "";
           const res = await downloadFile(
-            `/api/download/${encodeURIComponent(result._docx_path)}`,
-            result._docx_path,
-          );
-          dlBtn.disabled = false;
+            `/api/download/${encodeURIComponent(data.docx_path)}`, data.docx_path);
           if (res && res.ok === false && res.error !== "cancelled") {
             statusEl.textContent = "Не удалось сохранить: " + res.error;
           }
-        });
-      }
+        } catch (e) {
+          statusEl.textContent = "Не получилось собрать документ. Попробуйте ещё раз.";
+        } finally {
+          dlBtn.disabled = false;
+          paint();
+        }
+      });
+
+      paint();
     }
 
     const fileInput = document.getElementById("file");
