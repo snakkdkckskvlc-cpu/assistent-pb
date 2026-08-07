@@ -7,16 +7,16 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><a href="/">🔥 Ассистент</a></div>
+    <div class="brand"><a href="/">Ассистент</a></div>
     <div class="status" id="health"></div>
   </header>
 
   <main class="page">
     <a class="back" href="/">← На главную</a>
-    <p class="history-link"><a href="/waybill.html">📋 Путевые листы, водители, прицепы</a></p>
+    <p class="history-link"><a href="/waybill.html">Путевые листы, водители, прицепы</a></p>
 
     <div class="section">
-      <h2>🚚 Выдать машину</h2>
+      <h2>Выдать машину</h2>
       <p class="hint">«Беру Логан 145, до ТЭЦ-2». Показание одометра можно не вводить — подставится последнее известное.</p>
 
       <div class="field">
@@ -55,13 +55,13 @@
     </div>
 
     <div class="section">
-      <h2>🅿️ Машины в рейсе</h2>
+      <h2>Машины в рейсе</h2>
       <p class="hint">Отметьте возврат — пробег перенесётся в карточку машины.</p>
       <div id="open-trips" class="result"></div>
     </div>
 
     <div class="section">
-      <h2>🚗 Парк</h2>
+      <h2>Парк</h2>
       <div class="actions">
         <button class="btn secondary" id="v-toggle-form">Добавить машину</button>
         <button class="btn secondary" id="v-refresh">Обновить</button>
@@ -167,7 +167,7 @@
     </div>
 
     <div class="section">
-      <h2>📍 Постоянные точки</h2>
+      <h2>Постоянные точки</h2>
       <p class="hint">Площадки НЛМК, ТЭЦ, склады, база. Расстояние от базы вводится вручную — по нему считается километраж.</p>
       <div class="field">
         <label for="p-name">Название</label>
@@ -192,7 +192,7 @@
     </div>
 
     <div class="section">
-      <h2>🕘 Журнал рейсов</h2>
+      <h2>Журнал рейсов</h2>
       <div id="trips" class="result"></div>
     </div>
 
@@ -248,7 +248,7 @@
             <td>${escapeHtml(v.category || "—")}</td>
             <td>${v.odometer_km.toLocaleString("ru-RU")} км</td>
             <td>${v.fuel_norm_l_100km ? v.fuel_norm_l_100km + " л/100" : '<span class="hint">нет нормы</span>'}</td>
-            <td>${v.has_glonass ? "📡" : ""}</td>
+            <td>${v.has_glonass ? '<span class="chip ok">есть</span>' : '<span class="hint">нет</span>'}</td>
             <td>${v.waybill_form === "4-S" ? "4-С" : "№ 3"}</td>
             <td>${v.open_trip_id ? '<span class="chip warn">в рейсе</span>' : `<span class="chip ok">${escapeHtml(v.state_title)}</span>`}</td>
             <td><button class="btn secondary" data-del-vehicle="${v.id}">убрать</button></td>
@@ -285,7 +285,7 @@
       box.innerHTML = PLACES.length
         ? `<table><tbody>${PLACES.map((p) => `
             <tr>
-              <td>${p.is_base ? "🏠 " : ""}${escapeHtml(p.name)}</td>
+              <td>${escapeHtml(p.name)}${p.is_base ? ' <span class="chip ok">база</span>' : ""}</td>
               <td class="hint">${escapeHtml(p.address)}</td>
               <td>${num(p.distance_from_base_km, "км")}</td>
               <td><button class="btn secondary" data-del-place="${p.id}">удалить</button></td>

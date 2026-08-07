@@ -7,20 +7,20 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><a href="/">🔥 Ассистент</a></div>
+    <div class="brand"><a href="/">Ассистент</a></div>
     <div class="status" id="health"></div>
   </header>
 
   <main class="page">
     <a class="back" href="/">← На главную</a>
     <div class="section">
-      <h2>📝 Проверка документа</h2>
+      <h2>Проверка документа</h2>
       <p class="hint">Проверка орфографии и пунктуации. DOCX, PDF, сканы или вставленный текст.</p>
 
       <div class="field">
         <span class="field-label">Загрузить файл (DOCX / PDF / скан)</span>
         <div class="file-picker">
-          <label class="btn btn-secondary" for="file">📎 Выбрать файл</label>
+          <label class="btn btn-secondary" for="file">Выбрать файл</label>
           <input type="file" id="file" class="visually-hidden" accept=".docx,.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.txt">
           <span class="file-name" id="file-name">Файл не выбран</span>
         </div>
@@ -31,8 +31,8 @@
       </div>
 
       <div class="actions">
-        <button class="btn" id="submit">⚡ Быстрая проверка</button>
-        <button class="btn btn-secondary" id="submit-deep">🔍 Глубокая проверка</button>
+        <button class="btn" id="submit">Быстрая проверка</button>
+        <button class="btn btn-secondary" id="submit-deep">Глубокая проверка</button>
       </div>
       <p class="hint">
         Быстрая — секунды, правилами LanguageTool: орфография и простая пунктуация.
@@ -99,7 +99,7 @@
           : "документ собран из исправленного текста: исходное форматирование сохранить не удалось (источник — не DOCX)";
         parts.push(`<h3>Исправленный документ</h3>
           <div class="actions">
-            <button class="btn" id="sc-download">📄 Скачать исправленный DOCX</button>
+            <button class="btn" id="sc-download">Скачать исправленный DOCX</button>
             <span class="hint" id="sc-download-status"></span>
           </div>
           <p class="hint">${escapeHtml(note)}</p>`);

@@ -7,14 +7,14 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><a href="/">🔥 Ассистент</a></div>
+    <div class="brand"><a href="/">Ассистент</a></div>
     <div class="status" id="health"></div>
   </header>
 
   <main class="page">
     <a class="back" href="/">← На главную</a>
     <div class="section">
-      <h2>🕘 История задач</h2>
+      <h2>История задач</h2>
       <p class="hint">Что запускали, когда и с каким результатом. Тексты документов не сохраняются — только сводка.</p>
 
       <div class="actions">
@@ -27,7 +27,7 @@
     </div>
 
     <div class="section">
-      <h2>🔒 Защита данных</h2>
+      <h2>Защита данных</h2>
       <p class="hint">
         Загруженные документы и готовые файлы лежат в рабочей папке приложения
         зашифрованными ключом этой учётной записи Windows. Скачанного вами
@@ -48,10 +48,10 @@
     updateHealth();
 
     const KIND_LABELS = {
-      spellcheck: "📝 Проверка документа",
-      legal: "⚖️ Анализ договора",
-      letter: "✉️ Письмо",
-      batch: "📦 Пакетная проверка",
+      spellcheck: "Проверка документа",
+      legal: "Анализ договора",
+      letter: "Письмо",
+      batch: "Пакетная проверка",
     };
 
     // Результат подставляется в innerHTML, поэтому «непонятную дату» отдаём
@@ -87,7 +87,11 @@
           <tr>
             <td>${fmtWhen(t.created_at)}</td>
             <td>${escapeHtml(KIND_LABELS[t.kind] || t.kind)}</td>
-            <td>${t.status === "done" ? "✅" : "❌"}</td>
+            <td>${t.status === "done"
+              ? '<span class="chip ok">готово</span>'
+              : t.status === "cancelled"
+              ? '<span class="chip warn">отменено</span>'
+              : '<span class="chip bad">ошибка</span>'}</td>
             <td>${fmtDuration(t.duration_sec)}</td>
             <td>${escapeHtml(t.summary || t.error || "")}</td>
           </tr>`).join("");

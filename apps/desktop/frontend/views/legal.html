@@ -7,20 +7,20 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><a href="/">🔥 Ассистент</a></div>
+    <div class="brand"><a href="/">Ассистент</a></div>
     <div class="status" id="health"></div>
   </header>
 
   <main class="page">
     <a class="back" href="/">← На главную</a>
     <div class="section">
-      <h2>⚖️ Юридический анализ договора</h2>
+      <h2>Юридический анализ договора</h2>
       <p class="hint">Ассистент найдёт риски, сошлётся на нормы ФЗ и СП, предложит правки.</p>
 
       <div class="field">
         <span class="field-label">Загрузить договор (DOCX / PDF / скан)</span>
         <div class="file-picker">
-          <label class="btn btn-secondary" for="file">📎 Выбрать файл</label>
+          <label class="btn btn-secondary" for="file">Выбрать файл</label>
           <input type="file" id="file" class="visually-hidden" accept=".docx,.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.txt">
           <span class="file-name" id="file-name">Файл не выбран</span>
         </div>
@@ -60,9 +60,11 @@
     // приложения — с доступом к мосту window.pywebview.api.
     function critLabel(crit) {
       const c = (crit || "").toLowerCase();
-      if (c.includes("красн")) return "🔴 КРИТИЧНО";
-      if (c.includes("жёлт") || c.includes("желт")) return "🟡 СУЩЕСТВЕННО";
-      if (c.includes("зелён") || c.includes("зелен")) return "🟢 ВНИМАНИЕ";
+      // Цветных кружков больше нет: уровень несут цвет полосы и цвет подписи,
+      // а кружок дублировал их значком, который на Windows рисуется иначе.
+      if (c.includes("красн")) return "Критично";
+      if (c.includes("жёлт") || c.includes("желт")) return "Существенно";
+      if (c.includes("зелён") || c.includes("зелен")) return "Внимание";
       return escapeHtml(crit || "");
     }
 
@@ -92,7 +94,7 @@
         // так и было с неустойкой (ст. 395 вместо ст. 333).
         const normStatus = f["_норма_статус"] || "";
         let normCls = "norm";
-        let normBadge = "📖 ";
+        let normBadge = "";
         let normHint = "Статья из общих знаний модели — контекстом не подтверждена";
         if (normStatus === "не_в_контексте") {
           normCls = "norm unverified";

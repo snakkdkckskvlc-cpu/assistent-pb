@@ -111,7 +111,13 @@ bootstrap.log
 # IDE
 .vscode/
 .idea/
-.claude/
+# Настройки Claude Code. Правила и предохранители — общие для команды и нужны
+# в CI, поэтому отслеживаются. Локальное (settings.local.json — там путь к
+# venv конкретной машины, у второго разработчика он другой) остаётся личным.
+.claude/*
+!.claude/rules/
+!.claude/hooks/
+.claude/hooks/__pycache__/
 .vs/
 
 # Промежуточные артефакты сборки иконок (готовые .icns / .ico остаются)
@@ -134,3 +140,6 @@ scripts/benchmark_results.json
 scripts/modelfiles/*.gguf
 data/eval_results.json
 data/eval_bare.json
+
+# Мастерская дизайна (макеты брейншторма) — не поставляется
+.superpowers/

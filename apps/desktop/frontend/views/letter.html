@@ -7,14 +7,14 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><a href="/">🔥 Ассистент</a></div>
+    <div class="brand"><a href="/">Ассистент</a></div>
     <div class="status" id="health"></div>
   </header>
 
   <main class="page">
     <a class="back" href="/">← На главную</a>
     <div class="section">
-      <h2>✉️ Из наброска в официальное письмо</h2>
+      <h2>Из наброска в официальное письмо</h2>
       <p class="hint">Опишите суть в свободной форме — ассистент составит письмо по ГОСТ Р 7.0.97-2016 на фирменном бланке.</p>
 
       <div class="field">
@@ -126,7 +126,7 @@
     function renderLetterResult(result, container) {
       const today = new Date().toLocaleDateString("ru-RU");
       container.innerHTML = `
-        <h3>📄 Официальное письмо (на бланке ПожСервис)</h3>
+        <h3>Официальное письмо (на бланке ПожСервис)</h3>
         <p class="hint">Документ на фирменном бланке уже готов — с шапкой, реквизитами и логотипом.
         Поля ниже редактируемые: поправьте текст, и при скачивании бланк соберётся заново с вашими правками.</p>
         <div class="letterhead-preview">
@@ -152,7 +152,7 @@
           </div>
         </div>
         <div class="actions" style="margin-top:16px">
-          <button class="btn" id="letter-download">📄 Скачать DOCX</button>
+          <button class="btn" id="letter-download">Скачать DOCX</button>
           <span class="hint" id="letter-download-status"></span>
         </div>
       `;

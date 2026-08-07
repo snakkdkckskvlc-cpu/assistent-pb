@@ -81,6 +81,24 @@ async def api_task(task_id: str, user: auth.User = Depends(auth.current_user)) -
     }
 
 
+@router.post("/{task_id}/cancel")
+async def api_task_cancel(task_id: str, user: auth.User = Depends(auth.current_user)) -> dict:
+    """Снимает свою задачу — ждущую или уже считающуюся.
+
+    Раньше отменить было нечем: ошибочно запущенный разбор договора занимал
+    очередь до восьми минут, а очередь на сервере одна на тридцать человек.
+
+    Чужая задача даёт 404 по тому же правилу, что и просмотр: 403 подтвердил бы
+    посторонему, что задача с таким id существует.
+    """
+    cancelled = queue.cancel(task_id, owner=user.login)
+    if not cancelled and queue.get(task_id, owner=user.login) is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    # Не отменили, но задача своя — значит уже завершилась, пока шёл запрос.
+    # Это не ошибка: человек увидит готовый результат.
+    return {"cancelled": cancelled}
+
+
 @router.get("")
 async def api_tasks_list(user: auth.User = Depends(auth.current_user)) -> list[dict]:
     tasks = queue.list(owner=user.login)

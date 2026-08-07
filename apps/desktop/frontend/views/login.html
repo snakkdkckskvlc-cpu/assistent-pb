@@ -6,16 +6,17 @@
   <title>Вход — Ассистент ПБ</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body>
+<!-- no-shell: до входа боковой панели нет — идти по ней всё равно некуда. -->
+<body class="no-shell">
   <header class="topbar">
-    <div class="brand">🔥 Ассистент</div>
+    <div class="brand"><img src="/static/logo.png" alt=""><span>ПожСервис</span><span class="product">· Ассистент</span></div>
   </header>
 
-  <main class="hero">
+  <main class="hero" style="max-width:520px;margin:0 auto;padding-top:48px">
     <h1>Вход</h1>
     <p class="subtitle" id="subtitle">Внутренний инструмент компании.</p>
 
-    <form class="section" id="login-form" style="max-width:420px;margin:0 auto;text-align:left">
+    <form class="section" id="login-form" style="text-align:left">
       <div class="field">
         <label for="login">Логин</label>
         <input type="text" id="login" name="login" autocomplete="username" required>
