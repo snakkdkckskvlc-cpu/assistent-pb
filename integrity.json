@@ -94,7 +94,7 @@
     "apps/desktop/frontend/views/waybill.html": "48045edc9f10eda574929a2e1e19614d2e32f108b9bd1da14b59d1b8662b56c7",
     "apps/desktop/src/fire_safety_desktop/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "apps/desktop/src/fire_safety_desktop/main.py": "e1cda298a8cf223e2af4715d55567fdbc38dd6198b306af11d0bfdb240424cbe",
-    "apps/desktop/src/fire_safety_desktop/updater.py": "1fce0fbf81fc4d05fa21e6c0ca2d9e4a1ee4fc1bc7736cba2ab79897cdf2674c",
+    "apps/desktop/src/fire_safety_desktop/updater.py": "1ace71f323d7f0a7e27ca95cd9b6711bd4848e400c04acf826d8dcd2a333afc1",
     "bootstrap.ps1": "c70fcce49cb096240caa2b5adaaf07292cdf48b891520275e30e5e3a30d9fc26",
     "packages/rag/src/fire_safety_rag/__init__.py": "e3ef823097a5358da65e005e4e2ab7c294b619bb3604afc85e6d4bfdeec0918c",
     "packages/rag/src/fire_safety_rag/chunking.py": "7997fca6419e5817fbcecf728126810d5e9f88bcd5eb49bd535b60ae95af1c84",
