@@ -81,7 +81,46 @@
       const rank = { "красный": 0, "жёлтый": 1, "желтый": 1, "зелёный": 2, "зеленый": 2 };
       findings.sort((a, b) => (rank[a["критичность"]?.toLowerCase()] ?? 3) - (rank[b["критичность"]?.toLowerCase()] ?? 3));
 
-      parts.push(`<h3>Найдено пунктов: ${findings.length}</h3>`);
+      // ВЫВОД ПЕРВЫМ. Раньше он лежал под всеми находками, и руководителю,
+      // которому нужно «за минуту оценить картину» (US-2.1), приходилось
+      // пролистать двадцать карточек до ответа, ради которого всё и запускалось.
+      const counts = { red: 0, yellow: 0, green: 0 };
+      for (const f of findings) {
+        const r = rank[f["критичность"]?.toLowerCase()];
+        if (r === 0) counts.red++;
+        else if (r === 1) counts.yellow++;
+        else if (r === 2) counts.green++;
+      }
+      // Тон плашки — по худшей находке, а не по тексту вывода: текст пишет
+      // модель, а счёт критичных пунктов считает программа.
+      const tone = counts.red ? "stop" : counts.yellow ? "" : "go";
+      const headline = counts.red
+        ? "Подписывать нельзя без правок"
+        : counts.yellow
+        ? "Подписывать можно, но есть на что смотреть"
+        : "Существенных рисков не найдено";
+      parts.push(`<div class="verdict ${tone}">
+        <div class="verdict-head">
+          <div>
+            <div class="verdict-headline">${escapeHtml(headline)}</div>
+            ${summary["общий_вывод"] ? `<div style="margin-top:4px">${escapeHtml(summary["общий_вывод"])}</div>` : ""}
+          </div>
+          <div class="verdict-counts">
+            <div><b style="color:var(--red-text)">${counts.red}</b><i>критично</i></div>
+            <div><b style="color:var(--yellow)">${counts.yellow}</b><i>существенно</i></div>
+            <div><b style="color:var(--green)">${counts.green}</b><i>внимание</i></div>
+          </div>
+        </div>
+      </div>`);
+
+      if (result._docx_path) {
+        parts.push(`<div class="actions">
+          <button class="btn secondary" id="legal-download">Скачать разбор в DOCX</button>
+          <span class="hint" id="legal-download-status"></span>
+        </div>`);
+      }
+
+      parts.push(`<h3>Находки: ${findings.length}</h3>`);
 
       for (const f of findings) {
         const cls = critClass(f["критичность"]);
@@ -133,15 +172,28 @@
       parts.push(`</ul></div>`);
       parts.push(`</div>`);
 
-      if (summary["общий_вывод"]) {
-        parts.push(`<div class="verdict"><b>Вывод:</b> ${escapeHtml(summary["общий_вывод"])}</div>`);
-      }
-
       if (result._rag_sources && result._rag_sources.length) {
         parts.push(`<p class="hint" style="margin-top:16px">Использованы источники: ${result._rag_sources.map(escapeHtml).join(", ")}</p>`);
       }
 
       container.innerHTML = parts.join("");
+
+      const dlBtn = document.getElementById("legal-download");
+      if (dlBtn) {
+        dlBtn.addEventListener("click", async () => {
+          const statusEl = document.getElementById("legal-download-status");
+          dlBtn.disabled = true;
+          statusEl.textContent = "";
+          const res = await downloadFile(
+            `/api/download/${encodeURIComponent(result._docx_path)}`,
+            result._docx_path,
+          );
+          dlBtn.disabled = false;
+          if (res && res.ok === false && res.error !== "cancelled") {
+            statusEl.textContent = "Не удалось сохранить: " + res.error;
+          }
+        });
+      }
     }
 
     const fileInput = document.getElementById("file");
