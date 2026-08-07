@@ -479,6 +479,11 @@ def create_waybill(payload: WaybillCreate, *, created_by: str = "") -> Waybill:
             raise LookupError(f"Машина id={payload.vehicle_id} не найдена")
 
         values = _to_columns(payload.model_dump())
+        # Что заполнила программа, а не человек, — запоминаем поимённо.
+        # Интерфейс это показывает: подставленное значение без объяснения
+        # читается как чужая ошибка, и его либо боятся трогать, либо молча
+        # перебивают. Обе беды дороже одного столбца.
+        filled: list[str] = []
         for field, column, source in (
             ("org_id", "org_id", vehicle["org_id"]),
             ("driver_id", "driver_id", vehicle["default_driver_id"]),
@@ -490,13 +495,19 @@ def create_waybill(payload: WaybillCreate, *, created_by: str = "") -> Waybill:
         ):
             if field not in sent and source:
                 values[column] = source
+                filled.append(field)
 
         # Норма — снимком: приказ поменяет её, а закрытый лист обязан
         # пересчитываться по той цифре, по которой списали топливо.
         if "fuel_norm_l_100km" not in sent:
             values["fuel_norm_hs_x100"] = vehicle["fuel_norm_hs_x100"]
+            if vehicle["fuel_norm_hs_x100"] is not None:
+                filled.append("fuel_norm_l_100km")
         if "odometer_start_km" not in sent:
             values["odometer_start_m"] = vehicle["odometer_m"]
+            if vehicle["odometer_m"] is not None:
+                filled.append("odometer_start_km")
+        values["autofilled"] = ",".join(filled)
 
         values["created_by"] = created_by
         columns = ", ".join(values)
@@ -734,6 +745,11 @@ def _row_to_waybill(
     for field, (column, _, from_db) in _CONVERTED.items():
         value = row[column]
         data[field] = None if value is None else from_db(value)
+
+    # Пустая строка — лист выписан до появления пометок либо ничего не
+    # подставлялось. Пустых имён в списке быть не должно: интерфейс сверяет по
+    # ним поля, и "" совпал бы не с тем.
+    data["autofilled"] = [x for x in str(row["autofilled"] or "").split(",") if x]
 
     fact_l, saving_l, norm_l = _fuel_figures(row)
     mark = " ".join(x for x in (row["vehicle_brand"], row["vehicle_model"]) if x)

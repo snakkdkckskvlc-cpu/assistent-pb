@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from .. import config
 from ..infrastructure import secure_files
-from ..infrastructure.generators.letter_docx import build_letter_docx
+from ..infrastructure.generators.letter_docx import build_letter_docx, letterhead_requisites
 from ..infrastructure.queue import queue
 from ..models import LetterFields, LetterRequest
 from ..pipelines import letter as pipelines
@@ -51,6 +51,22 @@ async def api_letter(req: LetterRequest, user: auth.User = Depends(auth.current_
 
     task = await queue.submit("letter", run, owner=user.login)
     return {"task_id": task.id}
+
+
+@router.get("/letter/letterhead")
+async def api_letterhead(user: auth.User = Depends(auth.current_user)) -> dict:
+    """Реквизиты для предпросмотра — из того самого бланка, что уйдёт адресату.
+
+    Раньше предпросмотр держал их своей копией в letter.html. Копии расходятся,
+    а расхождение здесь означает письмо, где на экране один расчётный счёт, а в
+    документе другой.
+
+    `missing: true` — шаблона нет. Сказать об этом надо ДО того, как человек
+    напишет письмо: скачается оно тогда без реквизитов, и отправлять такое
+    контрагенту нельзя.
+    """
+    lines = await asyncio.to_thread(letterhead_requisites)
+    return {"lines": lines or [], "missing": lines is None}
 
 
 @router.post("/letter/render")

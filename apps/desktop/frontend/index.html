@@ -80,7 +80,10 @@
     function doneRow(r) {
       const [label, ic] = KIND[r.kind] || [r.kind, "doc"];
       const what = r.summary ? ` · ${escapeHtml(r.summary)}` : "";
-      return `<div class="row">${icon(ic)}<span class="name">${escapeHtml(label)}${what}</span>` +
+      // Готовое кликабельно: ради этого «Сегодня» и делался — запустил, ушёл
+      // писать письмо, вернулся и забрал.
+      return `<div class="row">${icon(ic)}<span class="name">` +
+        `${taskLink(r.kind, r.task_id, label)}${what}</span>` +
         `<span class="state done">${escapeHtml(fmtTime(r.finished_at))}</span></div>`;
     }
 

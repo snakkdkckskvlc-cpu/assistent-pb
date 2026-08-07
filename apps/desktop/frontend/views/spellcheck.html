@@ -222,6 +222,10 @@
 
     document.getElementById("submit").addEventListener("click", () => runCheck(false));
     document.getElementById("submit-deep").addEventListener("click", () => runCheck(true));
+
+    // Открыть результат прошлой задачи по ?task=<id> — ссылки ведут сюда
+    // из истории и с экрана «Сегодня».
+    openSavedTask(renderSpellcheckResult, document.getElementById("result"));
   </script>
 </body>
 </html>

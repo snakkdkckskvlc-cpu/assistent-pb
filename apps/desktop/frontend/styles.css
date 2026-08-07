@@ -240,6 +240,18 @@ td { padding: 8px 8px 8px 0; border-bottom: 1px solid var(--line-soft); vertical
 .chip.bad, .chip.orph { background: var(--red-soft); color: var(--red-text); }
 .chip.style { background: #eaf1fb; color: #1b5aa8; }
 
+/* --- строка-форма внутри таблицы (возврат машины из рейса) ---
+   Пришла на смену двум системным prompt() подряд: в них не видно, о какой
+   машине речь, нельзя вернуться к первому значению и нельзя набрать запятую. */
+.row-form { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; padding: 4px 0 8px; }
+.row-form label {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--muted);
+}
+.row-form input { width: 190px; }
+tr.close-trip-form td { background: #fafbfc; }
+
 /* --- построчные правки орфографии ---
    Правка стала решением, а не отчётом: раньше исправленный документ приходил
    со всеми находками сразу, и принять девять из двадцати трёх было нельзя. */

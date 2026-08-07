@@ -307,6 +307,11 @@ class Waybill(WaybillFields):
     # пробег известен; иначе None и в бланке прочерк. Отдаётся отдельно от
     # fuel_used_norm_l: то — цифра, вписанная человеком, и она главнее.
     fuel_by_norm_l: float | None = None
+    # Графы, заполненные программой из карточки машины при выписке листа.
+    # Интерфейс помечает их и подписывает источник: значение, взявшееся само,
+    # без объяснения читается как чужая ошибка, и его либо боятся трогать,
+    # либо молча перебивают.
+    autofilled: list[str] = Field(default_factory=list)
     trailers: list[Trailer] = Field(default_factory=list)
     downtimes: list[Downtime] = Field(default_factory=list)
     created_by: str = ""

@@ -341,6 +341,11 @@ CREATE INDEX IF NOT EXISTS idx_trip_open ON trip(returned_at) WHERE returned_at 
 -- именно) хранятся: это печатаемый текст бланка.
 CREATE TABLE IF NOT EXISTS waybill (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Какие графы заполнила программа из карточки машины, а не человек.
+    -- Список имён через запятую. Нужен интерфейсу: подставленное значение
+    -- надо отличать от введённого, иначе человек не понимает, можно ли его
+    -- трогать, и на всякий случай не трогает.
+    autofilled TEXT NOT NULL DEFAULT '',
     form TEXT NOT NULL DEFAULT '3',
     org_id INTEGER REFERENCES organization(id),
     series TEXT NOT NULL DEFAULT '',
@@ -495,6 +500,14 @@ CREATE INDEX IF NOT EXISTS idx_downtime_waybill ON downtime(waybill_id);
 # существующую таблицу НЕ трогает, поэтому у пользователей с рабочей базой
 # новые поля появятся только через ALTER TABLE.
 _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    (
+        # База с путевыми листами могла быть создана до появления пометок
+        # автоподстановки. Старые листы получат пустое значение — это честно:
+        # чем их заполняли, мы уже не знаем.
+        "waybill",
+        "autofilled",
+        "ALTER TABLE waybill ADD COLUMN autofilled TEXT NOT NULL DEFAULT ''",
+    ),
     (
         "feedback",
         "bad_output",

@@ -145,6 +145,10 @@
         renderResult: renderAskResult,
       });
     });
+
+    // Открыть результат прошлой задачи по ?task=<id> — ссылки ведут сюда
+    // из истории и с экрана «Сегодня».
+    openSavedTask(renderAskResult, document.getElementById("result"));
   </script>
 </body>
 </html>

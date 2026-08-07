@@ -15,7 +15,7 @@
     <a class="back" href="/">← На главную</a>
     <div class="section">
       <h2>История задач</h2>
-      <p class="hint">Что запускали, когда и с каким результатом. Тексты документов не сохраняются — только сводка.</p>
+      <p class="hint">Что запускали, когда и с каким результатом. Название функции — ссылка: по ней открывается сам результат, пока он не удалён автоочисткой.</p>
 
       <div class="actions">
         <button class="btn secondary" id="refresh">Обновить</button>
@@ -71,7 +71,7 @@
         const body = rows.map((t) => `
           <tr>
             <td>${fmtWhen(t.created_at)}</td>
-            <td>${escapeHtml(KIND_LABELS[t.kind] || t.kind)}</td>
+            <td>${taskLink(t.kind, t.task_id, KIND_LABELS[t.kind] || t.kind)}</td>
             <td>${t.status === "done"
               ? '<span class="chip ok">готово</span>'
               : t.status === "cancelled"

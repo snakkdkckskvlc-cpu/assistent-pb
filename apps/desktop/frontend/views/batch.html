@@ -94,7 +94,13 @@
         },
         resultContainer: document.getElementById("result"),
         progressContainer: document.getElementById("progress"),
-        renderResult: (result, container) => {
+        renderResult: renderBatchResult,
+      });
+    });
+
+    // Разборщик вынесен из обработчика отдельной функцией: его зовёт и
+    // submitForm после расчёта, и openSavedTask при открытии прошлого отчёта.
+    function renderBatchResult(result, container) {
           const stats = result.stats || {};
           const parts = [`<p>Всего файлов: ${stats["всего"] ?? "?"} · договоров проанализировано: ${stats["договоров"] ?? "?"} · пропущено: ${stats["пропущено"] ?? "?"}</p>`];
           if (result._docx_path) {
@@ -116,9 +122,10 @@
               }
             });
           }
-        },
-      });
-    });
+    }
+
+    // Открыть сводный отчёт прошлой пакетной проверки по ?task=<id>.
+    openSavedTask(renderBatchResult, document.getElementById("result"));
   </script>
 </body>
 </html>

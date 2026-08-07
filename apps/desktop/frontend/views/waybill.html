@@ -24,6 +24,23 @@
         <button class="btn" id="wb-new">Выписать лист</button>
         <button class="btn secondary" id="wb-refresh">Обновить</button>
       </div>
+
+      <div id="wb-new-form" style="display:none">
+        <div class="field">
+          <label for="wb-new-vehicle">Машина</label>
+          <select id="wb-new-vehicle"></select>
+          <p class="hint" id="wb-new-hint"></p>
+        </div>
+        <div class="field">
+          <label for="wb-new-date">Срок действия</label>
+          <input id="wb-new-date" type="date">
+        </div>
+        <div class="actions">
+          <button class="btn" id="wb-new-create">Выписать</button>
+          <button class="btn secondary" id="wb-new-cancel">Отмена</button>
+        </div>
+      </div>
+
       <div id="wb-list" class="result"></div>
     </div>
 
@@ -363,6 +380,27 @@
         }
       }
 
+      // Графы, которые заполнила программа из карточки машины, помечаем и
+      // подписываем. Значение, взявшееся само и без объяснения, читается как
+      // чужая ошибка: его либо боятся трогать, либо молча перебивают.
+      // Список приходит с сервера (waybill.autofilled) — это факт, а не
+      // догадка по совпадению значений.
+      for (const name of wb.autofilled || []) {
+        const el = document.getElementById(`f-${name}`);
+        if (!el) continue;
+        el.classList.add("autofilled");
+        if (el.parentElement.querySelector(".source-note")) continue;
+        const note = document.createElement("p");
+        note.className = "source-note";
+        // «Можно исправить» — только там, где действительно можно: форма бланка
+        // и машина стоят readonly, и звать править то, что не правится, значит
+        // отправить человека искать несуществующую кнопку.
+        note.textContent = el.readOnly || el.disabled
+          ? "Подставлено из карточки машины."
+          : "Подставлено из карточки машины — можно исправить.";
+        el.insertAdjacentElement("afterend", note);
+      }
+
       // Поле только для чтения, в сохранение не уходит (collectWaybill
       // пропускает readonly), поэтому показываем человеческое название формы,
       // а не служебный код «4-S» из базы.
@@ -607,22 +645,44 @@
       }
     });
 
-    document.getElementById("wb-new").addEventListener("click", async () => {
-      if (!VEHICLES.length) return showError(new Error("Сначала заведите машину на странице «Транспорт»"));
-      const names = VEHICLES.map((v, i) => `${i + 1}. ${v.call_name}`).join("\n");
-      const pick = prompt(`На какую машину выписать лист?\n\n${names}\n\nНомер:`, "1");
-      if (pick === null) return;
-      const vehicle = VEHICLES[Number(pick) - 1];
-      if (!vehicle) return showError(new Error("Такой машины в списке нет"));
-      const today = new Date().toISOString().slice(0, 10);
-      const date = prompt("Срок действия (дата):", today);
-      if (date === null) return;
+    // Выписка листа — маленькая форма, а не два системных prompt(). В prompt
+    // машину приходилось выбирать НОМЕРОМ СТРОКИ из текстового списка: набрал
+    // «3» вместо «2» — и лист выписан на чужую машину, а с ним поедут её
+    // норма расхода, бланк и закреплённый водитель. Ошибка молчаливая: она
+    // видна только в готовом документе.
+    document.getElementById("wb-new").addEventListener("click", () => {
+      const box = document.getElementById("wb-new-form");
+      const isHidden = box.style.display === "none";
+      box.style.display = isHidden ? "block" : "none";
+      if (!isHidden) return;
+      const sel = document.getElementById("wb-new-vehicle");
+      sel.innerHTML = VEHICLES.length
+        ? VEHICLES.map((v) => `<option value="${v.id}">${escapeHtml(v.call_name)}` +
+            `${v.plate ? " · " + escapeHtml(v.plate) : ""} · бланк ` +
+            `${v.waybill_form === "4-S" ? "4-С" : "№ 3"}</option>`).join("")
+        : '<option value="">— машин в справочнике нет —</option>';
+      document.getElementById("wb-new-date").value = new Date().toISOString().slice(0, 10);
+      document.getElementById("wb-new-create").disabled = !VEHICLES.length;
+      document.getElementById("wb-new-hint").innerHTML = VEHICLES.length
+        ? "Бланк подставится по карточке машины, вместе с нормой расхода и закреплённым водителем."
+        : 'Сначала заведите машину: <a href="/reference-fleet.html">Парк и точки</a>.';
+    });
+
+    document.getElementById("wb-new-cancel").addEventListener("click", () => {
+      document.getElementById("wb-new-form").style.display = "none";
+    });
+
+    document.getElementById("wb-new-create").addEventListener("click", async () => {
+      const vehicleId = Number(document.getElementById("wb-new-vehicle").value);
+      const date = document.getElementById("wb-new-date").value;
+      if (!vehicleId || !date) return;
       try {
         const wb = await api("/api/transport/waybills", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ vehicle_id: vehicle.id, date_from: date, date_to: date }),
+          body: JSON.stringify({ vehicle_id: vehicleId, date_from: date, date_to: date }),
         });
+        document.getElementById("wb-new-form").style.display = "none";
         await loadWaybills();
         renderEditor(wb);
       } catch (e) {

@@ -184,6 +184,65 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+// --- Открыть посчитанное раньше ---
+//
+// Результат жил только в открытой вкладке: ушёл со страницы — потерял, а
+// история хранила лишь сводку. При этом на сервере он есть: очередь держит
+// последние двести задач в памяти, остальные лежат в базе (task_store), и
+// /api/tasks/{id} отдаёт их одинаково.
+//
+// Открывается результат НА СВОЕЙ ЖЕ странице, через ?task=<id>. Так работает
+// родной для функции разборщик — заводить отдельную страницу задачи значило бы
+// продублировать пять разных рендеров и развести их поведение.
+
+const TASK_PAGE = {
+  spellcheck: "/spellcheck.html",
+  legal: "/legal.html",
+  letter: "/letter.html",
+  batch: "/batch.html",
+  ask: "/ask.html",
+};
+
+function taskLink(kind, taskId, text) {
+  const page = TASK_PAGE[kind];
+  if (!page || !taskId) return escapeHtml(text);
+  return `<a href="${page}?task=${encodeURIComponent(taskId)}">${escapeHtml(text)}</a>`;
+}
+
+// Вызывается страницей после того, как она объявила свой renderResult.
+async function openSavedTask(renderResult, container) {
+  const taskId = new URLSearchParams(location.search).get("task");
+  if (!taskId || !container) return;
+  container.innerHTML = '<p class="empty">Открываю сохранённый результат…</p>';
+  try {
+    const r = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`);
+    if (r.status === 404) {
+      // Чужая задача и несуществующая отвечают одинаково — и текст здесь
+      // общий: подсказывать «эта задача не ваша» значит подтверждать, что она
+      // существует.
+      container.innerHTML = '<p class="empty">Этот результат не найден. Возможно, рабочие файлы уже удалены.</p>';
+      return;
+    }
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const task = await r.json();
+    if (task.status !== "done" || task.result == null) {
+      container.innerHTML = `<p class="empty">${
+        task.status === "error" ? "Эта задача завершилась ошибкой." :
+        task.status === "cancelled" ? "Эта задача была отменена." :
+        "Эта задача ещё считается — загляните на экран «Сегодня»."}</p>`;
+      return;
+    }
+    container.innerHTML = "";
+    renderResult(task.result, container, taskId);
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = "Это результат прошлой задачи. Чтобы посчитать заново, заполните форму выше.";
+    container.prepend(note);
+  } catch (e) {
+    container.innerHTML = '<p class="empty">Не удалось открыть сохранённый результат.</p>';
+  }
+}
+
 // --- Помощники страниц транспорта ---
 // Лежали копиями в transport.html и waybill.html. С выносом справочников на
 // отдельные страницы копий стало бы четыре, а правка «в одной из них» —

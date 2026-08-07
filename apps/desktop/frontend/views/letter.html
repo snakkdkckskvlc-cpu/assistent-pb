@@ -37,6 +37,7 @@
         <span class="hint">На CPU ≈ 20–40 сек.</span>
       </div>
 
+      <div id="letterhead-warning" class="error-box" style="display:none"></div>
       <div id="progress" class="progress" style="display:none"></div>
       <div id="error" class="error-box" style="display:none"></div>
       <div id="result" class="result"></div>
@@ -47,6 +48,7 @@
   <script>
     updateHealth();
     loadAddressees();
+    loadLetterhead();
 
     async function loadAddressees() {
       const list = document.getElementById("addressee-list");
@@ -113,15 +115,38 @@
       }
     });
 
-    // Реквизиты компании — фиксированный текст бланка, не редактируется
-    // (реальный источник — resources/templates/letterhead.docx, собранный
-    // из «бланк ПожСервис новый.docx» скриптом build_letterhead_template.py).
-    const LETTERHEAD_REQUISITES = `<strong>ООО «ПожСервис»</strong><br>
-      Юридический адрес: 398005, г. Липецк, ул. Парковая, д. 10<br>
-      Фактический (почтовый) адрес: 398017, г. Липецк, ул. 9 Мая, д. 9а<br>
-      ИНН 4823026435/КПП 482301001<br>
-      Р/сч 40702810435000105037, Алтайское отделение №8644 ПАО «Сбербанк России» г. Барнаул, БИК 040173604<br>
-      тел/факс (4742) 28-67-88, https://pozhservis48.ru · эл.почта: info@pozhservis48.ru`;
+    // Реквизиты для предпросмотра приходят из САМОГО бланка (/api/letter/letterhead).
+    // Раньше здесь лежала их копия строкой: две копии одного расходятся при
+    // первой правке реквизитов, и человек видел бы на экране один расчётный
+    // счёт, а в отправленном документе — другой.
+    let LETTERHEAD = { lines: [], missing: false };
+
+    async function loadLetterhead() {
+      try {
+        const r = await fetch("/api/letter/letterhead");
+        if (r.ok) LETTERHEAD = await r.json();
+      } catch (e) {
+        LETTERHEAD = { lines: [], missing: false };
+      }
+      // Про отсутствующий бланк говорим сразу, а не после нажатия «Скачать»:
+      // письмо без реквизитов отправлять контрагенту нельзя, и узнать об этом
+      // лучше до того, как оно написано.
+      const warn = document.getElementById("letterhead-warning");
+      if (warn && LETTERHEAD.missing) {
+        warn.style.display = "block";
+        warn.textContent = "Фирменный бланк не найден: письмо соберётся без реквизитов, ИНН и банковских данных. Отправлять в таком виде нельзя — сообщите разработчику.";
+      }
+    }
+
+    function letterheadHtml() {
+      if (!LETTERHEAD.lines.length) {
+        return '<span class="hint">Реквизиты подставит бланк при скачивании.</span>';
+      }
+      // Первая строка — наименование организации, она в бланке набрана крупнее.
+      return LETTERHEAD.lines
+        .map((ln, i) => (i === 0 ? `<strong>${escapeHtml(ln)}</strong>` : escapeHtml(ln)))
+        .join("<br>");
+    }
 
     function renderLetterResult(result, container) {
       const today = new Date().toLocaleDateString("ru-RU");
@@ -130,7 +155,7 @@
         <p class="hint">Документ на фирменном бланке уже готов — с шапкой, реквизитами и логотипом.
         Поля ниже редактируемые: поправьте текст, и при скачивании бланк соберётся заново с вашими правками.</p>
         <div class="letterhead-preview">
-          <div class="letterhead-requisites">${LETTERHEAD_REQUISITES}</div>
+          <div class="letterhead-requisites">${letterheadHtml()}</div>
           <div class="letterhead-dateline">${escapeHtml(today)} № ______________ · На №________ от ______________</div>
 
           <label class="field-label" for="f-recipient">Получатель</label>
@@ -220,6 +245,10 @@
         renderResult: renderLetterResult,
       });
     });
+
+    // Открыть результат прошлой задачи по ?task=<id> — ссылки ведут сюда
+    // из истории и с экрана «Сегодня».
+    openSavedTask(renderLetterResult, document.getElementById("result"));
   </script>
 </body>
 </html>

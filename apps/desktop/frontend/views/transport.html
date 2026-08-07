@@ -132,6 +132,20 @@
               <td>${escapeHtml(t.place_to_name || t.destination_text || "—")}</td>
               <td class="hint">с ${fmtWhen(t.departed_at)}</td>
               <td><button class="btn" data-close-trip="${t.id}">Вернулась</button></td>
+            </tr>
+            <tr class="close-trip-form" data-form-for="${t.id}" hidden>
+              <td colspan="5">
+                <div class="row-form">
+                  <label>Одометр на возврате, км
+                    <input type="number" step="0.1" min="0" data-odo="${t.id}" placeholder="можно не вводить">
+                  </label>
+                  <label>Заправлено за рейс, л
+                    <input type="number" step="0.1" min="0" data-fuel="${t.id}" placeholder="пусто — не менять">
+                  </label>
+                  <button class="btn" data-confirm-close="${t.id}">Записать возврат</button>
+                  <button class="btn secondary" data-cancel-close="${t.id}">Отмена</button>
+                </div>
+              </td>
             </tr>`).join("")}</tbody></table>`
         : '<p class="hint">Все машины на месте.</p>';
 
@@ -201,20 +215,35 @@
     // Кнопки в таблицах перерисовываются при каждой загрузке, поэтому слушатель
     // висит на документе, а не на каждой кнопке.
     document.addEventListener("click", async (e) => {
-      const btn = e.target.closest("button[data-close-trip]");
+      const btn = e.target.closest("button[data-close-trip], button[data-confirm-close], button[data-cancel-close]");
       if (!btn) return;
       try {
+        // Возврат отмечается строкой прямо в таблице, а не двумя системными
+        // prompt() подряд. В prompt не видно, о какой машине речь (диалог
+        // перекрывает таблицу), нельзя вернуться назад, исправив первое
+        // значение, и нельзя набрать запятую как на клавиатуре — Number("12,3")
+        // это NaN.
         if (btn.dataset.closeTrip) {
-          const km = prompt("Показание одометра на возврате, км (можно оставить пустым):", "");
-          if (km === null) return;
-          const litres = prompt("Заправлено за рейс, л (пусто — не менять):", "");
-          if (litres === null) return;
-          await api(`/api/transport/trips/${btn.dataset.closeTrip}/close`, {
+          const form = document.querySelector(`[data-form-for="${btn.dataset.closeTrip}"]`);
+          if (form) form.hidden = !form.hidden;
+          return;
+        }
+        if (btn.dataset.cancelClose) {
+          const form = document.querySelector(`[data-form-for="${btn.dataset.cancelClose}"]`);
+          if (form) form.hidden = true;
+          return;
+        }
+        if (btn.dataset.confirmClose) {
+          const id = btn.dataset.confirmClose;
+          const raw = (sel) => document.querySelector(`[${sel}="${id}"]`).value.trim();
+          const km = raw("data-odo");
+          const litres = raw("data-fuel");
+          await api(`/api/transport/trips/${id}/close`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              odometer_end_km: km.trim() === "" ? null : Number(km.replace(",", ".")),
-              fuel_issued_l: litres.trim() === "" ? null : Number(litres.replace(",", ".")),
+              odometer_end_km: km === "" ? null : Number(km),
+              fuel_issued_l: litres === "" ? null : Number(litres),
             }),
           });
         }
