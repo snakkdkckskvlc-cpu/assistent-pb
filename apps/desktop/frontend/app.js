@@ -33,6 +33,7 @@ const ICONS = {
   sheet: '<rect x="3.5" y="2.5" width="13" height="15" rx="1.5"/><path d="M6.5 6.5h7M6.5 10h7M6.5 13.5h4"/>',
   clock: '<circle cx="10" cy="10" r="7.5"/><path d="M10 5.5V10l3 2"/>',
   user: '<circle cx="10" cy="7" r="3.2"/><path d="M3.8 17c.6-3.2 3.2-5 6.2-5s5.6 1.8 6.2 5"/>',
+  shield: '<path d="M10 2.5 3.5 5v5.5c0 3.4 2.7 6.3 6.5 7 3.8-.7 6.5-3.6 6.5-7V5z"/><path d="m7.3 9.8 2 2 3.4-3.6"/>',
   book: '<path d="M3.5 3.5h5.5a2 2 0 0 1 2 2v11a1.6 1.6 0 0 0-1.6-1.6H3.5z"/><path d="M16.5 3.5H11a2 2 0 0 0-2 2v11a1.6 1.6 0 0 1 1.6-1.6h5.9z"/>',
 };
 
@@ -89,8 +90,16 @@ function renderShell() {
       html += `<a href="${href}"${current}>${icon(ic)}<span class="nav-text">${text}</span></a>`;
     }
   }
-  html += `<div class="bottom"><a href="/history.html"${here === "/history.html" ? ' aria-current="page"' : ""}>` +
-    `${icon("clock")}<span class="nav-text">История</span></a></div>`;
+  // Внизу — то, что открывают редко и по поводу: журнал задач и состояние
+  // защиты данных. Второе нужно в основном ИТ-администратору, но прятать его
+  // от сотрудника нельзя: именно ему объяснять, почему документ не сохранился.
+  const bottom = [
+    ["/history.html", "История", "clock"],
+    ["/security.html", "Защита данных", "shield"],
+  ];
+  html += '<div class="bottom">' + bottom.map(([href, text, ic]) =>
+    `<a href="${href}"${href === here ? ' aria-current="page"' : ""}>${icon(ic)}<span class="nav-text">${text}</span></a>`
+  ).join("") + "</div>";
   aside.innerHTML = html;
   topbar.insertAdjacentElement("afterend", aside);
 }
