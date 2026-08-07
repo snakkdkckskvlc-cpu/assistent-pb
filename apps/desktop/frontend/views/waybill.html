@@ -30,6 +30,8 @@
     <div class="section" id="wb-editor" style="display:none">
       <h2 id="wb-title">Путевой лист</h2>
       <p class="hint" id="wb-subtitle"></p>
+      <div class="steps" id="wb-steps"></div>
+      <p class="hint">Черновик сохраняется кнопкой ниже: переход между шагами ничего не теряет, все графы бланка остаются заполненными.</p>
       <div id="wb-form"></div>
 
       <div class="section" id="wb-trailers-box" style="display:none">
@@ -44,9 +46,9 @@
         <div class="actions"><button class="btn secondary" id="dt-add">Добавить простой</button></div>
       </div>
 
-      <div class="section">
+      <div class="section" id="wb-trips-box">
         <h3>Оборотная сторона — выполнение задания</h3>
-        <p class="hint">Ездки этого листа. Добавляются на странице «Транспорт» при выдаче машины.</p>
+        <p class="hint">Ездки этого листа. Добавляются на странице «Машины и рейсы» при выдаче машины.</p>
         <div id="wb-trips"></div>
       </div>
 
@@ -297,6 +299,85 @@
       el.value = value === null || value === undefined ? "" : String(value);
     }
 
+    // ── Шаги заполнения ──────────────────────────────────────────────────
+    //
+    // Бланк — это простыня, где «выезд из гаража» и «возвращение» стоят
+    // рядом, хотя между ними целый рабочий день. Заполняют лист тоже не
+    // подряд: утром механик отмечает выезд, вечером — возврат и топливо.
+    // Порядок здесь — порядок событий, а не порядок бланка.
+    //
+    // Внутри шага исходные разделы бланка сохранены: они и есть язык, на
+    // котором про лист говорят («движение горючего», «результаты за смену»).
+    const STEPS = [
+      ["Машина и водитель", [
+        "form", "org_id", "series", "number", "date_from", "date_to",
+        "vehicle_id", "driver_id", "column_number", "brigade", "work_mode",
+        "escorts", "status",
+      ]],
+      ["Выезд", [
+        "medical_pre_mark", "medical_pre_at", "medical_pre_position", "medical_pre_name",
+        "tech_control_mark", "tech_control_at", "tech_control_name", "licence_checked",
+        "mechanic_name", "dispatcher_name", "accepted_by_driver",
+        "scheduled_departure_at", "departure_at",
+        "odometer_start_km", "zero_run_start_km",
+        "fuel_brand", "fuel_code", "fuel_sheet_number", "fuel_start_l", "fuel_issued_l",
+        "fuel_norm_l_100km", "fuel_coeff_equipment", "fuel_coeff_engine",
+      ]],
+      ["Задание и рейсы", [
+        "communication_type", "transport_type", "customer_name", "customer_address",
+        "pickup_address", "delivery_address", "cargo_name", "planned_arrival_at",
+        "planned_trips", "planned_distance_km", "planned_cargo_kg", "fuel_to_issue_l",
+      ]],
+      // Всё, что заполняется после смены. Явного списка нет намеренно: поле
+      // бланка, забытое в разметке шагов, попадёт сюда, а не исчезнет с
+      // экрана — потерянная графа путевого листа это недействительный
+      // документ, и молчаливая пропажа тут недопустима.
+      ["Возврат и итоги смены", null],
+    ];
+    const LAST_STEP = STEPS.length - 1;
+    const STEP_OF = new Map();
+    STEPS.forEach(([, names], i) => (names || []).forEach((n) => STEP_OF.set(n, i)));
+    let CURRENT_STEP = 0;
+
+    function stepOf(name) {
+      const i = STEP_OF.get(name);
+      return i === undefined ? LAST_STEP : i;
+    }
+
+    function showStep(i) {
+      CURRENT_STEP = i;
+      document.querySelectorAll("[data-step]").forEach((el) => {
+        el.hidden = Number(el.getAttribute("data-step")) !== i;
+      });
+      renderStepNav();
+    }
+
+    // Заполненность считается по факту («сколько полей заполнено»), а НЕ по
+    // обязательности: какие графы формы № 3 обязательны, знает приказ, а не
+    // интерфейс, и выдумывать это число нельзя — по нему сдают документ.
+    function stepProgress(si) {
+      const fields = document.querySelectorAll(`[data-step="${si}"] [id^="f-"]`);
+      let filled = 0;
+      fields.forEach((el) => {
+        if (el.type === "checkbox" ? el.checked : String(el.value || "").trim()) filled++;
+      });
+      return { filled, total: fields.length };
+    }
+
+    function renderStepNav() {
+      const nav = document.getElementById("wb-steps");
+      if (!nav) return;
+      nav.innerHTML = STEPS.map(([title], i) => {
+        const { filled, total } = stepProgress(i);
+        const done = total > 0 && filled === total;
+        const current = i === CURRENT_STEP ? ' aria-current="step"' : "";
+        return `<button type="button" class="step${done ? " done" : ""}"${current} data-goto="${i}">
+          <b>${done ? "✓" : i + 1}</b>
+          <span>${escapeHtml(title)}<span class="step-count">${filled} из ${total}</span></span>
+        </button>`;
+      }).join("");
+    }
+
     // ── Редактор листа ───────────────────────────────────────────────────
 
     function renderEditor(wb) {
@@ -305,13 +386,34 @@
       const mark = isCargo ? "4" : "3";
       const box = document.getElementById("wb-form");
 
-      box.innerHTML = SECTIONS.map(([title, fields]) => {
-        const visible = fields.filter(([, , , forms]) => forms.includes(mark));
-        if (!visible.length) return "";
-        const body = visible
-          .map(([name, label, type, , opts]) => fieldHtml(name, label, type, opts))
-          .join("");
-        return `<div class="section"><h3>${escapeHtml(title)}</h3>${body}</div>`;
+      // Блоки прицепов, ездок и простоев на прошлой отрисовке переехали
+      // ВНУТРЬ #wb-form. Сброс innerHTML ниже снёс бы их вместе с разметкой
+      // шагов, и повторное открытие листа падало на обращении к удалённому
+      // узлу. Поэтому сначала возвращаем их наружу, а после отрисовки
+      // расставляем заново.
+      const editorBox = document.getElementById("wb-editor");
+      for (const id of ["wb-trailers-box", "wb-trips-box", "wb-downtimes-box"]) {
+        const el = document.getElementById(id);
+        if (el && el.parentElement !== editorBox) editorBox.appendChild(el);
+      }
+
+      // Поля РИСУЮТСЯ ВСЕ, а прячутся лишь чужие шаги. Так сохранение
+      // (collectWaybill) продолжает читать весь бланк одним проходом: рисуй
+      // мы только текущий шаг, отсутствующие в DOM графы молча не доехали бы
+      // до сервера, а в путевом листе пропавшая графа — недействительный
+      // документ.
+      box.innerHTML = STEPS.map(([, ], si) => {
+        const inner = SECTIONS.map(([title, fields]) => {
+          const visible = fields.filter(
+            ([name, , , forms]) => forms.includes(mark) && stepOf(name) === si
+          );
+          if (!visible.length) return "";
+          const body = visible
+            .map(([name, label, type, , opts]) => fieldHtml(name, label, type, opts))
+            .join("");
+          return `<div class="section"><h3>${escapeHtml(title)}</h3>${body}</div>`;
+        }).join("");
+        return `<div data-step="${si}"${si === CURRENT_STEP ? "" : " hidden"}>${inner}</div>`;
       }).join("");
 
       for (const [, fields] of SECTIONS) {
@@ -328,6 +430,12 @@
           }
         }
       }
+
+      // Поле только для чтения, в сохранение не уходит (collectWaybill
+      // пропускает readonly), поэтому показываем человеческое название формы,
+      // а не служебный код «4-S» из базы.
+      const formEl = document.getElementById("f-form");
+      if (formEl) formEl.value = isCargo ? "4-С, грузовой автомобиль" : "№ 3, легковой автомобиль";
 
       document.getElementById("wb-title").textContent =
         `Путевой лист ${isCargo ? "грузового автомобиля (форма 4-С)" : "легкового автомобиля (форма № 3)"}`;
@@ -350,6 +458,22 @@
         renderDowntimes(wb.downtimes || []);
       }
       renderWaybillTrips(wb.id);
+
+      // Блоки прицепов, ездок и простоев переезжают в свой шаг: прицепы
+      // цепляют к машине утром, ездки идут по заданию, простои считают по
+      // итогам смены. Перенос узлом, а не перерисовкой, — обработчики на
+      // кнопках внутри остаются живыми.
+      const stepBox = (i) => document.querySelector(`#wb-form [data-step="${i}"]`);
+      const place = (id, step) => {
+        const el = document.getElementById(id);
+        const target = stepBox(step);
+        if (el && target) target.appendChild(el);
+      };
+      place("wb-trailers-box", 0);
+      place("wb-trips-box", 2);
+      place("wb-downtimes-box", LAST_STEP);
+
+      showStep(0);
       document.getElementById("wb-editor").style.display = "block";
       document.getElementById("wb-editor").scrollIntoView({ behavior: "smooth" });
     }
@@ -473,6 +597,16 @@
       await loadWaybills();
       return wb;
     }
+
+    // Переключение шагов и живой счётчик заполненности. Делегированием:
+    // поля перерисовываются на каждом открытии листа, вешать обработчик на
+    // каждое из сотни — лишняя работа и лишний источник утечек.
+    document.getElementById("wb-steps").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-goto]");
+      if (btn) showStep(Number(btn.getAttribute("data-goto")));
+    });
+    document.getElementById("wb-form").addEventListener("input", renderStepNav);
+    document.getElementById("wb-form").addEventListener("change", renderStepNav);
 
     document.getElementById("wb-save").addEventListener("click", async () => {
       const status = document.getElementById("wb-status");

@@ -416,6 +416,12 @@ tr.skipped .fix-actions { opacity: 1; }
 .steps .step[aria-current] { background: var(--red-soft); color: var(--red-text); font-weight: 700; }
 .steps .step[aria-current] b { background: var(--red); color: #fff; }
 .steps .step.done b { background: var(--green); color: #fff; }
+.steps .step:hover:not([aria-current]) { background: var(--bg); }
+/* Счётчик заполненности — фактический («сколько полей заполнено»), а не
+   «сколько обязательных»: какие графы обязательны, знает приказ, а не
+   интерфейс, и по этой цифре сдают документ. */
+.steps .step-count { display: block; font-size: 9.5px; color: var(--muted); font-weight: 500; }
+.steps .step[aria-current] .step-count { color: var(--red-text); opacity: .75; }
 
 /* --- предпросмотр письма на бланке --- */
 .letterhead-preview {
