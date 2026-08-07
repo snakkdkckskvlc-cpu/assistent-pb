@@ -640,6 +640,10 @@ async def run_legal_analysis(
     summaries: list[dict] = []
     rag_sources: set[str] = set()
     rag_low_confidence_parts = 0
+    # Сколько частей модель вернула не по схеме. Считается отдельно от «рисков
+    # не нашлось»: пустой отчёт по этим двум причинам выглядит одинаково, а
+    # значит одно из них — молчаливая потеря разбора.
+    format_failures = 0
 
     for idx, part in enumerate(parts, start=1):
         part_base = base_percent + int(span_percent * (idx - 1) / len(parts))
@@ -757,10 +761,31 @@ async def run_legal_analysis(
             ),
         )
         if not isinstance(result, dict):
-            log.warning("LLM вернула не-dict для части %d (%s)", idx, type(result).__name__)
+            log.error("LLM вернула не-dict для части %d (%s)", idx, type(result).__name__)
+            format_failures += 1
             continue
 
+        # Пустой список находок и ОТСУТСТВИЕ ключа — разные события, и раньше
+        # они сливались в одно молчаливое «рисков нет». Первое законно (хотя на
+        # настоящем договоре редко), второе значит, что модель ответила не по
+        # схеме, и знать об этом надо: именно так терялся весь разбор, а
+        # пользователь видел пустой отчёт и читал его как «договор чистый».
         findings = result.get("находки")
+        if findings is None:
+            log.error(
+                "Юр. анализ, часть %d: в ответе модели нет ключа «находки» (ключи: %s) — "
+                "разбор этой части потерян",
+                idx,
+                ", ".join(map(str, result.keys())) or "нет",
+            )
+            format_failures += 1
+        elif not isinstance(findings, list):
+            log.error(
+                "Юр. анализ, часть %d: «находки» пришли как %s, а не списком",
+                idx,
+                type(findings).__name__,
+            )
+            format_failures += 1
         if not isinstance(findings, list):
             findings = []
         for finding in findings:
@@ -845,6 +870,11 @@ async def run_legal_analysis(
         "_rag_low_confidence": rag_low_confidence_parts > 0,
         "_rag_частей_без_норм": rag_low_confidence_parts,
         "_частей": len(parts),
+        # Сколько частей договора модель вернула не по схеме. Отличать от
+        # «рисков не нашлось» обязательно: пустой отчёт по этим двум причинам
+        # выглядит одинаково, но во втором случае разбор потерян, и говорить
+        # пользователю «рисков нет» было бы враньём.
+        "_частей_с_битым_форматом": format_failures,
     }
 
 

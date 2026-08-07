@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -205,11 +206,137 @@ async def chat(
     return content
 
 
-async def chat_json(system: str, user: str, **kwargs) -> dict:
-    """Вызов с JSON-режимом + парсинг. Обрабатывает случай, когда модель
-    оборачивает JSON в markdown-код-блок."""
-    raw = await chat(system, user, json_mode=True, **kwargs)
-    return _parse_json_loose(raw)
+async def chat_json(system: str, user: str, *, retries: int = 1, **kwargs) -> dict:
+    """Вызов с JSON-режимом + парсинг, с одним повтором на неисправимый ответ.
+
+    Две ступени, потому что дефекты формата бывают двух разных сортов.
+
+    Первая — разбор ответа (`_parse_json_loose`): переименование ключей и
+    починка типовых синтаксических поломок. Стоит ноль секунд и закрывает
+    случаи, которые повтор НЕ закрыл бы вовсе — например, английские имена
+    полей при полностью валидном JSON: повторять там нечего, ошибки нет.
+
+    Вторая — этот повтор. Нужен потому, что поломки не сводятся к списку
+    известных: замерено на GigaChat3.1-10B, договор 01 — в одном прогоне
+    английские ключи, в другом синтаксическая ошибка в другом месте.
+
+    Повтор осмыслен даже при `temperature=0`: ответы модели МЕЖДУ ПРОГОНАМИ
+    различаются (обычное дело для CPU-инференса — разное разбиение батчей
+    меняет порядок сложений в плавающей арифметике). Это проверено на том же
+    договоре 01: два прогона с одним промптом дали разные ответы и разные
+    ошибки.
+
+    Цена честная: повтор удваивает время вызова. Поэтому он ОДИН, и только
+    когда починить не удалось. Отказ после шести минут ожидания дороже.
+    """
+    for attempt in range(retries + 1):
+        raw = await chat(system, user, json_mode=True, **kwargs)
+        try:
+            return _parse_json_loose(raw)
+        except LLMError:
+            if attempt >= retries:
+                raise
+            log.warning(
+                "Ответ модели не разобрать даже после починки — повторяю запрос (попытка %d из %d)",
+                attempt + 2,
+                retries + 1,
+            )
+    raise LLMError("Недостижимо: цикл повторов завершился без результата")
+
+
+# Модель может назвать поля по-английски, хотя схема в промпте русская.
+# Замерено на GigaChat3.1-10B, договор 01: ответ пришёл СМЕШАННЫМ — находки с
+# ключами findings/criticality/quote_from_contract, а сводка тут же рядом с
+# русскими «плюсы_для_компании». Разбор был содержательный, пять находок, но
+# пайплайн ищет ключ «находки», не находит и отдаёт ПУСТОЙ результат. Для
+# пользователя это выглядит как «в договоре рисков нет» — то есть худший из
+# возможных отказов: тихий и правдоподобный.
+#
+# Поэтому имена ключей нормализуются к схеме промпта. Список закрытый: только
+# прямые переводы полей наших схем, никаких догадок.
+_KEY_SYNONYMS = {
+    # юр. анализ
+    "findings": "находки",
+    "criticality": "критичность",
+    "severity": "критичность",
+    "quote_from_contract": "цитата_из_договора",
+    "quote": "цитата_из_договора",
+    "risk": "в_чём_риск",
+    "link_to_norm": "ссылка_на_норму",
+    "norm_reference": "ссылка_на_норму",
+    "source_fragment": "источник_фрагмента",
+    "edit_suggestion": "предложение_правки",
+    "suggestion": "предложение_правки",
+    "summary": "сводка",
+    "pros": "плюсы_для_компании",
+    "cons": "минусы_для_компании",
+    "conclusion": "общий_вывод",
+}
+
+
+def _normalize_keys(value: Any) -> Any:
+    """Переименовывает английские ключи в русские по закрытому списку.
+
+    Существующий русский ключ НЕ затирается: если модель прислала оба, верным
+    считается тот, что назван по схеме.
+    """
+    if isinstance(value, list):
+        return [_normalize_keys(v) for v in value]
+    if not isinstance(value, dict):
+        return value
+    out: dict[str, Any] = {}
+    for key, val in value.items():
+        target = _KEY_SYNONYMS.get(key, key)
+        if target != key and target in value:
+            target = key
+        out[target] = _normalize_keys(val)
+    return out
+
+
+def _repair_json(text: str) -> str | None:
+    """Чинит одиночные синтаксические дефекты. None — если чинить нечего.
+
+    Не «умный ремонт» произвольного мусора, а два узких правила под то, что
+    модели реально ломают. Каждое проверяется повторным парсингом, поэтому
+    неудачная починка ничего не портит: она просто не применится.
+
+    Правило 1 — ЛИШНЯЯ КАВЫЧКА ПЕРЕД КЛЮЧОМ. Замерено на GigaChat3.1-10B,
+    договор 05: `}],""сводка": {` вместо `}],"сводка": {`. Ответ при этом
+    целый, генерация не обрывалась — весь разбор терялся из-за одного знака.
+    Паттерн намеренно требует ключ и двоеточие после него: `,""` внутри
+    массива строк («минусы»: ["a", ""]) — законная запись, и её трогать
+    нельзя.
+
+    Правило 2 — висячая запятая перед закрывающей скобкой: JSON её не
+    допускает, а модели ставят по привычке из JavaScript.
+    """
+    repaired = re.sub(r'([,{\[])\s*""(\w[^"]*)"\s*:', r'\1"\2":', text)
+    repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)
+    return repaired if repaired != text else None
+
+
+def _fix_early_root_close(text: str) -> str | None:
+    """Модель закрыла корневой объект и продолжила писать ключи.
+
+    Замерено на GigaChat3.1-10B, договор 05: после сводки идёт `}},` и дальше
+    ещё один ключ верхнего уровня. Корень закрылся на скобку раньше, чем
+    модель закончила, — остаток документа становится «Extra data».
+
+    Чинится СТРОГО по позиции, которую сообщил парсер: лишняя скобка убирается
+    там, где JSON фактически закончился. Слепая замена `}},"` на `},"` была бы
+    ошибкой — это совершенно законная запись (`{"a":{"b":{}},"c":1}`), и такой
+    «ремонт» ломал бы верные ответы.
+    """
+    try:
+        json.loads(text)
+    except json.JSONDecodeError as e:
+        if not e.msg.startswith("Extra data"):
+            return None
+        head, tail = text[: e.pos].rstrip(), text[e.pos :]
+        if not head.endswith("}") or not tail.lstrip().startswith(","):
+            return None
+        return head[:-1] + tail
+    return None
 
 
 def _parse_json_loose(text: str) -> dict:
@@ -220,19 +347,43 @@ def _parse_json_loose(text: str) -> dict:
         if text.lower().startswith("json"):
             text = text[4:]
         text = text.strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
-        # Попробовать найти первую '{' и последнюю '}'
-        first = text.find("{")
-        last = text.rfind("}")
-        if first != -1 and last > first:
-            snippet = text[first : last + 1]
+
+    candidates = [text]
+    # Попробовать найти первую '{' и последнюю '}'
+    first, last = text.find("{"), text.rfind("}")
+    if first != -1 and last > first:
+        candidates.append(text[first : last + 1])
+
+    error: json.JSONDecodeError | None = None
+    for candidate in candidates:
+        # Починки применяются по очереди и НАКАПЛИВАЮТСЯ: на договоре 05 из
+        # замера сначала убирается лишняя кавычка перед ключом, и только после
+        # этого становится виден рано закрытый корень. По одной ни та, ни
+        # другая правка ответ не спасала.
+        variants = [candidate]
+        repaired = _repair_json(candidate)
+        if repaired is not None:
+            variants.append(repaired)
+        reattached = _fix_early_root_close(variants[-1])
+        if reattached is not None:
+            variants.append(reattached)
+
+        for attempt, variant in enumerate(variants):
             try:
-                return json.loads(snippet)
-            except json.JSONDecodeError:
-                pass
-        raise LLMError(f"Модель вернула невалидный JSON: {e}\n---\n{text[:500]}") from e
+                parsed = json.loads(variant)
+            except json.JSONDecodeError as e:
+                error = e
+                continue
+            if attempt:
+                log.warning(
+                    "JSON модели был повреждён и восстановлен (%d правк%s): %s",
+                    attempt,
+                    "а" if attempt == 1 else "и",
+                    error,
+                )
+            return _normalize_keys(parsed) if isinstance(parsed, dict) else parsed
+
+    raise LLMError(f"Модель вернула невалидный JSON: {error}\n---\n{text[:500]}") from error
 
 
 async def healthcheck() -> dict:
