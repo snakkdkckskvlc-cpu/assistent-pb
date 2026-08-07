@@ -16,6 +16,8 @@
     <h1>Сегодня</h1>
     <p class="subtitle" id="today-date"></p>
 
+    <div class="llm-state" id="llm-state"></div>
+
     <div class="kpi" id="kpi"></div>
 
     <div id="active-block"></div>
@@ -103,6 +105,18 @@
         const d = await r.json();
 
         document.getElementById("today-date").textContent = fmtDate(d.date);
+
+        // Занятость модели — общая на компанию. Пишем обычными словами: человек
+        // должен понять, почему его задача стоит, не разбираясь в очередях.
+        // Чья задача считается — не показываем, это чужой документ.
+        const llm = d.llm || {};
+        const waiting = llm.waiting || 0;
+        const tail = waiting ? ` Ждут своей очереди: ${waiting}.` : "";
+        document.getElementById("llm-state").innerHTML = llm.busy
+          ? `<span class="dot busy"></span>ИИ в данный момент используется.${escapeHtml(tail)}`
+          : `<span class="dot free"></span>ИИ свободен.${escapeHtml(tail)}`;
+        document.getElementById("llm-state").className = "llm-state" + (llm.busy ? " busy" : "");
+
         const m = d.metrics;
         document.getElementById("kpi").innerHTML = `
           <div><b class="${m.active ? "hot" : ""}">${m.active}</b><span>${m.active === 1 ? "задача считается" : "задач считается"}</span></div>

@@ -295,6 +295,20 @@ td { padding: 8px 8px 8px 0; border-bottom: 1px solid var(--line-soft); vertical
 .summary-box li { margin-bottom: 4px; }
 
 /* --- экран «Сегодня» --- */
+
+/* Занятость модели. Считающая задача одна на всю компанию, и человек ждёт
+   чужую, не понимая почему — отсюда «программа зависла». Строка нарочно
+   спокойная: это не ошибка и не предупреждение, а факт. */
+.llm-state {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 13px; margin-bottom: 14px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: #fafbfc; font-size: 12.5px; color: var(--text);
+}
+.llm-state.busy { background: #fff8e8; border-color: #f0dcae; }
+.llm-state .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.llm-state .dot.free { background: var(--green); }
+.llm-state .dot.busy { background: var(--yellow); }
 .kpi { display: flex; background: var(--graphite); border-radius: 12px; overflow: hidden; margin-bottom: 18px; }
 .kpi div { flex: 1; padding: 13px 16px; border-right: 1px solid rgba(255, 255, 255, .13); }
 .kpi div:last-child { border-right: 0; }

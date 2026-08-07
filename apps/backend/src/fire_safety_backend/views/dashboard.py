@@ -60,8 +60,21 @@ def _collect(login: str) -> dict:
     # а спрашивают о ней все.
     on_the_road = [t for t in transport.list_trips(limit=100) if t.returned_at is None]
 
+    # Занята ли модель — состояние ОБЩЕЕ, не «моё». Считающая задача одна на
+    # всю компанию, и человек, запустивший разбор, будет ждать чужой, даже не
+    # понимая почему. «Программа зависла» — именно отсюда.
+    #
+    # Чья это задача и над каким документом — не отдаём: разбор договора видеть
+    # должен только его владелец, а для объяснения ожидания хватает «занято» и
+    # числа ждущих.
+    running = queue.running()
+
     return {
         "date": today,
+        "llm": {
+            "busy": running is not None,
+            "waiting": queue.queued_count(),
+        },
         "metrics": {
             "active": len(active),
             "on_the_road": len(on_the_road),
