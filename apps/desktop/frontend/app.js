@@ -33,6 +33,7 @@ const ICONS = {
   sheet: '<rect x="3.5" y="2.5" width="13" height="15" rx="1.5"/><path d="M6.5 6.5h7M6.5 10h7M6.5 13.5h4"/>',
   clock: '<circle cx="10" cy="10" r="7.5"/><path d="M10 5.5V10l3 2"/>',
   user: '<circle cx="10" cy="7" r="3.2"/><path d="M3.8 17c.6-3.2 3.2-5 6.2-5s5.6 1.8 6.2 5"/>',
+  book: '<path d="M3.5 3.5h5.5a2 2 0 0 1 2 2v11a1.6 1.6 0 0 0-1.6-1.6H3.5z"/><path d="M16.5 3.5H11a2 2 0 0 0-2 2v11a1.6 1.6 0 0 1 1.6-1.6h5.9z"/>',
 };
 
 function icon(name) {
@@ -55,6 +56,12 @@ const NAV = [
   { group: "Транспорт", items: [
     ["/transport.html", "Машины и рейсы", "truck"],
     ["/waybill.html", "Путевые листы", "sheet"],
+  ] },
+  // Справочники отдельно от работы: парк и точки заводят раз в полгода, а
+  // машину выдают каждое утро. На одной странице редкое заставляло листать
+  // себя ради частого.
+  { group: "Справочники", items: [
+    ["/reference-fleet.html", "Парк и точки", "book"],
   ] },
 ];
 
@@ -166,6 +173,39 @@ function escapeHtml(s) {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
+
+// --- Помощники страниц транспорта ---
+// Лежали копиями в transport.html и waybill.html. С выносом справочников на
+// отдельные страницы копий стало бы четыре, а правка «в одной из них» —
+// обычным способом развести поведение экранов.
+
+// Ошибку от backend'а показываем словами, а не «HTTP 409»: сообщения сервиса
+// написаны для секретаря («Машина уже в рейсе»), и подменять их кодом значило
+// бы выбросить единственную понятную подсказку.
+async function api(url, options) {
+  const r = await fetch(url, options);
+  if (r.status === 204) return null;
+  const data = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((data && data.detail) || `HTTP ${r.status}`);
+  return data;
+}
+
+function showError(e) {
+  const box = document.getElementById("error");
+  if (!box) return;
+  box.style.display = "block";
+  box.textContent = e.message || String(e);
+}
+
+function fmtWhen(iso) {
+  if (!iso) return "—";
+  // SQLite отдаёт CURRENT_TIMESTAMP как «2026-08-06 09:14:22» без зоны;
+  // без замены пробела на «T» Safari и Firefox дают Invalid Date.
+  const d = new Date(iso.replace(" ", "T") + (iso.endsWith("Z") ? "" : "Z"));
+  return isNaN(d) ? escapeHtml(iso) : d.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" });
+}
+
+const num = (v, suffix) => (v === null || v === undefined ? "—" : `${v} ${suffix}`);
 
 async function pollTask(taskId, onProgress) {
   while (true) {
