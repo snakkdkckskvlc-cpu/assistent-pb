@@ -60,7 +60,7 @@ _CONTRACT = _ROOT / "apps" / "backend" / "tests" / "fixtures" / "contracts" / "0
 def _sec(stats: dict, key: str) -> float:
     """Длительности Ollama приходят в наносекундах."""
     value = stats.get(key)
-    return value / 1e9 if isinstance(value, (int, float)) else 0.0
+    return value / 1e9 if isinstance(value, int | float) else 0.0
 
 
 def _ask(host: str, client: httpx.Client, model: str, system: str, user: str, opts: dict) -> dict:

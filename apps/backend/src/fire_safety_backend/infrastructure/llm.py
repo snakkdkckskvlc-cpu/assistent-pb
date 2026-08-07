@@ -49,7 +49,7 @@ def _get_client() -> httpx.AsyncClient:
 def _sec(stats: dict[str, Any], key: str) -> float:
     """Длительность из ответа Ollama — она приходит в НАНОСЕКУНДАХ."""
     value = stats.get(key)
-    return value / 1e9 if isinstance(value, (int, float)) else 0.0
+    return value / 1e9 if isinstance(value, int | float) else 0.0
 
 
 def _log_stats(stats: dict[str, Any], effective_ctx: int) -> None:
