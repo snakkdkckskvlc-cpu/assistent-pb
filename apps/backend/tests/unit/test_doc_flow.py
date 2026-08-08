@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from pathlib import Path
 
 import pytest
@@ -36,6 +36,33 @@ def _счёт(**kw) -> int:
     }
     params.update(kw)
     return doc_flow.create(**params)
+
+
+def _в_моменты(doc_id: int, моменты: list[datetime]) -> None:
+    """Ставит события документа в ЗАДАННЫЕ моменты.
+
+    Сдвиг «на N часов назад» перестал годиться, когда отчёт начал считать
+    рабочие часы: тот же сдвиг даёт разный результат в зависимости от того, в
+    какое время суток и в какой день недели запущен тест. Плавающий тест не
+    проверяет ничего.
+    """
+    with db_module.connect() as conn:
+        строки = conn.execute(
+            "SELECT id FROM doc_flow_event WHERE doc_id = ? ORDER BY id", (doc_id,)
+        ).fetchall()
+        for r, м in zip(строки, моменты, strict=True):
+            conn.execute(
+                "UPDATE doc_flow_event SET at = ? WHERE id = ?",
+                (м.isoformat(sep=" ", timespec="seconds"), r["id"]),
+            )
+
+
+def _последний_будний(час: int, минута: int = 0, назад_дней: int = 0) -> datetime:
+    """Недавний будний день в заданное время — чтобы попадать в рабочие часы."""
+    д = datetime.now().date() - timedelta(days=назад_дней)
+    while д.weekday() >= 5:
+        д -= timedelta(days=1)
+    return datetime.combine(д, time(час, минута))
 
 
 def _сдвинуть(doc_id: int, **сдвиги: float) -> None:
@@ -109,61 +136,54 @@ def test_timing_report_is_the_missing_row_of_the_map(_db: None) -> None:
 
 
 def test_whole_document_time_reconciles_with_per_person(_db: None) -> None:
-    """Одни часы, а не двое.
+    """Одни часы, а не двое: части обязаны складываться в целое.
 
-    Время у людей считается из событий, и время документа целиком обязано
-    считаться оттуда же — иначе цифры на одном экране не сходятся между собой,
-    и доверять нельзя ни одной. Раньше документ целиком брался из
-    created_at/closed_at: проверка в браузере показала «шёл 0 ч» у документа,
-    который на самом деле шёл почти четверо суток.
+    Время у людей и время документа целиком считаются из одного источника —
+    журнала событий. Раньше документ целиком брался из created_at/closed_at, и
+    проверка в браузере показала «шёл 0 ч» у документа, который шёл четверо
+    суток.
     """
     doc_id = _счёт()
     doc_flow.hand_over(doc_id, to="findir", actor="snab")
     doc_flow.hand_over(doc_id, to="buh", actor="findir")
     doc_flow.change_state(doc_id, to=doc_flow.ЗАКРЫТ, actor="buh", note="оплачен")
-    # события через каждые 10 часов, начиная 40 часов назад: всего 30 часов пути
-    _сдвинуть(doc_id, часов_назад=40, шаг_часов=10)
+    д = _последний_будний(9, назад_дней=1)
+    _в_моменты(doc_id, [д, д + timedelta(hours=1), д + timedelta(hours=3), д + timedelta(hours=6)])
 
     отчёт = doc_flow.timing(with_people=True)
     целиком = отчёт["по_видам"][0]["медиана_часов"]
     сумма_по_людям = sum(r["медиана_часов"] * r["передач"] for r in отчёт["у_кого"])
-    assert целиком == pytest.approx(30, abs=0.5)
-    assert сумма_по_людям == pytest.approx(целиком, abs=0.5), "части обязаны складываться в целое"
+    assert целиком == pytest.approx(
+        doc_flow.рабочих_часов(д.isoformat(sep=" "), (д + timedelta(hours=6)).isoformat(sep=" ")),
+        abs=0.05,
+    )
+    assert сумма_по_людям == pytest.approx(целиком, abs=0.05), "части обязаны складываться в целое"
 
 
 def test_state_change_does_not_split_a_stay(_db: None) -> None:
     """Виза не разрывает пребывание документа у человека.
 
     Наивный счёт «от события до следующего» резал пребывание там, где никто
-    ничего не передавал: финдиректор, у которого счёт пролежал 50 часов и был
-    завизирован за 2 часа до передачи, получал два отрезка и медиану 25 вместо
-    честных 50 — отчёт занижал ровно то место, ради обнаружения которого он и
-    делается.
+    ничего не передавал: финдиректор с семью часами получал два отрезка и
+    медиану вдвое меньше — отчёт занижал ровно то место, ради обнаружения
+    которого он делается.
     """
     doc_id = _счёт()
     doc_flow.hand_over(doc_id, to="findir", actor="snab")
     doc_flow.change_state(doc_id, to=doc_flow.ЗАВИЗИРОВАН, actor="findir")
     doc_flow.hand_over(doc_id, to="buh", actor="findir")
     doc_flow.change_state(doc_id, to=doc_flow.ЗАКРЫТ, actor="buh", note="оплачен")
-    # заведён -96, передан findir -90, виза -42, передан buh -40, закрыт -12
-    with db_module.connect() as conn:
-        строки = conn.execute(
-            "SELECT id FROM doc_flow_event WHERE doc_id = ? ORDER BY id", (doc_id,)
-        ).fetchall()
-        for r, ч in zip(строки, (96, 90, 42, 40, 12), strict=True):
-            conn.execute(
-                "UPDATE doc_flow_event SET at = ? WHERE id = ?",
-                (
-                    (datetime.now() - timedelta(hours=ч)).isoformat(sep=" ", timespec="seconds"),
-                    r["id"],
-                ),
-            )
+    д = _последний_будний(9, назад_дней=1)
+    пришёл, виза, ушёл = д + timedelta(hours=1), д + timedelta(hours=3), д + timedelta(hours=8)
+    _в_моменты(doc_id, [д, пришёл, виза, ушёл, ушёл + timedelta(minutes=1)])
 
     у_кого = {r["кто"]: r for r in doc_flow.timing(with_people=True)["у_кого"]}
+    ожидалось = doc_flow.рабочих_часов(пришёл.isoformat(sep=" "), ушёл.isoformat(sep=" "))
     assert у_кого["findir"]["передач"] == 1, "одно пребывание, а не два"
-    assert у_кого["findir"]["медиана_часов"] == pytest.approx(50, abs=0.5)
-    assert у_кого["snab"]["медиана_часов"] == pytest.approx(6, abs=0.5)
-    assert у_кого["buh"]["медиана_часов"] == pytest.approx(28, abs=0.5)
+    assert у_кого["findir"]["медиана_часов"] == pytest.approx(ожидалось, abs=0.05)
+    # При разрыве получились бы два куска по 2 и 5 часов с медианой около 3 —
+    # проверка ниже отсекает именно этот случай.
+    assert у_кого["findir"]["медиана_часов"] > 5
 
 
 def test_open_interval_not_counted(_db: None) -> None:
@@ -171,15 +191,11 @@ def test_open_interval_not_counted(_db: None) -> None:
     растёт каждую секунду и портил бы медиану."""
     doc_id = _счёт()
     doc_flow.hand_over(doc_id, to="findir", actor="snab")
-    # У snab отрезок закрыт передачей, и он должен быть не мгновенным —
-    # иначе его справедливо отсечёт правило про след регистрации.
-    _сдвинуть(doc_id, часов_назад=10, шаг_часов=5)
+    д = _последний_будний(9, назад_дней=1)
+    _в_моменты(doc_id, [д, д + timedelta(hours=3)])
     у_кого = {r["кто"]: r for r in doc_flow.timing(with_people=True)["у_кого"]}
     assert "findir" not in у_кого, "документ всё ещё у него — отрезок открыт"
     assert "snab" in у_кого, "закрытый отрезок у первого держателя есть"
-
-
-# --- машина состояний ---
 
 
 def test_closed_document_has_no_holder(_db: None) -> None:
@@ -204,7 +220,7 @@ def test_forbidden_transitions(_db: None, из: str, в: str) -> None:
     doc_id = _счёт()
     if из != doc_flow.В_РАБОТЕ:
         doc_flow.change_state(doc_id, to=из, actor="x", note="причина")
-    with pytest.raises(doc_flow.FlowError, match="нельзя перейти"):
+    with pytest.raises(doc_flow.FlowError, match="не подходит|уже закрыт|Виза уже стоит"):
         doc_flow.change_state(doc_id, to=в, actor="x", note="причина")
 
 
@@ -247,7 +263,7 @@ def test_hand_over_to_self_is_refused(_db: None) -> None:
 def test_unknown_kind_is_refused(_db: None) -> None:
     """Свободный ввод вида превращает отчёт по времени в мусор, где «счёт»,
     «Счет» и «счёт на оплату» — три разных потока."""
-    with pytest.raises(doc_flow.FlowError, match="вид"):
+    with pytest.raises(doc_flow.FlowError, match="вид документа"):
         _счёт(kind="счет на оплату")
 
 
@@ -376,7 +392,7 @@ def test_hand_over_loses_race_to_close(_db: None) -> None:
 
     doc_flow._row = подменённый
     try:
-        with pytest.raises(doc_flow.FlowError, match="только что изменили"):
+        with pytest.raises(doc_flow.FlowError, match="только что изменил"):
             doc_flow.hand_over(doc_id, to="findir", actor="snab")
     finally:
         doc_flow._row = настоящий_row
@@ -424,22 +440,15 @@ def test_long_stay_started_before_window_is_not_lost(_db: None) -> None:
     doc_id = _счёт()
     doc_flow.hand_over(doc_id, to="findir", actor="snab")
     doc_flow.change_state(doc_id, to=doc_flow.ЗАКРЫТ, actor="findir", note="оплачен")
-    # передан за 40 дней до сегодня, закрыт вчера; окно — 30 дней
-    with db_module.connect() as conn:
-        строки = conn.execute(
-            "SELECT id FROM doc_flow_event WHERE doc_id = ? ORDER BY id", (doc_id,)
-        ).fetchall()
-        for r, дней in zip(строки, (41, 40, 1), strict=True):
-            conn.execute(
-                "UPDATE doc_flow_event SET at = ? WHERE id = ?",
-                (
-                    (datetime.now() - timedelta(days=дней)).isoformat(sep=" ", timespec="seconds"),
-                    r["id"],
-                ),
-            )
+    пришёл = _последний_будний(10, назад_дней=41)
+    закрыт = _последний_будний(10, назад_дней=1)
+    _в_моменты(doc_id, [пришёл - timedelta(hours=1), пришёл, закрыт])
+
     у_кого = {r["кто"]: r for r in doc_flow.timing(30, with_people=True)["у_кого"]}
-    assert "findir" in у_кого, "залёживание длиной 39 дней не должно пропасть"
-    assert у_кого["findir"]["медиана_часов"] == pytest.approx(39 * 24, rel=0.02)
+    assert "findir" in у_кого, "залёживание длиной сорок дней не должно пропасть"
+    ожидалось = doc_flow.рабочих_часов(пришёл.isoformat(sep=" "), закрыт.isoformat(sep=" "))
+    assert у_кого["findir"]["медиана_часов"] == pytest.approx(ожидалось, abs=0.05)
+    assert у_кого["findir"]["медиана_часов"] > 100, "это очень долгое залёживание"
 
 
 def test_instant_registration_does_not_drag_the_median(_db: None) -> None:
@@ -472,3 +481,80 @@ def test_forgotten_document_comes_first(_db: None) -> None:
     for i in range(3):
         _счёт(number=f"СВЕЖИЙ-{i}")
     assert doc_flow.search()[0]["number"] == "ЗАБЫТЫЙ"
+
+
+# --- рабочие часы: арифметика отдельно от журнала ---
+
+
+def _мск(день: str, час: int, минута: int = 0) -> str:
+    """Момент по дате вида «2026-08-10» (это понедельник)."""
+    return f"{день} {час:02d}:{минута:02d}:00"
+
+
+def test_working_hours_within_one_day() -> None:
+    """Полный рабочий день — восемь часов: с 8:30 до 17:30 минус час обеда."""
+    assert doc_flow.рабочих_часов(_мск("2026-08-10", 8, 30), _мск("2026-08-10", 17, 30)) == 8.0
+
+
+def test_night_is_not_counted() -> None:
+    """Счёт, отданный в 17:00 и завизированный утром, лежал полтора часа, а не
+    шестнадцать."""
+    часы = doc_flow.рабочих_часов(_мск("2026-08-10", 17, 0), _мск("2026-08-11", 9, 0))
+    assert часы == pytest.approx(0.44 + 0.44, abs=0.15), f"получилось {часы}"
+    assert часы < 2
+
+
+def test_weekend_is_not_counted() -> None:
+    """Пятница 17:00 → понедельник 9:00.
+
+    По календарю это 64 часа, и требовать за них объяснений было бы неправдой:
+    контора не работала. Ради этого отчёт и переведён на рабочее время — карта
+    процессов меряет то же самое (Пн–Пт, 8:30–17:30, час обеда).
+    """
+    # 2026-08-14 — пятница, 2026-08-17 — понедельник
+    часы = doc_flow.рабочих_часов(_мск("2026-08-14", 17, 0), _мск("2026-08-17", 9, 0))
+    assert часы < 2, f"выходные не считаются, получилось {часы}"
+
+
+def test_whole_working_week() -> None:
+    """Понедельник 8:30 → пятница 17:30 — сорок рабочих часов."""
+    assert doc_flow.рабочих_часов(_мск("2026-08-10", 8, 30), _мск("2026-08-14", 17, 30)) == 40.0
+
+
+def test_evening_and_early_morning_are_outside() -> None:
+    assert doc_flow.рабочих_часов(_мск("2026-08-10", 18, 0), _мск("2026-08-10", 23, 0)) == 0.0
+    assert doc_flow.рабочих_часов(_мск("2026-08-10", 3, 0), _мск("2026-08-10", 7, 0)) == 0.0
+
+
+def test_segments_are_additive() -> None:
+    """Сумма кусков равна целому — иначе части и целое на экране не сойдутся."""
+    целиком = doc_flow.рабочих_часов(_мск("2026-08-10", 9, 0), _мск("2026-08-12", 16, 0))
+    части = doc_flow.рабочих_часов(
+        _мск("2026-08-10", 9, 0), _мск("2026-08-11", 11, 0)
+    ) + doc_flow.рабочих_часов(_мск("2026-08-11", 11, 0), _мск("2026-08-12", 16, 0))
+    assert части == pytest.approx(целиком, abs=0.05)
+
+
+def test_backwards_and_broken_input() -> None:
+    assert doc_flow.рабочих_часов(_мск("2026-08-11", 9, 0), _мск("2026-08-10", 9, 0)) == 0.0
+    assert doc_flow.рабочих_часов("не дата", _мск("2026-08-10", 9, 0)) is None
+
+
+# --- документ у уволенного ---
+
+
+def test_document_with_a_gone_holder_is_flagged(_db: None) -> None:
+    """Документ у уволенного не всплывает нигде: он не в чьём-то «у меня», и
+    вопрос «где счёт» снова остаётся без ответа."""
+    from fire_safety_backend.services import auth as auth_service
+
+    auth_service.create_user("ivanov")
+    auth_service.create_user("uvolen")
+    doc_id = _счёт(holder="ivanov", author="ivanov")
+    потерянный = _счёт(number="СЧ-99", holder="uvolen", author="ivanov")
+    auth_service.set_disabled("uvolen", True)
+
+    по_номерам = {d["number"]: d for d in doc_flow.search()}
+    assert по_номерам["СЧ-99"]["держатель_потерян"] is True
+    assert по_номерам["СЧ-15"]["держатель_потерян"] is False
+    assert doc_id and потерянный

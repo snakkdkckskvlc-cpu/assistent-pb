@@ -66,7 +66,8 @@
 
     function карточка(d) {
       const просрочен = d["просрочен"];
-      const cls = просрочен ? "crit-red" : d["state"] === "отклонён" ? "crit-yellow" : "";
+      const cls = (просрочен || d["держатель_потерян"]) ? "crit-red"
+        : d["state"] === "отклонён" ? "crit-yellow" : "";
       return `<div class="finding ${cls}" data-id="${d.id}">
         <div class="crit-label">${escapeHtml(название_вида(d.kind))}${d.number ? " № " + escapeHtml(d.number) : ""}
           ${просрочен ? '<span class="chip bad">просрочен</span>' : ""}
@@ -74,7 +75,8 @@
         </div>
         <div><b>${escapeHtml(d.counterparty || "—")}</b> ${d.amount_kop != null ? "· " + рубли(d.amount_kop) : ""}</div>
         ${d.subject ? `<div>${escapeHtml(d.subject)}</div>` : ""}
-        <div class="hint">${d.holder ? `у <b>${escapeHtml(d.holder)}</b>, ${срок(d["дней_у_текущего"])}` : "закрыт"}</div>
+        <div class="hint">${d.holder ? `у <b>${escapeHtml(d.holder)}</b>, ${срок(d["дней_у_текущего"])}` : "закрыт"}
+          ${d["держатель_потерян"] ? '<span class="chip bad">сотрудник больше не работает — документ повис</span>' : ""}</div>
         <div class="actions">
           <button class="btn secondary act-open" data-id="${d.id}">История и действия</button>
         </div>
@@ -102,14 +104,14 @@
       const r = await fetch("/api/doc-flow/timing?days=90");
       const d = await r.json();
       const части = [];
-      части.push(`<p class="hint">Считается из отметок, которые журнал собирает сам. Медиана, а не среднее: один документ, пролежавший месяц в отпуске, сдвинул бы среднее так, что оно перестало бы описывать типичный срок.</p>`);
+      части.push(`<p class="hint">Считается из отметок, которые журнал собирает сам, в <b>рабочих часах</b>: ночь, выходные и обед не в счёт. Так цифры сравнимы с картой процессов, которая меряет то же самое. Медиана, а не среднее: один документ, пролежавший месяц в отпуске, сдвинул бы среднее так, что оно перестало бы описывать типичный срок.</p>`);
 
       if (!d["по_видам"].length && !(d["у_кого"] || []).length) {
         части.push(`<p class="hint">Пока нечего считать: нужны закрытые документы, прошедшие хотя бы через одни руки.</p>`);
         return части.join("");
       }
       if (d["по_видам"].length) {
-        части.push(`<h3>Сколько идёт документ целиком</h3><table><thead><tr><th>Вид</th><th>Закрыто</th><th>Обычно</th></tr></thead><tbody>`);
+        части.push(`<h3>Сколько идёт документ целиком</h3><table><thead><tr><th>Вид</th><th>Закрыто</th><th>Обычно, рабочих</th></tr></thead><tbody>`);
         for (const s of d["по_видам"]) {
           части.push(`<tr><td>${escapeHtml(s["название"])}</td><td>${s["закрыто"]}</td><td>${часы(s["медиана_часов"])}</td></tr>`);
         }
@@ -118,7 +120,7 @@
       // Разбивка по людям приходит только администратору — у остальных ключа
       // в ответе нет вовсе.
       if ((d["у_кого"] || []).length) {
-        части.push(`<h3>Сколько лежит у каждого</h3><table><thead><tr><th>Сотрудник</th><th>Передач</th><th>Обычно</th><th>Дольше всего</th></tr></thead><tbody>`);
+        части.push(`<h3>Сколько лежит у каждого</h3><table><thead><tr><th>Сотрудник</th><th>Пребываний</th><th>Обычно, рабочих</th><th>Дольше всего</th></tr></thead><tbody>`);
         for (const s of d["у_кого"]) {
           части.push(`<tr><td>${escapeHtml(s["кто"])}</td><td>${s["передач"]}</td><td>${часы(s["медиана_часов"])}</td><td>${часы(s["дольше_всего_часов"])}</td></tr>`);
         }
