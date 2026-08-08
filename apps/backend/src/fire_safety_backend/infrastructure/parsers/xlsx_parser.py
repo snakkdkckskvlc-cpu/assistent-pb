@@ -252,6 +252,16 @@ def read_table(path: Path, *, sheet: str | None = None) -> Разбор:
     return разбор
 
 
+def read_grid(path: Path, *, sheet: str | None = None) -> tuple[str, list[list[object]]]:
+    """Лист как есть: имя и таблица значений, без разбора на позиции.
+
+    Нужен проверкам, которые смотрят на ЯЧЕЙКИ, а не на позиции сметы: реестр
+    контрагентов — не смета, «наименования» в нём может не быть вовсе, и
+    read_table вернул бы по нему ноль строк.
+    """
+    return _sheet_rows(path, sheet)
+
+
 def sheet_names(path: Path) -> list[str]:
     """Листы книги — чтобы человек выбрал, если их несколько."""
     book = load_workbook(filename=str(path), data_only=True, read_only=True)
