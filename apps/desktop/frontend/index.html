@@ -160,10 +160,25 @@
         const llm = d.llm || {};
         const waiting = llm.waiting || 0;
         const tail = waiting ? ` Ждут своей очереди: ${waiting}.` : "";
-        document.getElementById("llm-state").innerHTML = llm.busy
-          ? `<span class="dot busy"></span>ИИ в данный момент используется.${escapeHtml(tail)}`
-          : `<span class="dot free"></span>ИИ свободен.${escapeHtml(tail)}`;
-        document.getElementById("llm-state").className = "llm-state" + (llm.busy ? " busy" : "");
+        const box = document.getElementById("llm-state");
+        // «Свободен» и «не готов» — разные вещи, и раньше строка их путала:
+        // при неустановленной модели в шапке висело «работать нельзя», а здесь
+        // тут же — «ИИ свободен». Два утверждения на одном экране спорили,
+        // причём второе обещало то, чего нет: свободен — значит бери и
+        // пользуйся. Готовность спрашиваем у того же health, что и шапка.
+        // Готовность берём из общей переменной, которую заполняет updateHealth,
+        // а не спрашиваем сами: /api/health ходит к модели и не кэширован, а
+        // этот код выполняется каждые пять секунд. Пока проверка не ответила
+        // (null), ничего не утверждаем — через пять секунд строка обновится.
+        if (ИИ_ГОТОВ === false) {
+          box.innerHTML = `<span class="dot busy"></span>ИИ сейчас недоступен — задачи запускать нельзя. Это чинит ИТ-администратор.`;
+          box.className = "llm-state busy";
+        } else {
+          box.innerHTML = llm.busy
+            ? `<span class="dot busy"></span>ИИ в данный момент используется.${escapeHtml(tail)}`
+            : `<span class="dot free"></span>ИИ свободен.${escapeHtml(tail)}`;
+          box.className = "llm-state" + (llm.busy ? " busy" : "");
+        }
 
         const m = d.metrics;
         document.getElementById("kpi").innerHTML = `
