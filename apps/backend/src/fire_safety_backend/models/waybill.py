@@ -66,6 +66,37 @@ class Driver(BaseModel):
     created_at: str
 
 
+class DriverBrief(BaseModel):
+    """Водитель для СПИСКА — без персональных данных.
+
+    СНИЛС и номер водительского удостоверения — персональные данные. Правило
+    проекта: в списковых ответах их не отдавать (CLAUDE.md §4.4). Причина не
+    формальная: справочник открыт всем вошедшим, а вошедших тридцать человек,
+    и общий список с СНИЛС коллег — это выгрузка персональных данных по
+    одному запросу, без всякого взлома.
+
+    Заполнено поле или нет, знать всё же надо: пустой СНИЛС делает путевой лист
+    недействительным, и увидеть это должно быть можно, не показывая сам номер.
+    Отсюда два признака вместо двух значений.
+
+    Сами номера отдаёт `GET /drivers/{id}` — по одному, когда человек
+    осознанно открыл карточку, и печать листа (`print_data`), где они
+    обязательны по форме.
+    """
+
+    id: int
+    full_name: str
+    tab_number: str = ""
+    licence_series: str = ""
+    licence_issued_at: str | None = None
+    licence_class: str = ""
+    licence_card: str = ""
+    is_active: bool = True
+    created_at: str
+    есть_снилс: bool = False
+    есть_удостоверение: bool = False
+
+
 class DriverCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=120)
     tab_number: str = Field(default="", max_length=20)

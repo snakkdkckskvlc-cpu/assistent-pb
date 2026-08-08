@@ -144,44 +144,6 @@
       <div id="places" class="result"></div>
     </div>
 
-    <!-- Организации стоят последними намеренно: машину заводят раз в месяц,
-         точку — раз в квартал, а реквизиты организации меняются раз в
-         несколько лет. Держать редкое выше частого значит заставлять листать
-         себя каждый раз. -->
-    <div class="section">
-      <h2>Организации</h2>
-      <p class="hint">От чьего имени выписывается путевой лист. ОКПО и ОГРН печатаются в шапке бланка — без них лист неполный, и это заметят при сдаче.</p>
-      <div class="field">
-        <label for="o-name">Название</label>
-        <input id="o-name" type="text" placeholder="ООО «ПожСервис»">
-      </div>
-      <div class="field">
-        <label for="o-address">Адрес</label>
-        <input id="o-address" type="text" placeholder="398005, г. Липецк, ул. Парковая, д. 10">
-      </div>
-      <div class="field">
-        <label for="o-phone">Телефон</label>
-        <input id="o-phone" type="text" placeholder="(4742) 28-67-88">
-      </div>
-      <div class="field">
-        <label for="o-okpo">ОКПО</label>
-        <input id="o-okpo" type="text" placeholder="восемь цифр">
-      </div>
-      <div class="field">
-        <label for="o-ogrn">ОГРН</label>
-        <input id="o-ogrn" type="text" placeholder="тринадцать цифр">
-      </div>
-      <div class="field">
-        <label><input id="o-default" type="checkbox"> Подставлять эту организацию по умолчанию</label>
-      </div>
-      <div class="actions">
-        <button class="btn secondary" id="o-save">Добавить организацию</button>
-        <button class="btn secondary" id="o-cancel" style="display:none">Отменить правку</button>
-        <span class="hint" id="o-status"></span>
-      </div>
-      <div id="orgs" class="result"></div>
-    </div>
-
     <div id="error" class="error-box" style="display:none"></div>
   </main>
 
@@ -243,110 +205,12 @@
         : '<p class="hint">Справочник пуст.</p>';
     }
 
-    // Организации. Правка нужна не «на всякий случай»: у второй организации
-    // компании ОКПО и ОГРН пустые, а вписать их до сих пор было НЕЧЕМ —
-    // ручки на сервере есть с самого начала, экрана не было. Путевой лист от
-    // такой организации печатался с пустыми обязательными графами, и увидеть
-    // это можно было только на бумаге.
-    let правимОрганизацию = null;
-
-    // Графы, которые бланк печатает как обязательные. Пустая графа тут — не
-    // «ещё не заполнили», а недействительный документ на выходе.
-    const ОБЯЗАТЕЛЬНЫЕ = [["okpo", "ОКПО"], ["ogrn", "ОГРН"]];
-
-    function чегоНеХватает(o) {
-      return ОБЯЗАТЕЛЬНЫЕ.filter(([поле]) => !String(o[поле] || "").trim()).map(([, имя]) => имя);
-    }
-
-    async function loadOrgs() {
-      const orgs = await api("/api/transport/orgs");
-      const box = document.getElementById("orgs");
-      box.innerHTML = orgs.length
-        ? `<table><tbody>${orgs.map((o) => {
-            const нет = чегоНеХватает(o);
-            return `
-            <tr>
-              <td><b>${escapeHtml(o.name)}</b>${o.is_default ? ' <span class="chip ok">по умолчанию</span>' : ""}
-                  ${нет.length ? `<br><span class="chip warn">не заполнено: ${escapeHtml(нет.join(", "))}</span>` : ""}</td>
-              <td class="hint">${escapeHtml(o.address || "—")}<br>${escapeHtml(o.phone || "")}</td>
-              <td class="hint">ОКПО ${escapeHtml(o.okpo || "—")}<br>ОГРН ${escapeHtml(o.ogrn || "—")}</td>
-              <td><button class="btn secondary" data-edit-org="${o.id}">изменить</button></td>
-            </tr>`;
-          }).join("")}</tbody></table>`
-        : '<p class="hint">Организаций пока нет.</p>';
-
-      box.querySelectorAll("[data-edit-org]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const o = orgs.find((x) => x.id === Number(btn.getAttribute("data-edit-org")));
-          правимОрганизацию = o.id;
-          document.getElementById("o-name").value = o.name || "";
-          document.getElementById("o-address").value = o.address || "";
-          document.getElementById("o-phone").value = o.phone || "";
-          document.getElementById("o-okpo").value = o.okpo || "";
-          document.getElementById("o-ogrn").value = o.ogrn || "";
-          document.getElementById("o-default").checked = Boolean(o.is_default);
-          document.getElementById("o-save").textContent = "Сохранить изменения";
-          document.getElementById("o-cancel").style.display = "";
-          document.getElementById("o-status").textContent = "";
-          document.getElementById("o-name").scrollIntoView({ block: "center" });
-        });
-      });
-    }
-
-    function сброситьФормуОрганизации() {
-      правимОрганизацию = null;
-      ["o-name", "o-address", "o-phone", "o-okpo", "o-ogrn"].forEach((id) => {
-        document.getElementById(id).value = "";
-      });
-      document.getElementById("o-default").checked = false;
-      document.getElementById("o-save").textContent = "Добавить организацию";
-      document.getElementById("o-cancel").style.display = "none";
-    }
-
-    document.getElementById("o-cancel").addEventListener("click", () => {
-      сброситьФормуОрганизации();
-      document.getElementById("o-status").textContent = "";
-    });
-
-    document.getElementById("o-save").addEventListener("click", async () => {
-      const status = document.getElementById("o-status");
-      const val = (id) => document.getElementById(id).value.trim();
-      status.textContent = "Сохраняю…";
-      try {
-        // PUT заменяет запись целиком, поэтому шлём все поля, а не только
-        // изменённые: отправить часть — значит стереть остальное.
-        const тело = {
-          name: val("o-name"),
-          address: val("o-address"),
-          phone: val("o-phone"),
-          okpo: val("o-okpo"),
-          ogrn: val("o-ogrn"),
-          is_default: document.getElementById("o-default").checked,
-        };
-        await api(правимОрганизацию ? `/api/transport/orgs/${правимОрганизацию}` : "/api/transport/orgs", {
-          method: правимОрганизацию ? "PUT" : "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(тело),
-        });
-        status.textContent = "Сохранено";
-        сброситьФормуОрганизации();
-        await loadOrgs();
-        await loadRefs();
-      } catch (e) {
-        // Сообщение приходит с сервера уже по-русски: «ОГРН не сходится по
-        // контрольной цифре». Показываем его, а не общее «не получилось».
-        status.textContent = "";
-        showError(e);
-      }
-    });
-
     async function reloadAll() {
       try {
         document.getElementById("error").style.display = "none";
         await loadRefs();
         await loadVehicles();
         await loadPlaces();
-        await loadOrgs();
       } catch (e) {
         showError(e);
       }

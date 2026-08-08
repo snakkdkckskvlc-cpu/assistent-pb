@@ -21,6 +21,7 @@
       <div id="dr-form"></div>
       <div class="actions">
         <button class="btn secondary" id="dr-save">Добавить водителя</button>
+        <button class="btn secondary" id="dr-cancel" style="display:none">Отменить правку</button>
         <span class="hint" id="dr-status"></span>
       </div>
       <div id="dr-list" class="result"></div>
@@ -39,7 +40,37 @@
 
     <div class="section">
       <h2>Организации</h2>
-      <p class="hint">Наименование, адрес и ОКПО печатаются в шапке листа. Лист с чужим наименованием юридически дефектен.</p>
+      <p class="hint">Наименование, адрес и ОКПО печатаются в шапке листа. Лист с чужим наименованием юридически дефектен, с пустым ОКПО — неполный.</p>
+      <!-- Раздел был только для чтения: пустой ОКПО было видно и вписать
+           нечем. Ручки на сервере есть с самого начала, экрана не было. -->
+      <div class="field">
+        <label for="o-name">Название</label>
+        <input id="o-name" type="text" placeholder="ООО «ПожСервис»">
+      </div>
+      <div class="field">
+        <label for="o-address">Адрес</label>
+        <input id="o-address" type="text">
+      </div>
+      <div class="field">
+        <label for="o-phone">Телефон</label>
+        <input id="o-phone" type="text">
+      </div>
+      <div class="field">
+        <label for="o-okpo">ОКПО</label>
+        <input id="o-okpo" type="text" placeholder="восемь цифр">
+      </div>
+      <div class="field">
+        <label for="o-ogrn">ОГРН</label>
+        <input id="o-ogrn" type="text" placeholder="тринадцать цифр">
+      </div>
+      <div class="field">
+        <label><input id="o-default" type="checkbox"> Подставлять эту организацию по умолчанию</label>
+      </div>
+      <div class="actions">
+        <button class="btn secondary" id="o-save">Добавить организацию</button>
+        <button class="btn secondary" id="o-cancel" style="display:none">Отменить правку</button>
+        <span class="hint" id="o-status"></span>
+      </div>
       <div id="org-list" class="result"></div>
     </div>
 
@@ -66,6 +97,17 @@
         .join("");
     }
 
+    // В списке — признак «заполнено», а не сам номер. СНИЛС и номер
+    // водительского удостоверения персональные данные, справочник открыт всем
+    // тридцати вошедшим, и общий список с номерами коллег — это выгрузка
+    // персональных данных одним запросом, без всякого взлома. Правило проекта
+    // это прямо запрещает (CLAUDE.md §4.4), а список его нарушал.
+    //
+    // Пустая графа при этом видна: без СНИЛС путевой лист недействителен, и
+    // знать об этом надо, не показывая сам номер.
+    const заполнено = (есть) =>
+      есть ? '<span class="chip ok">заполнен</span>' : '<span class="chip warn">пусто</span>';
+
     async function loadDrivers() {
       DRIVERS = await api("/api/transport/drivers");
       document.getElementById("dr-list").innerHTML = DRIVERS.length
@@ -74,15 +116,37 @@
             (d) => `<tr>
               <td>${escapeHtml(d.full_name)}</td>
               <td>${escapeHtml(d.tab_number || "—")}</td>
-              <td>${escapeHtml([d.licence_series, d.licence_number].filter(Boolean).join(" ") || "—")}
+              <td>${заполнено(d["есть_удостоверение"])}
+                  ${d.licence_series ? `<br><span class="hint">серия ${escapeHtml(d.licence_series)}</span>` : ""}
                   ${d.licence_issued_at ? `<br><span class="hint">выдано ${escapeHtml(d.licence_issued_at)}</span>` : ""}</td>
               <td>${escapeHtml(d.licence_class || "—")}</td>
-              <td>${escapeHtml(d.snils || "—")}</td>
+              <td>${заполнено(d["есть_снилс"])}</td>
               <td>${escapeHtml(d.licence_card || "—")}</td>
-              <td><button class="btn secondary" data-del-driver="${d.id}">убрать</button></td>
+              <td><button class="btn secondary" data-edit-driver="${d.id}">изменить</button>
+                  <button class="btn secondary" data-del-driver="${d.id}">убрать</button></td>
             </tr>`
           ).join("")}</tbody></table>`
         : '<p class="hint">Водителей пока нет.</p>';
+
+      // Номера подгружаются по одному и только когда карточку открыли, чтобы
+      // поправить, — за этим и сделана отдельная ручка на одного водителя.
+      document.querySelectorAll("[data-edit-driver]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          try {
+            const d = await api(`/api/transport/drivers/${btn.getAttribute("data-edit-driver")}`);
+            правимВодителя = d.id;
+            for (const [имя] of DRIVER_FIELDS) {
+              const el = document.getElementById(`f-dr-${имя}`);
+              if (el) el.value = d[имя] === null || d[имя] === undefined ? "" : d[имя];
+            }
+            document.getElementById("dr-save").textContent = "Сохранить изменения";
+            document.getElementById("dr-cancel").style.display = "";
+            document.getElementById("f-dr-full_name").scrollIntoView({ block: "center" });
+          } catch (e) {
+            showError(e);
+          }
+        });
+      });
     }
 
     async function loadTrailers() {
@@ -100,21 +164,98 @@
         : '<p class="hint">Прицепов пока нет.</p>';
     }
 
+    // Графы, которые бланк печатает как обязательные. Пустая графа тут — не
+    // «ещё не заполнили», а недействительный документ на выходе, и выглядеть
+    // она должна как замечание, а не как прочерк.
+    const ОБЯЗАТЕЛЬНЫЕ_У_ОРГАНИЗАЦИИ = [["okpo", "ОКПО"], ["ogrn", "ОГРН"]];
+    let правимОрганизацию = null;
+    let правимВодителя = null;
+
     async function loadOrgs() {
       ORGS = await api("/api/transport/orgs");
       document.getElementById("org-list").innerHTML = `<table><thead><tr>
-          <th>Наименование</th><th>Адрес</th><th>Телефон</th><th>ОКПО</th><th>ОГРН</th><th></th>
+          <th>Наименование</th><th>Адрес</th><th>Телефон</th><th>ОКПО</th><th>ОГРН</th><th></th><th></th>
         </tr></thead><tbody>${ORGS.map(
-          (o) => `<tr>
-            <td>${escapeHtml(o.name)}</td>
+          (o) => {
+            const нет = ОБЯЗАТЕЛЬНЫЕ_У_ОРГАНИЗАЦИИ
+              .filter(([поле]) => !String(o[поле] || "").trim())
+              .map(([, имя]) => имя);
+            return `<tr>
+            <td>${escapeHtml(o.name)}
+                ${нет.length ? `<br><span class="chip warn">не заполнено: ${escapeHtml(нет.join(", "))}</span>` : ""}</td>
             <td>${escapeHtml(o.address)}</td>
             <td>${escapeHtml(o.phone)}</td>
-            <td>${escapeHtml(o.okpo) || '<span class="hint">не заполнен</span>'}</td>
-            <td>${escapeHtml(o.ogrn)}</td>
+            <td>${escapeHtml(o.okpo) || "—"}</td>
+            <td>${escapeHtml(o.ogrn) || "—"}</td>
             <td>${o.is_default ? '<span class="chip ok">основная</span>' : ""}</td>
-          </tr>`
+            <td><button class="btn secondary" data-edit-org="${o.id}">изменить</button></td>
+          </tr>`;
+          }
         ).join("")}</tbody></table>`;
+
+      document.querySelectorAll("[data-edit-org]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const o = ORGS.find((x) => x.id === Number(btn.getAttribute("data-edit-org")));
+          правимОрганизацию = o.id;
+          document.getElementById("o-name").value = o.name || "";
+          document.getElementById("o-address").value = o.address || "";
+          document.getElementById("o-phone").value = o.phone || "";
+          document.getElementById("o-okpo").value = o.okpo || "";
+          document.getElementById("o-ogrn").value = o.ogrn || "";
+          document.getElementById("o-default").checked = Boolean(o.is_default);
+          document.getElementById("o-save").textContent = "Сохранить изменения";
+          document.getElementById("o-cancel").style.display = "";
+          document.getElementById("o-status").textContent = "";
+          document.getElementById("o-name").scrollIntoView({ block: "center" });
+        });
+      });
     }
+
+    function сброситьФормуОрганизации() {
+      правимОрганизацию = null;
+      ["o-name", "o-address", "o-phone", "o-okpo", "o-ogrn"].forEach((id) => {
+        document.getElementById(id).value = "";
+      });
+      document.getElementById("o-default").checked = false;
+      document.getElementById("o-save").textContent = "Добавить организацию";
+      document.getElementById("o-cancel").style.display = "none";
+    }
+
+    document.getElementById("o-cancel").addEventListener("click", () => {
+      сброситьФормуОрганизации();
+      document.getElementById("o-status").textContent = "";
+    });
+
+    document.getElementById("o-save").addEventListener("click", async () => {
+      const status = document.getElementById("o-status");
+      const val = (id) => document.getElementById(id).value.trim();
+      status.textContent = "Сохраняю…";
+      try {
+        // PUT заменяет запись целиком, поэтому шлём все поля, а не только
+        // изменённые: отправить часть — значит стереть остальное.
+        const тело = {
+          name: val("o-name"),
+          address: val("o-address"),
+          phone: val("o-phone"),
+          okpo: val("o-okpo"),
+          ogrn: val("o-ogrn"),
+          is_default: document.getElementById("o-default").checked,
+        };
+        await api(правимОрганизацию ? `/api/transport/orgs/${правимОрганизацию}` : "/api/transport/orgs", {
+          method: правимОрганизацию ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(тело),
+        });
+        status.textContent = "Сохранено";
+        сброситьФормуОрганизации();
+        await loadOrgs();
+      } catch (e) {
+        // Сообщение приходит с сервера уже по-русски: «ОГРН не сходится по
+        // контрольной цифре». Показываем его, а не общее «не получилось».
+        status.textContent = "";
+        showError(e);
+      }
+    });
 
     document.getElementById("dr-form").innerHTML = DRIVER_FIELDS.map(([n, l, t]) =>
       fieldHtml(`dr-${n}`, l, t)
@@ -124,6 +265,20 @@
     document.getElementById("tr-form").innerHTML = TRAILER_FIELDS.map(([n, l, t]) =>
       fieldHtml(`tr-${n}`, l, t)
     ).join("");
+
+    function сброситьФормуВодителя() {
+      правимВодителя = null;
+      DRIVER_FIELDS.forEach(([n, , t]) => {
+        if (t !== "card") document.getElementById(`f-dr-${n}`).value = "";
+      });
+      document.getElementById("dr-save").textContent = "Добавить водителя";
+      document.getElementById("dr-cancel").style.display = "none";
+    }
+
+    document.getElementById("dr-cancel").addEventListener("click", () => {
+      сброситьФормуВодителя();
+      document.getElementById("dr-status").textContent = "";
+    });
 
     document.getElementById("dr-save").addEventListener("click", async () => {
       const status = document.getElementById("dr-status");
@@ -136,15 +291,16 @@
           // «» вместо «не заполнено».
           payload[n] = n === "licence_issued_at" ? v || null : v;
         }
-        await api("/api/transport/drivers", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        status.textContent = "Водитель добавлен.";
-        DRIVER_FIELDS.forEach(([n, , t]) => {
-          if (t !== "card") document.getElementById(`f-dr-${n}`).value = "";
-        });
+        await api(
+          правимВодителя ? `/api/transport/drivers/${правимВодителя}` : "/api/transport/drivers",
+          {
+            method: правимВодителя ? "PATCH" : "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+        );
+        status.textContent = правимВодителя ? "Сохранено." : "Водитель добавлен.";
+        сброситьФормуВодителя();
         await loadDrivers();
       } catch (e) {
         status.textContent = "";
