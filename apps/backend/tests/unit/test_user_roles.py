@@ -3,39 +3,47 @@
 Роль — НЕ право доступа. Она ничего не открывает и не закрывает, только ставит
 нужную функцию первой на «Сегодня». Тесты держат именно это свойство: секретарь
 не должен получить от роли ни больше, ни меньше доступа.
+
+
+Каждый тест берёт фикстуру `client`: она подменяет путь к базе на временный
+(tests/conftest.py). Без неё тесты писали бы учётные записи в НАСТОЯЩУЮ
+data/app.db — я на этом уже попался: семь записей «роль-…» уехали в живую базу,
+а повторный прогон упал на уникальном индексе. На CI это не ловится: там база
+каждый раз чистая.
 """
 
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 from fire_safety_backend.services import auth
 
 
-def test_new_user_has_no_role() -> None:
+def test_new_user_has_no_role(client: TestClient) -> None:
     """Пустая роль — обычный экран. Так живут все, кто заведён до ролей."""
     auth.create_user("роль-пусто")
     assert auth.authenticate("роль-пусто").role == ""
 
 
-def test_role_is_saved_on_creation() -> None:
+def test_role_is_saved_on_creation(client: TestClient) -> None:
     auth.create_user("роль-секретарь", role="секретарь")
     assert auth.authenticate("роль-секретарь").role == "секретарь"
 
 
-def test_role_changes_without_recreating_the_account() -> None:
+def test_role_changes_without_recreating_the_account(client: TestClient) -> None:
     """Должность меняется, а история задач у человека остаётся его."""
     auth.create_user("роль-смена", role="инженер")
     assert auth.set_role("роль-смена", "руководитель") is True
     assert auth.authenticate("роль-смена").role == "руководитель"
 
 
-def test_role_can_be_removed() -> None:
+def test_role_can_be_removed(client: TestClient) -> None:
     auth.create_user("роль-снять", role="бухгалтер")
     auth.set_role("роль-снять", "")
     assert auth.authenticate("роль-снять").role == ""
 
 
-def test_unknown_role_is_rejected() -> None:
+def test_unknown_role_is_rejected(client: TestClient) -> None:
     """Опечатка «инжнер» тихо вернула бы обычный экран, и разбираться, почему у
     человека «не тот» интерфейс, пришлось бы долго. Лучше отказ сразу."""
     auth.create_user("роль-опечатка")
@@ -44,7 +52,7 @@ def test_unknown_role_is_rejected() -> None:
     assert auth.authenticate("роль-опечатка").role == ""
 
 
-def test_role_does_not_grant_admin() -> None:
+def test_role_does_not_grant_admin(client: TestClient) -> None:
     """Главное свойство: роль — подсказка интерфейсу, а не право.
 
     Разбивка по сотрудникам на экране «Что происходит» открыта только
@@ -56,5 +64,5 @@ def test_role_does_not_grant_admin() -> None:
     assert user.is_admin is False
 
 
-def test_missing_user_is_reported_not_crashed() -> None:
+def test_missing_user_is_reported_not_crashed(client: TestClient) -> None:
     assert auth.set_role("такого-нет", "инженер") is False

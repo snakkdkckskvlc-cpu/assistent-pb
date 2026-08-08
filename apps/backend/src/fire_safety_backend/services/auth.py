@@ -137,7 +137,9 @@ def authenticate(login: str) -> User | None:
     if row is None or row["disabled"]:
         log.info("Отказ во входе: %s", login)
         return None
-    return User(id=row["id"], login=row["login"], is_admin=bool(row["is_admin"]), role=row["role"] or "")
+    return User(
+        id=row["id"], login=row["login"], is_admin=bool(row["is_admin"]), role=row["role"] or ""
+    )
 
 
 def open_session(user_id: int) -> str:
@@ -175,7 +177,9 @@ def user_for_session(token: str) -> User | None:
             "UPDATE sessions SET last_seen = ? WHERE token = ?",
             (datetime.now(UTC).isoformat(), token),
         )
-    return User(id=row["id"], login=row["login"], is_admin=bool(row["is_admin"]), role=row["role"] or "")
+    return User(
+        id=row["id"], login=row["login"], is_admin=bool(row["is_admin"]), role=row["role"] or ""
+    )
 
 
 def _parse_ts(raw: str) -> datetime:

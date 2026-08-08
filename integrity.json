@@ -51,7 +51,7 @@
     "apps/backend/src/fire_safety_backend/resources/templates/letterhead.docx": "7ff4c8f73b0e28cf62e30d11710aef136c575f7bd336acb9be42f4e9ca0ec1ff",
     "apps/backend/src/fire_safety_backend/services/__init__.py": "a572a2e1872e278578fbee1fc03e20da63b1d138299fc05291ede6bd2e029445",
     "apps/backend/src/fire_safety_backend/services/addressees.py": "96515ef95f4f74b46ac0b6c49fb96b0656ddae9e0d85900ae82edc0e4b208331",
-    "apps/backend/src/fire_safety_backend/services/auth.py": "8ae5c87716d155f8392a49e162949f760cb467c6526fc35c0f77a2f7366283d6",
+    "apps/backend/src/fire_safety_backend/services/auth.py": "7106bae0a983da2a4aba3c312653ca85bdc384ec0234458d6e1398c6b4bd1af3",
     "apps/backend/src/fire_safety_backend/services/classify.py": "fccc0c63947888cb8b0ac387df349229ee726fe56e76bb02ae2f8e1af24ce509",
     "apps/backend/src/fire_safety_backend/services/feedback.py": "06ca3dd55376b1cf459453976d13cee2ca10c679b31247a2d4c62b108632d8f2",
     "apps/backend/src/fire_safety_backend/services/history.py": "af116df785bb5d8ca55b6511a72af4f2894dd6aa456bb7fa548befed28298a6e",
