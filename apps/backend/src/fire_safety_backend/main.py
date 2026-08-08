@@ -37,6 +37,7 @@ from .views import (
     letter,
     spellcheck,
     static_pages,
+    stats,
     tasks,
     transport,
     waybills,
@@ -159,6 +160,7 @@ def create_app() -> FastAPI:
         feedback,
         history,
         data,
+        stats,
         transport,
         waybills,
     ):

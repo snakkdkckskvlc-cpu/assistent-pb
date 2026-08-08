@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Что происходит — Ассистент</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><a href="/">Ассистент</a></div>
+    <div class="status" id="health"></div>
+  </header>
+
+  <main class="page">
+    <a class="back" href="/">← На главную</a>
+    <div class="section">
+      <h2>Что происходит</h2>
+      <p class="hint">Чем пользуются, сколько ждут и где чаще недовольны. Содержание документов сюда не попадает — только счётчики.</p>
+
+      <div class="actions">
+        <button class="btn secondary period-btn" data-days="7">7 дней</button>
+        <button class="btn secondary period-btn" data-days="30">30 дней</button>
+        <button class="btn secondary period-btn" data-days="90">90 дней</button>
+      </div>
+
+      <div id="error" class="error-box" style="display:none"></div>
+      <div id="body" class="result"></div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    updateHealth();
+
+    let days = 30;
+
+    function secs(v) {
+      if (v === null || v === undefined) return "—";
+      if (v < 60) return Math.round(v) + " с";
+      const m = Math.floor(v / 60), s = Math.round(v % 60);
+      return s ? `${m} мин ${s} с` : `${m} мин`;
+    }
+
+    // Полоска активности рисуется инлайновым SVG. Библиотеку графиков не
+    // подключаем: сборки в проекте нет намеренно, а один столбчатый график
+    // без неё — двадцать строк.
+    function activity(daysList) {
+      if (!daysList.length) return "";
+      const max = Math.max(1, ...daysList.map((d) => d["всего"]));
+      const w = 6, gap = 2, h = 40;
+      const bars = daysList.map((d, i) => {
+        const bh = Math.max(d["всего"] ? 2 : 0, Math.round((d["всего"] / max) * h));
+        // title внутри rect — это подсказка при наведении, доступная без JS
+        return `<rect x="${i * (w + gap)}" y="${h - bh}" width="${w}" height="${bh}" rx="1" fill="var(--graphite)"><title>${escapeHtml(d["дата"])}: ${d["всего"]}</title></rect>`;
+      }).join("");
+      const width = daysList.length * (w + gap);
+      return `<svg viewBox="0 0 ${width} ${h}" width="100%" height="${h}" preserveAspectRatio="none" role="img" aria-label="Задач по дням">${bars}</svg>`;
+    }
+
+    function render(data) {
+      const p = [];
+      const total = data["всего_задач"];
+
+      if (!total) {
+        p.push(`<p class="hint">За выбранный период задач не было. Это не ошибка: счётчики появятся, как только приложением начнут пользоваться.</p>`);
+        document.getElementById("body").innerHTML = p.join("");
+        return;
+      }
+
+      const failed = data["неудачных"];
+      p.push(`<div class="verdict ${failed ? "" : "go"}">
+        <div class="verdict-head">
+          <div>
+            <div class="verdict-headline">${total} ${total % 10 === 1 && total % 100 !== 11 ? "задача" : "задач"} за ${data["период_дней"]} дней</div>
+            ${failed ? `<div style="margin-top:4px">Не довелось до конца: ${failed}</div>` : `<div style="margin-top:4px">Все дошли до конца</div>`}
+          </div>
+        </div>
+      </div>`);
+
+      p.push(`<h3>Активность по дням</h3>`);
+      p.push(`<div style="margin:8px 0 20px">${activity(data["по_дням"] || [])}</div>`);
+
+      p.push(`<h3>Чем пользуются</h3>`);
+      p.push(`<table><thead><tr>
+        <th>Функция</th><th>Запусков</th><th>Не дошло</th><th>Обычно ждут</th><th>Долгий случай</th>
+      </tr></thead><tbody>`);
+      for (const k of data["по_видам"]) {
+        p.push(`<tr>
+          <td>${escapeHtml(k["название"])}</td>
+          <td>${k["всего"]}</td>
+          <td>${k["неудачных"] ? `<span class="chip bad">${k["неудачных"]}</span>` : "—"}</td>
+          <td>${secs(k["медиана_сек"])}</td>
+          <td>${secs(k["девяностый_сек"])}</td>
+        </tr>`);
+      }
+      p.push(`</tbody></table>`);
+      p.push(`<p class="hint">«Обычно ждут» — середина: половина задач быстрее. «Долгий случай» — каждая десятая. Считается только по дошедшим до конца.</p>`);
+
+      const votes = data["оценки"] || [];
+      if (votes.length) {
+        p.push(`<h3>Оценки</h3>`);
+        p.push(`<table><thead><tr><th>Функция</th><th>Хорошо</th><th>Плохо</th></tr></thead><tbody>`);
+        for (const v of votes) {
+          p.push(`<tr>
+            <td>${escapeHtml(v["название"])}</td>
+            <td>${v["вверх"] || "—"}</td>
+            <td>${v["вниз"] ? `<span class="chip bad">${v["вниз"]}</span>` : "—"}</td>
+          </tr>`);
+        }
+        p.push(`</tbody></table>`);
+        p.push(`<p class="hint">Комментарии к оценкам «плохо» — в разборе обратной связи, здесь только счёт.</p>`);
+      }
+
+      // Приходит только администратору: остальным разбивка по людям не
+      // показывается, потому что это наблюдение за коллегами.
+      const people = data["по_людям"];
+      if (people && people.length) {
+        p.push(`<h3>Кто пользуется</h3>`);
+        p.push(`<table><thead><tr><th>Сотрудник</th><th>Запусков</th></tr></thead><tbody>`);
+        for (const person of people) {
+          p.push(`<tr><td>${escapeHtml(person["кто"])}</td><td>${person["всего"]}</td></tr>`);
+        }
+        p.push(`</tbody></table>`);
+        p.push(`<p class="hint">Прочерк — задачи, запущенные до того, как появились учётные записи.</p>`);
+      }
+
+      document.getElementById("body").innerHTML = p.join("");
+    }
+
+    async function load() {
+      const err = document.getElementById("error");
+      err.style.display = "none";
+      document.querySelectorAll(".period-btn").forEach((b) => {
+        // Выбранный период — основная кнопка, остальные вторичные:
+        // класс .on в стилях действует только внутри .fix-actions.
+        b.classList.toggle("secondary", Number(b.getAttribute("data-days")) !== days);
+      });
+      try {
+        const r = await fetch(`/api/stats?days=${days}`);
+        if (!r.ok) throw new Error("Сводка недоступна");
+        render(await r.json());
+      } catch (e) {
+        err.textContent = "Не удалось загрузить сводку";
+        err.style.display = "";
+      }
+    }
+
+    document.querySelectorAll(".period-btn").forEach((b) => {
+      b.addEventListener("click", () => {
+        days = Number(b.getAttribute("data-days"));
+        load();
+      });
+    });
+
+    load();
+  </script>
+</body>
+</html>

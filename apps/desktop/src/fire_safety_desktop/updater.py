@@ -118,6 +118,45 @@ def _is_safe_to_update(root: Path) -> bool:
     return True
 
 
+# Пути, изменение которых физически не может повлиять на работу приложения.
+# Список намеренно узкий: сюда попадает только то, что невозможно ни исполнить,
+# ни прочитать в рантайме. Цена ошибки несимметрична — лишняя переустановка
+# стоит минут ожидания, пропущенная даёт ImportError на тридцати машинах.
+#
+# `.gitignore` сюда намеренно НЕ попал: в нём пофайлово перечислен корпус
+# нормативки (CLAUDE.md §4.5), и разбираться, безопасна ли конкретная правка,
+# дороже, чем один раз переустановиться.
+_INERT_DIRS = ("docs/", ".claude/", ".github/")
+_INERT_FILES = frozenset({"LICENSE", ".editorconfig"})
+
+
+def _is_inert_path(path: str) -> bool:
+    """Изменение этого файла не требует ни переустановки, ни переиндексации."""
+    if path in _INERT_FILES or path.startswith(_INERT_DIRS):
+        return True
+    # Markdown — ТОЛЬКО в корне репозитория (README, CLAUDE, HANDOFF, CHANGELOG).
+    # Глубже по дереву .md встречается внутри корпуса
+    # (packages/rag/corpus/nlmk/README.md), а корпус обязан переиндексироваться:
+    # иначе обновлённый документ доезжает до пользователя файлом, но не фактом,
+    # который находит поиск. Ровно ради этого случая существует _reindex_corpus,
+    # и правило «любой .md безопасен» тихо ломало бы его.
+    return "/" not in path and path.endswith(".md")
+
+
+def _changed_paths(root: Path, before: str) -> list[str] | None:
+    """Пути, изменившиеся между before и текущим HEAD.
+
+    None означает «выяснить не удалось» и трактуется вызывающим кодом как
+    «делаем всё» — по той же логике несимметричной цены, что и в
+    _is_safe_to_update: непонятное считается требующим полной обработки.
+    """
+    r = _git(root, "diff", "--name-only", before, "HEAD")
+    if r.returncode != 0:
+        log.warning("update: список изменений получить не удалось: %s", r.stderr.strip()[:200])
+        return None
+    return [line.strip() for line in r.stdout.splitlines() if line.strip()]
+
+
 def _reinstall_dependencies(root: Path) -> bool:
     req_file = root / "requirements-runtime.txt"
     if req_file.exists():
@@ -217,7 +256,8 @@ def check_and_apply_update(root: Path) -> bool:
         remote = _git(root, "rev-parse", f"origin/{GITHUB_REMOTE_BRANCH}")
         if local.returncode != 0 or remote.returncode != 0:
             return False
-        if local.stdout.strip() == remote.stdout.strip():
+        before = local.stdout.strip()
+        if before == remote.stdout.strip():
             return False  # уже последняя версия — самый частый случай, дальше не идём
 
         # Сверка локальных коммитов — последней: она нужна только когда мы
@@ -230,6 +270,24 @@ def check_and_apply_update(root: Path) -> bool:
         )
         if reset.returncode != 0:
             log.warning("update: git reset failed: %s", reset.stderr)
+            return False
+
+        # Документационное обновление: переустанавливать, переиндексировать и
+        # перезапускаться незачем — исполняемого кода не тронуто.
+        #
+        # Проверка стоит ПОСЛЕ reset намеренно: файлы на диске к этому моменту
+        # уже обновлены, и документация до пользователя доехала. Поэтому False
+        # здесь означает не «обновление не применено», а «перезапускать
+        # нечего» — main.py::_check_update_in_background по True показывает
+        # диалог и перезапускает окно, и ради правки README это лишнее.
+        # Следующий запуск уже совпадёт по SHA и выйдет на сравнении версий.
+        changed = _changed_paths(root, before)
+        if changed and all(_is_inert_path(p) for p in changed):
+            log.info(
+                "update: документационное обновление (%d файлов) — переустановка, "
+                "переиндексация и перезапуск пропущены",
+                len(changed),
+            )
             return False
 
         if not _reinstall_dependencies(root):

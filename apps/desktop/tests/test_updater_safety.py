@@ -293,3 +293,149 @@ def test_dirty_tree_does_not_touch_the_network(
     monkeypatch.setattr(updater, "_git", spy)
     assert updater.check_and_apply_update(work) is False
     assert not any(a and a[0] == "fetch" for a in calls), "fetch не должен вызываться"
+
+
+# --- пропуск переустановки на документационных обновлениях ---
+#
+# Замерено на истории репозитория: только 8 коммитов из 114 (7 %) трогают
+# исключительно документацию. В плане стояло «44 из 111» — там посчитали
+# коммиты, ЗАТРАГИВАЮЩИЕ документацию (их 49), но 41 из них правит её вместе
+# с кодом, и такие обязаны проходить полный цикл. Выигрыш скромнее
+# ожидаемого, поэтому тем важнее, чтобы предохранитель не срабатывал лишний
+# раз: цена ошибки — ImportError на тридцати машинах.
+
+
+def _advance_origin_with(origin: Path, *rel_paths: str) -> None:
+    """Коммит в origin, трогающий ровно перечисленные файлы."""
+    for rel in rel_paths:
+        target = origin / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("изменено", encoding="utf-8")
+    _git(origin, "add", "-A")
+    _git(origin, "commit", "--quiet", "-m", "правка")
+
+
+@pytest.fixture
+def spy_apply(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Следит, дошло ли дело до переустановки и переиндексации."""
+    done: list[str] = []
+    monkeypatch.setattr(updater, "_reinstall_dependencies", lambda root: done.append("pip") or True)
+    monkeypatch.setattr(updater, "_reindex_corpus", lambda root: done.append("reindex") or True)
+    return done
+
+
+# --- предохранитель ОБЯЗАН срабатывать ---
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "docs/02-product/roadmap.md",
+        "docs/03-architecture/adr/0004-rag-chromadb.md",
+        "README.md",
+        "CHANGELOG.md",
+        "CLAUDE.md",
+        ".claude/rules/model.md",
+        ".github/workflows/ci.yml",
+        "LICENSE",
+    ],
+)
+def test_docs_only_update_skips_everything(
+    clean_install: tuple[Path, Path], spy_apply: list[str], path: str
+) -> None:
+    """Ни pip, ни переиндексации, ни перезапуска: исполняемого кода не тронуто.
+
+    False здесь означает не «не обновилось» — git reset уже прошёл и файлы на
+    диске новые, — а «перезапускать нечего»: main.py по True показывает диалог
+    и перезапускает окно, и ради правки README это лишнее.
+    """
+    origin, work = clean_install
+    _advance_origin_with(origin, path)
+
+    assert updater.check_and_apply_update(work) is False
+    assert spy_apply == [], f"{path} не должен вызывать переустановку"
+    # но обновление применено: файл на диске появился
+    assert (work / path).exists(), "reset --hard обязан был доехать до диска"
+
+
+def test_several_docs_files_at_once_still_skip(
+    clean_install: tuple[Path, Path], spy_apply: list[str]
+) -> None:
+    origin, work = clean_install
+    _advance_origin_with(origin, "docs/README.md", "CHANGELOG.md", ".claude/hooks/charcheck.py")
+    assert updater.check_and_apply_update(work) is False
+    assert spy_apply == []
+
+
+# --- предохранитель ОБЯЗАН НЕ срабатывать ---
+
+
+@pytest.mark.parametrize(
+    ("path", "why"),
+    [
+        (
+            "packages/rag/corpus/nlmk/README.md",
+            "документ корпуса: без переиндексации доедет файлом, но не фактом для поиска",
+        ),
+        (
+            "packages/rag/corpus/123-FZ.txt",
+            "тоже корпус — тот случай, ради которого существует _reindex_corpus",
+        ),
+        ("apps/backend/src/fire_safety_backend/main.py", "исполняемый код"),
+        ("requirements-runtime.txt", "новая зависимость — без pip будет ImportError"),
+        ("apps/backend/pyproject.toml", "точки входа и состав пакета"),
+        ("install/README.md", "markdown не в корне: правило про .md умышленно узкое"),
+        (".gitignore", "в нём пофайлово перечислен корпус, CLAUDE.md §4.5"),
+        ("apps/desktop/frontend/app.js", "фронтенд тоже поставляется пользователю"),
+    ],
+)
+def test_non_docs_update_runs_full_apply(
+    clean_install: tuple[Path, Path], spy_apply: list[str], path: str, why: str
+) -> None:
+    origin, work = clean_install
+    _advance_origin_with(origin, path)
+    assert updater.check_and_apply_update(work) is True, why
+    assert spy_apply == ["pip", "reindex"], why
+
+
+def test_docs_together_with_code_runs_full_apply(
+    clean_install: tuple[Path, Path], spy_apply: list[str]
+) -> None:
+    """Самый частый случай в этом репозитории: 41 коммит из 114.
+
+    Достаточно одного неинертного файла в коммите, чтобы цикл прошёл целиком.
+    """
+    origin, work = clean_install
+    _advance_origin_with(origin, "docs/README.md", "apps/backend/src/fire_safety_backend/db.py")
+    assert updater.check_and_apply_update(work) is True
+    assert spy_apply == ["pip", "reindex"]
+
+
+def test_unreadable_diff_falls_back_to_full_apply(
+    clean_install: tuple[Path, Path], spy_apply: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Не смогли выяснить список изменений — делаем всё.
+
+    Та же логика несимметричной цены, что в _is_safe_to_update: непонятное
+    считается требующим полной обработки, а не пропуска.
+    """
+    origin, work = clean_install
+    _advance_origin_with(origin, "docs/README.md")
+    monkeypatch.setattr(updater, "_changed_paths", lambda root, before: None)
+    assert updater.check_and_apply_update(work) is True
+    assert spy_apply == ["pip", "reindex"]
+
+
+# --- сам предикат, без git ---
+
+
+def test_inert_path_predicate() -> None:
+    assert updater._is_inert_path("docs/anything/deep.md")
+    assert updater._is_inert_path("README.md")
+    assert updater._is_inert_path("LICENSE")
+    assert updater._is_inert_path(".claude/settings.json")
+
+    assert not updater._is_inert_path("packages/rag/corpus/nlmk/README.md")
+    assert not updater._is_inert_path("scripts/index_corpus.py")
+    assert not updater._is_inert_path("docs.py"), "имя файла, а не каталог docs/"
+    assert not updater._is_inert_path("documentation/x.md"), "префикс должен быть точным"

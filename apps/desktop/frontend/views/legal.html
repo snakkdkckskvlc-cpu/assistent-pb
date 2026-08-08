@@ -68,7 +68,10 @@
       return escapeHtml(crit || "");
     }
 
-    function renderLegalResult(result, container) {
+    // taskId — третий аргумент, его передаёт submitForm (app.js). Нужен для
+    // выгрузки договора с правками: она идёт отдельным запросом по номеру
+    // задачи, потому что редлайн нужен не каждому разобранному договору.
+    function renderLegalResult(result, container, taskId) {
       const findings = result["находки"] || [];
       const summary = result["сводка"] || {};
       const parts = [];
@@ -113,17 +116,34 @@
         </div>
       </div>`);
 
-      if (result._docx_path) {
-        parts.push(`<div class="actions">
-          <button class="btn secondary" id="legal-download">Скачать разбор в DOCX</button>
-          <span class="hint" id="legal-download-status"></span>
-        </div>`);
+      // Правку можно внести только в загруженный DOCX: у PDF и сканов нет
+      // вёрстки, которую можно править, а пересобранная простыня — не договор.
+      const canRedline = result["_редлайн_возможен"] === true;
+      const editable = findings
+        .map((f, i) => (f["предложение_правки"] && f["_цитата_найдена"] !== false ? i : -1))
+        .filter((i) => i >= 0);
+
+      if (result._docx_path || (canRedline && editable.length)) {
+        parts.push(`<div class="actions">`);
+        if (result._docx_path) {
+          parts.push(`<button class="btn secondary" id="legal-download">Скачать разбор в DOCX</button>`);
+        }
+        if (canRedline && editable.length) {
+          parts.push(`<button class="btn" id="legal-redline">Скачать договор с правками (${editable.length})</button>`);
+        }
+        parts.push(`<span class="hint" id="legal-download-status"></span>`);
+        parts.push(`</div>`);
+        if (canRedline && editable.length) {
+          parts.push(`<p class="hint">Правки лягут в копию договора в режиме рецензирования: контрагент примет или отклонит каждую в Word. Снимите галочку у формулировок, с которыми не согласны.</p>`);
+        }
       }
 
       parts.push(`<h3>Находки: ${findings.length}</h3>`);
 
-      for (const f of findings) {
+      for (let i = 0; i < findings.length; i++) {
+        const f = findings[i];
         const cls = critClass(f["критичность"]);
+        const canEdit = canRedline && editable.includes(i);
         const quoteWarn = f["_цитата_найдена"] === false
           ? `<span class="quote-warn">⚠ точная цитата не найдена в тексте документа — возможно, перефразирована моделью</span>`
           : "";
@@ -157,7 +177,7 @@
           <div class="crit-label">${critLabel(f["критичность"])}${raised}</div>
           <blockquote>${escapeHtml(f["цитата_из_договора"] || "")}${quoteWarn}</blockquote>
           <div><b>Риск:</b> ${escapeHtml(f["в_чём_риск"] || "")}</div>
-          <div class="redline"><b>Правка:</b> ${escapeHtml(f["предложение_правки"] || "")}</div>
+          <div class="redline">${canEdit ? `<label><input type="checkbox" class="redline-pick" data-i="${i}" checked> <b>Правка:</b></label> ` : `<b>Правка:</b> `}${escapeHtml(f["предложение_правки"] || "")}</div>
           <div class="${normCls}" title="${escapeHtml(normHint)}">${normBadge}${escapeHtml(f["ссылка_на_норму"] || "требует проверки юристом")}</div>
         </div>`);
       }
@@ -194,6 +214,59 @@
           }
         });
       }
+
+      const rlBtn = document.getElementById("legal-redline");
+      if (rlBtn) {
+        const picks = () => Array.from(document.querySelectorAll(".redline-pick"))
+          .filter((c) => c.checked)
+          .map((c) => Number(c.getAttribute("data-i")));
+
+        const syncLabel = () => {
+          const n = picks().length;
+          rlBtn.textContent = `Скачать договор с правками (${n})`;
+          rlBtn.disabled = n === 0;
+        };
+        document.querySelectorAll(".redline-pick").forEach((c) => c.addEventListener("change", syncLabel));
+
+        rlBtn.addEventListener("click", async () => {
+          const statusEl = document.getElementById("legal-download-status");
+          const chosen = picks();
+          if (!chosen.length) return;
+          rlBtn.disabled = true;
+          statusEl.textContent = "Вношу правки…";
+          try {
+            const r = await fetch("/api/legal/redline", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ task_id: taskId, accepted: chosen }),
+            });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              statusEl.textContent = err.detail || "Не удалось внести правки";
+              return;
+            }
+            const data = await r.json();
+            const res = await downloadFile(
+              `/api/download/${encodeURIComponent(data.docx_path)}`,
+              data.docx_path,
+            );
+            if (res && res.ok === false && res.error !== "cancelled") {
+              statusEl.textContent = "Не удалось сохранить: " + res.error;
+              return;
+            }
+            // Молчаливая деградация здесь означает, что юрист отправит
+            // контрагенту договор, где части согласованных правок нет.
+            // Поэтому расхождение показывается всегда, а не только при ошибке.
+            statusEl.textContent = data["внесено"] === data["выбрано"]
+              ? `Внесено правок: ${data["внесено"]}`
+              : `Внесено ${data["внесено"]} из ${data["выбрано"]}: остальные цитаты не нашлись в файле дословно — эти правки внесите руками`;
+          } catch (e) {
+            statusEl.textContent = "Не удалось внести правки";
+          } finally {
+            syncLabel();
+          }
+        });
+      }
     }
 
     const fileInput = document.getElementById("file");
@@ -219,6 +292,10 @@
         renderResult: renderLegalResult,
       });
     });
+
+    // Открыть результат прошлой задачи по ?task=<id> — ссылки ведут сюда
+    // из истории и с экрана «Сегодня».
+    openSavedTask(renderLegalResult, document.getElementById("result"));
   </script>
 </body>
 </html>
