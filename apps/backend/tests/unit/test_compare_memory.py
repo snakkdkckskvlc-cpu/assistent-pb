@@ -13,28 +13,42 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 from fire_safety_backend.services import compare_memory as memory
-from fire_safety_backend.services.table_compare import Row, compare, normalize
 
 СМЕТА = "Кабель ВВГнг 3х1,5"
 АКТ = "Кабель ВВГ нг 3*1.5"
+# Нормализованные ключи этих написаний. Здесь они литералами, а не вызовом
+# normalize: хранилище про движок ничего не знает и знать не должно, а тест,
+# который тянет чужой модуль ради двух строк, ломается вместе с ним.
+КЛЮЧ_СМЕТА = "кабель ввгнг 3x1.5"
+КЛЮЧ_АКТ = "кабель ввг нг 3x1.5"
 
 
 def test_pair_is_remembered_and_given_to_the_engine(client: TestClient) -> None:
-    memory.remember(normalize(АКТ), normalize(СМЕТА), name_from=АКТ, name_to=СМЕТА, by="ivanov")
-    assert memory.synonyms() == {normalize(АКТ): normalize(СМЕТА)}
+    memory.remember(КЛЮЧ_АКТ, КЛЮЧ_СМЕТА, name_from=АКТ, name_to=СМЕТА, by="ivanov")
+    assert memory.synonyms() == {КЛЮЧ_АКТ: КЛЮЧ_СМЕТА}
 
 
 def test_engine_matches_silently_the_second_time(client: TestClient) -> None:
-    """Ради этого всё и делается: подтвердил один раз — дальше молча."""
-    # Количество в тысячных, сумма в копейках — движок держит всё целыми.
-    слева = [Row(номер=1, название=СМЕТА, количество=10_000, сумма=100_000)]
-    справа = [Row(номер=1, название=АКТ, количество=10_000, сумма=100_000)]
+    """Ради этого всё и делается: подтвердил один раз — дальше молча.
 
-    без_памяти = compare(слева, справа)
+    Единственный тест, которому нужен сам движок сверки. Он пишется
+    параллельно, в другой сессии, и до его коммита тест пропускается: держать
+    сборку красной из-за чужого незакоммиченного модуля нельзя, а выбрасывать
+    проверку главного свойства — тем более.
+    """
+    engine = pytest.importorskip(
+        "fire_safety_backend.services.table_compare",
+        reason="движок сверки таблиц ещё не в репозитории",
+    )
+    # Количество в тысячных, сумма в копейках — движок держит всё целыми.
+    слева = [engine.Row(номер=1, название=СМЕТА, количество=10_000, сумма=100_000)]
+    справа = [engine.Row(номер=1, название=АКТ, количество=10_000, сумма=100_000)]
+
+    без_памяти = engine.compare(слева, справа)
     assert not без_памяти.сошлось, "без памяти позиции не должны склеиться сами"
 
-    memory.remember(normalize(АКТ), normalize(СМЕТА), name_from=АКТ, name_to=СМЕТА)
-    с_памятью = compare(слева, справа, синонимы=memory.synonyms())
+    memory.remember(engine.normalize(АКТ), engine.normalize(СМЕТА), name_from=АКТ, name_to=СМЕТА)
+    с_памятью = engine.compare(слева, справа, синонимы=memory.synonyms())
     assert len(с_памятью.сошлось) == 1
     assert not с_памятью.только_слева and not с_памятью.только_справа
 
@@ -88,7 +102,7 @@ def test_pair_can_be_revoked(client: TestClient) -> None:
 
 def test_list_keeps_original_spelling(client: TestClient) -> None:
     """По нормализованному ключу человек свою позицию не узнает."""
-    memory.remember(normalize(АКТ), normalize(СМЕТА), name_from=АКТ, name_to=СМЕТА, by="ivanov")
+    memory.remember(КЛЮЧ_АКТ, КЛЮЧ_СМЕТА, name_from=АКТ, name_to=СМЕТА, by="ivanov")
     pair = memory.list_pairs()[0]
     assert pair["name_from"] == АКТ
     assert pair["name_to"] == СМЕТА
