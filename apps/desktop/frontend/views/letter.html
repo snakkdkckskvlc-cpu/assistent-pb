@@ -34,7 +34,7 @@
 
       <div class="actions">
         <button class="btn" id="submit">Составить письмо</button>
-        <span class="hint">На CPU ≈ 20–40 сек.</span>
+        <span class="hint">Примерно 20–40 секунд.</span>
       </div>
 
       <div id="letterhead-warning" class="error-box" style="display:none"></div>
@@ -54,9 +54,9 @@
       const list = document.getElementById("addressee-list");
       const options = document.getElementById("addressee-options");
       try {
-        const r = await fetch("/api/addressees");
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        const addressees = await r.json();
+        // Общий api вместо голого fetch: он переводит отказ на русский.
+        // Прежде строилось «HTTP 500» и уходило человеку как есть.
+        const addressees = await api("/api/addressees");
 
         options.innerHTML = addressees
           .map(a => `<option value="${escapeHtml(a.name)}"></option>`)
@@ -78,11 +78,12 @@
             ev.preventDefault();
             const id = ev.currentTarget.getAttribute("data-id");
             try {
-              const r = await fetch(`/api/addressees/${id}`, { method: "DELETE" });
-              if (!r.ok && r.status !== 204) throw new Error("HTTP " + r.status);
+              await api(`/api/addressees/${id}`, { method: "DELETE" });
               await loadAddressees();
             } catch (e) {
-              document.getElementById("addressee-status").textContent = "Не удалось удалить: " + e.message;
+              // Приставку «не удалось» не дописываем: сервер отвечает готовой фразой
+              // («Нельзя удалить встроенный тип адресата»), и приставка её удваивает.
+              document.getElementById("addressee-status").textContent = e.message || "Не удалось удалить";
             }
           });
         });
@@ -102,21 +103,19 @@
         return;
       }
       try {
-        const r = await fetch("/api/addressees", {
+        // Отдельной ветки на «уже существует» больше нет: сервер отвечает
+        // «Адресат «Заказчик» уже существует» — с именем, то есть точнее, чем
+        // была наша заглушка «такой адресат уже есть».
+        await api("/api/addressees", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name }),
         });
-        if (r.status === 409) {
-          status.textContent = "Такой адресат уже есть в справочнике";
-          return;
-        }
-        if (!r.ok) throw new Error("HTTP " + r.status);
         status.textContent = "✓ Сохранено";
         setTimeout(() => (status.textContent = ""), 2500);
         await loadAddressees();
       } catch (e) {
-        status.textContent = "Не удалось сохранить: " + e.message;
+        status.textContent = e.message || "Не удалось сохранить";
       }
     });
 
