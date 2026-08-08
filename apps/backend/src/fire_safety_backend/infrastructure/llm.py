@@ -395,22 +395,36 @@ async def healthcheck() -> dict:
         return {"ok": False, "error": f"Ollama недоступна: {e}"}
     tags = r.json().get("models", [])
     names = [m.get("name", "") for m in tags]
-    model_ok = any(
-        config.LLM_MODEL in n or n.startswith(config.LLM_MODEL.split(":")[0]) for n in names
-    )
+
+    # Проверяются ВСЕ модели, а не только LLM_MODEL. Пока модель была одна,
+    # разницы не было; с тех пор как юр. анализ пошёл на своей, проверка по
+    # одной давала зелёный health при отсутствующей второй — и задача падала
+    # уже в работе, после того как пользователь её отправил.
+    missing = [m for m in config.used_models() if not _is_installed(m, names)]
     warning = (
-        None
-        if model_ok
-        else f"Модель {config.LLM_MODEL} не установлена. Запустите: ollama pull {config.LLM_MODEL}"
+        _memory_warning(tags)
+        if not missing
+        else "Не установлены модели: " + "; ".join(f"{m} (ollama pull {m})" for m in missing)
     )
-    if model_ok:
-        warning = _memory_warning(tags)
     return {
-        "ok": model_ok,
+        "ok": not missing,
         "model": config.LLM_MODEL,
+        "models": config.used_models(),
         "installed": names,
         "warning": warning,
     }
+
+
+def _is_installed(model: str, names: list[str]) -> bool:
+    """Есть ли модель среди установленных.
+
+    Сверка нестрогая: Ollama возвращает имя с тегом, а в конфиге он может быть
+    опущен. Обратное тоже бывает — в имени из hf.co двоеточие отделяет
+    квантизацию (`hf.co/…-GGUF:Q4_K_M`), поэтому «часть до двоеточия» здесь
+    не имя семейства, а путь, и сравнивать надо и так, и так.
+    """
+    head = model.split(":")[0]
+    return any(n == model or n.startswith(model + ":") or n.startswith(head + ":") for n in names)
 
 
 # Сверх веса модели нужна память под KV-кэш, контекст и саму ОС. Коэффициент
@@ -427,24 +441,44 @@ def _memory_warning(tags: list[dict]) -> str | None:
     разработчика: 8,6 ГБ ОЗУ против модели на 18,6 ГБ — своп 7,8 ГБ, процессы
     llama-server вытеснены с диска целиком, ответ не приходит вообще.
     Без этой проверки пользователь видит «задача выполняется» и ждёт часами.
+
+    Считается СУММА по всем используемым моделям, а не вес одной. При
+    `LLM_KEEP_ALIVE=-1` Ollama держит в памяти каждую, к которой обращались, и
+    с разными моделями на юр. анализ и орфографию резидентными оказываются обе
+    (qwen2.5 ~4,7 ГБ + GigaChat ~7 ГБ). Проверка по одной модели пропустила бы
+    ровно тот случай, ради которого написана.
     """
-    size = next(
-        (
-            m.get("size", 0)
-            for m in tags
-            if m.get("name", "") == config.LLM_MODEL
-            or m.get("name", "").startswith(config.LLM_MODEL + ":")
-        ),
-        0,
-    )
+    by_name = {m.get("name", ""): m.get("size", 0) for m in tags}
+    sizes = {
+        model: size
+        for model in config.used_models()
+        if (size := _installed_size(model, by_name)) > 0
+    }
+    total = sum(sizes.values())
     ram = config._total_ram_gb() * 1e9
-    if not size or ram <= 0:
+    if not total or ram <= 0:
         return None
-    if size * _MODEL_MEMORY_HEADROOM <= ram:
+    if total * _MODEL_MEMORY_HEADROOM <= ram:
         return None
+
+    if len(sizes) == 1:
+        model, size = next(iter(sizes.items()))
+        what = f"Модель {model} весит {size / 1e9:.1f} ГБ"
+    else:
+        parts = ", ".join(f"{m} — {s / 1e9:.1f} ГБ" for m, s in sizes.items())
+        what = (
+            f"Приложению нужны {len(sizes)} модели одновременно ({parts}), "
+            f"вместе {total / 1e9:.1f} ГБ"
+        )
     return (
-        f"Модель {config.LLM_MODEL} весит {size / 1e9:.1f} ГБ, а на машине "
-        f"{ram / 1e9:.1f} ГБ ОЗУ. Она не поместится в память: ответы будут идти "
-        f"из swap, то есть в десятки раз медленнее или не придут вовсе. "
-        f"Возьмите модель меньше или добавьте оперативной памяти."
+        f"{what}, а на машине {ram / 1e9:.1f} ГБ ОЗУ. В память они не помещаются: "
+        f"ответы будут идти из swap, то есть в десятки раз медленнее или не придут "
+        f"вовсе. Возьмите модель меньше или добавьте оперативной памяти."
+    )
+
+
+def _installed_size(model: str, by_name: dict[str, int]) -> int:
+    return next(
+        (size for name, size in by_name.items() if name == model or name.startswith(model + ":")),
+        0,
     )

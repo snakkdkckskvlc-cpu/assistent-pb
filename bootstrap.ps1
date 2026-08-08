@@ -217,15 +217,31 @@ try {
     Start-Sleep -Seconds 5
 }
 
+# ДВЕ модели, а не одна. Орфография и «вопрос по документу» идут на qwen2.5,
+# юридический анализ — на GigaChat: замер на датасете договоров дал F1 0,677
+# против 0,533 при том же времени (см. apps/backend/.../config.py и
+# docs/05-quality/improvements-backlog.md, пункт 2.2).
+#
+# Пропустить вторую нельзя: без неё юр. анализ падает уже в работе, после того
+# как пользователь отправил договор и подождал минуты.
 $model = if ($env:LLM_MODEL) { $env:LLM_MODEL } else { "qwen2.5:7b-instruct" }
+$legalModel = if ($env:LLM_MODEL_LEGAL) { $env:LLM_MODEL_LEGAL } else { "hf.co/ai-sage/GigaChat3.1-10B-A1.8B-GGUF:Q4_K_M" }
+
+$requiredModels = @(
+    @{ Name = $model;      Size = "~4.7 GB" },
+    @{ Name = $legalModel; Size = "~6.5 GB" }
+) | Group-Object { $_.Name } | ForEach-Object { $_.Group[0] }
+
 $installedModels = (& ollama list) -join "`n"
-if ($installedModels -match [regex]::Escape($model)) {
-    Ok "Model $model already installed"
-} else {
-    Write-Host "  Downloading model $model (~4.7 GB, may take 10-30 minutes)..."
-    & ollama pull $model
-    if ($LASTEXITCODE -ne 0) { Fail "Failed to download model $model" }
-    Ok "Model $model installed"
+foreach ($m in $requiredModels) {
+    if ($installedModels -match [regex]::Escape($m.Name)) {
+        Ok "Model $($m.Name) already installed"
+    } else {
+        Write-Host "  Downloading model $($m.Name) ($($m.Size), may take 10-30 minutes)..."
+        & ollama pull $m.Name
+        if ($LASTEXITCODE -ne 0) { Fail "Failed to download model $($m.Name)" }
+        Ok "Model $($m.Name) installed"
+    }
 }
 
 # ================================================================
