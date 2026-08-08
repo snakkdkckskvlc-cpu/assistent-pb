@@ -45,6 +45,13 @@ import time
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+# Безопасная кодировка вывода: русская консоль Windows отдаёт cp1251, а скрипт
+# печатает «→» и кавычки-ёлочки. Зависимостей проекта _venv не тянет.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _venv import use_utf8_console  # noqa: E402
+
+use_utf8_console()
+
 log = logging.getLogger("fetch_nlmk")
 
 _BASE = "https://lipetsk.nlmk.com"

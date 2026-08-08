@@ -13,7 +13,14 @@ resvg-py — предпочтительный вариант на Windows: чи�
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
+
+# Безопасная кодировка вывода — см. _venv.use_utf8_console.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _venv import use_utf8_console  # noqa: E402
+
+use_utf8_console()
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "apps" / "desktop" / "frontend"

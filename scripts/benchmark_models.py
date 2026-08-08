@@ -21,11 +21,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import httpx
+# Только ради безопасной кодировки вывода: скрипт печатает «→» и «—», а
+# русская консоль Windows отдаёт cp1251 и роняет его на первом же таком
+# символе. Зависимостей проекта _venv не тянет — это чистая stdlib.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _venv import use_utf8_console  # noqa: E402
+
+use_utf8_console()
+
+import httpx  # noqa: E402
 
 DEFAULT_HOST = "http://127.0.0.1:11434"
 DEFAULT_OUTPUT = Path(__file__).resolve().parent / "benchmark_results.json"
