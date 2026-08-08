@@ -95,10 +95,14 @@ def _resolve() -> tuple[Status, Protector | None]:
         # Осознанное решение оператора, а не сбой: пишем открытым текстом, но
         # так, чтобы это было видно в логе и в интерфейсе.
         log.warning("Шифрование на диске ВЫКЛЮЧЕНО (ENCRYPT_AT_REST=0)")
-        return Status("off", "выключено настройкой ENCRYPT_AT_REST", False), None
+        return Status(
+            "off", "выключено в настройках — документы лежат незашифрованными", False
+        ), None
 
     if dpapi.is_available():
-        return Status("dpapi", "Windows DPAPI, ключ учётной записи", False), _DpapiProtector()
+        return Status(
+            "dpapi", "включено средствами Windows, ключ привязан к учётной записи", False
+        ), _DpapiProtector()
 
     if sys.platform == "win32":
         # Аномалия: платформа та самая, шифрование обещано — а не работает.
@@ -109,12 +113,22 @@ def _resolve() -> tuple[Status, Protector | None]:
             "Шифрование включено, но DPAPI недоступен — файлы НЕ будут "
             "сохраняться. Проверьте учётную запись Windows.",
         )
-        return Status("off", "DPAPI недоступен на этой машине", True), None
+        return Status(
+            "off",
+            "Windows не отдаёт ключ этой учётной записи — документы НЕ сохраняются. "
+            "Покажите этот экран администратору компьютера",
+            True,
+        ), None
 
     # Не Windows: DPAPI тут не существует в принципе. Это разработка или CI,
     # а не боевая машина, поэтому не авария — но предупредить надо.
     log.warning("DPAPI есть только на Windows — файлы хранятся открытым текстом")
-    return Status("off", f"DPAPI недоступен ({sys.platform})", False), None
+    return Status(
+        "off",
+        "шифрование работает только на Windows, а это другая система — "
+        "документы лежат незашифрованными",
+        False,
+    ), None
 
 
 def status() -> Status:
