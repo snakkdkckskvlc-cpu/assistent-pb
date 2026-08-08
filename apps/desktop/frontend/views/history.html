@@ -46,11 +46,9 @@
     // ровно тот случай, ради которого общие помощники и вынесены в app.js.
     // Разбор обоих форматов теперь там, в одном месте.
 
-    function fmtDuration(sec) {
-      if (sec == null) return "—";
-      if (sec < 90) return `${Math.round(sec)} с`;
-      return `${Math.round(sec / 60)} мин`;
-    }
+    // Своей fmtDuration здесь больше нет — общая в app.js. Прежняя округляла
+    // всё свыше 90 секунд до минут, и шестичасовой разбор договора выглядел
+    // как «382 мин»: число верное, прочесть нельзя.
 
     async function loadHistory() {
       const list = document.getElementById("list");
