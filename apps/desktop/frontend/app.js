@@ -327,10 +327,19 @@ function showError(e) {
 
 function fmtWhen(iso) {
   if (!iso) return "—";
-  // SQLite отдаёт CURRENT_TIMESTAMP как «2026-08-06 09:14:22» без зоны;
-  // без замены пробела на «T» Safari и Firefox дают Invalid Date.
-  const d = new Date(iso.replace(" ", "T") + (iso.endsWith("Z") ? "" : "Z"));
-  return isNaN(d) ? escapeHtml(iso) : d.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" });
+  const s = String(iso);
+  // Форматов отметки времени в базе ДВА, и это не недосмотр:
+  //   «2026-08-07 22:57:14»              — CURRENT_TIMESTAMP у SQLite: всегда
+  //                                        UTC, зона не указана;
+  //   «2026-08-07T18:09:02.442361+00:00» — то, что пишет Python: зона указана.
+  // Первому зону надо дописать (иначе Safari и Firefox дают Invalid Date, а
+  // Chrome молча считает время местным и врёт на три часа). Второму дописывать
+  // нельзя ни в коем случае: «Z» в хвосте делает строку неразбираемой, и
+  // человек видит её целиком — «2026-08-07T18:09:02.442361+00:00» вместо
+  // времени. Прежняя версия дописывала всегда и на втором формате ломалась.
+  const с_зоной = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(s);
+  const d = new Date(с_зоной ? s : s.replace(" ", "T") + "Z");
+  return isNaN(d) ? escapeHtml(s) : d.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" });
 }
 
 // Чистая дата без времени — «2026-08-07» превращается в «07.08.2026».
