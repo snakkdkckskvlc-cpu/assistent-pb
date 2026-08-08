@@ -60,6 +60,7 @@
     "apps/backend/src/fire_safety_backend/services/history.py": "af116df785bb5d8ca55b6511a72af4f2894dd6aa456bb7fa548befed28298a6e",
     "apps/backend/src/fire_safety_backend/services/legal_eval.py": "06b9f82890309d42a1920f9acd6e3fa2216563f6845a5e89fa754fb6c00c1968",
     "apps/backend/src/fire_safety_backend/services/ownership.py": "670c60878e0ccd6968e7044ca24991bfc71ef2fe8cd3dd280897719f4fcd0ef1",
+    "apps/backend/src/fire_safety_backend/services/requisites.py": "aba061e9cdb6b4b745e063971b46b7bae3f33bfa57ef994b03c89bf0dd260b26",
     "apps/backend/src/fire_safety_backend/services/retention.py": "318ea7dfa3c96d6b58c806f15f37118cacd1c3199965e6cbc2a09336f16f7bde",
     "apps/backend/src/fire_safety_backend/services/stats.py": "fdac94c80608975d295faf3332991335f7606ecb93e959c598a58e3c8df41e97",
     "apps/backend/src/fire_safety_backend/services/table_compare.py": "dde75cb4f318a23ecd5bd098a69bdc63f5cc7c46be80032a6aa0eefdafc21a40",
