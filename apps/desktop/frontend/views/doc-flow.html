@@ -104,7 +104,7 @@
       const части = [];
       части.push(`<p class="hint">Считается из отметок, которые журнал собирает сам. Медиана, а не среднее: один документ, пролежавший месяц в отпуске, сдвинул бы среднее так, что оно перестало бы описывать типичный срок.</p>`);
 
-      if (!d["по_видам"].length && !d["у_кого"].length) {
+      if (!d["по_видам"].length && !(d["у_кого"] || []).length) {
         части.push(`<p class="hint">Пока нечего считать: нужны закрытые документы, прошедшие хотя бы через одни руки.</p>`);
         return части.join("");
       }
@@ -115,7 +115,9 @@
         }
         части.push(`</tbody></table>`);
       }
-      if (d["у_кого"].length) {
+      // Разбивка по людям приходит только администратору — у остальных ключа
+      // в ответе нет вовсе.
+      if ((d["у_кого"] || []).length) {
         части.push(`<h3>Сколько лежит у каждого</h3><table><thead><tr><th>Сотрудник</th><th>Передач</th><th>Обычно</th><th>Дольше всего</th></tr></thead><tbody>`);
         for (const s of d["у_кого"]) {
           части.push(`<tr><td>${escapeHtml(s["кто"])}</td><td>${s["передач"]}</td><td>${часы(s["медиана_часов"])}</td><td>${часы(s["дольше_всего_часов"])}</td></tr>`);
@@ -206,7 +208,13 @@
       document.getElementById("body").innerHTML = части.join("");
 
       document.getElementById("f-cancel").addEventListener("click", обновить);
-      document.getElementById("f-save").addEventListener("click", async () => {
+      document.getElementById("f-save").addEventListener("click", async (ev) => {
+        // Кнопка гасится СРАЗУ: без этого двойной щелчок заводил два
+        // одинаковых документа, и второй навсегда оставался «в работе» —
+        // мусор, который никто не закроет, потому что о нём не знают.
+        if (ev.currentTarget.disabled) return;
+        ev.currentTarget.disabled = true;
+        try {
         const сырое = document.getElementById("f-amount").value.replace(/\s| /g, "").replace(",", ".");
         const рублей = сырое ? Number(сырое) : null;
         if (сырое && Number.isNaN(рублей)) {
@@ -228,10 +236,15 @@
         });
         if (!r.ok) {
           document.getElementById("f-status").textContent = (await r.json().catch(() => ({}))).detail || "Не удалось завести";
+          ev.currentTarget.disabled = false;
           return;
         }
         вкладка = "mine";
         обновить();
+        } catch (e) {
+          document.getElementById("f-status").textContent = "Не удалось завести";
+          ev.currentTarget.disabled = false;
+        }
       });
     }
 

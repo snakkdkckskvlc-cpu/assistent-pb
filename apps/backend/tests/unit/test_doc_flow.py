@@ -102,7 +102,7 @@ def test_timing_report_is_the_missing_row_of_the_map(_db: None) -> None:
     # события через каждые 6 часов, начиная 30 часов назад
     _сдвинуть(doc_id, часов_назад=30, шаг_часов=6)
 
-    отчёт = doc_flow.timing()
+    отчёт = doc_flow.timing(with_people=True)
     у_кого = {r["кто"]: r for r in отчёт["у_кого"]}
     assert "findir" in у_кого, "должно быть видно, сколько счёт лежал у финдиректора"
     assert у_кого["findir"]["медиана_часов"] > 0
@@ -124,7 +124,7 @@ def test_whole_document_time_reconciles_with_per_person(_db: None) -> None:
     # события через каждые 10 часов, начиная 40 часов назад: всего 30 часов пути
     _сдвинуть(doc_id, часов_назад=40, шаг_часов=10)
 
-    отчёт = doc_flow.timing()
+    отчёт = doc_flow.timing(with_people=True)
     целиком = отчёт["по_видам"][0]["медиана_часов"]
     сумма_по_людям = sum(r["медиана_часов"] * r["передач"] for r in отчёт["у_кого"])
     assert целиком == pytest.approx(30, abs=0.5)
@@ -159,7 +159,7 @@ def test_state_change_does_not_split_a_stay(_db: None) -> None:
                 ),
             )
 
-    у_кого = {r["кто"]: r for r in doc_flow.timing()["у_кого"]}
+    у_кого = {r["кто"]: r for r in doc_flow.timing(with_people=True)["у_кого"]}
     assert у_кого["findir"]["передач"] == 1, "одно пребывание, а не два"
     assert у_кого["findir"]["медиана_часов"] == pytest.approx(50, abs=0.5)
     assert у_кого["snab"]["медиана_часов"] == pytest.approx(6, abs=0.5)
@@ -171,8 +171,11 @@ def test_open_interval_not_counted(_db: None) -> None:
     растёт каждую секунду и портил бы медиану."""
     doc_id = _счёт()
     doc_flow.hand_over(doc_id, to="findir", actor="snab")
-    у_кого = {r["кто"]: r for r in doc_flow.timing()["у_кого"]}
-    assert "findir" not in у_кого
+    # У snab отрезок закрыт передачей, и он должен быть не мгновенным —
+    # иначе его справедливо отсечёт правило про след регистрации.
+    _сдвинуть(doc_id, часов_назад=10, шаг_часов=5)
+    у_кого = {r["кто"]: r for r in doc_flow.timing(with_people=True)["у_кого"]}
+    assert "findir" not in у_кого, "документ всё ещё у него — отрезок открыт"
     assert "snab" in у_кого, "закрытый отрезок у первого держателя есть"
 
 
@@ -388,3 +391,84 @@ def test_limit_cannot_be_bypassed(_db: None) -> None:
         _счёт(number=f"Д-{i}")
     assert len(doc_flow.search(limit=-1)) == 1, "отрицательный предел не должен отдавать всё"
     assert len(doc_flow.search(limit=10_000)) == 5
+
+
+def test_per_person_timing_is_opt_in(_db: None) -> None:
+    """Поимённый рейтинг медлительности не отдаётся по умолчанию.
+
+    Экран «Сколько идут» существует, чтобы видеть, где встаёт ПОТОК, и причина
+    чаще не в человеке, а в том, что до него документ дошёл поздно. Открывать
+    такой рейтинг всем тридцати — наблюдение за коллегами, а не рабочая
+    информация. То же решение, что на экране «Что происходит».
+    """
+    doc_id = _счёт()
+    doc_flow.hand_over(doc_id, to="findir", actor="snab")
+    doc_flow.change_state(doc_id, to=doc_flow.ЗАКРЫТ, actor="findir", note="оплачен")
+
+    обычному = doc_flow.timing()
+    assert "у_кого" not in обычному
+    assert "по_видам" in обычному, "сроки по видам документов видны всем"
+    assert "findir" not in repr(обычному)
+
+    администратору = doc_flow.timing(with_people=True)
+    assert "у_кого" in администратору
+
+
+def test_long_stay_started_before_window_is_not_lost(_db: None) -> None:
+    """Отрезок, начавшийся до границы окна, обязан попасть в отчёт.
+
+    Раньше события отбирались по at >= порог, и счёт, попавший к финдиректору
+    за день до границы и пролежавший две недели, не давал ни одного отрезка —
+    то есть самое долгое залёживание в отчёт не попадало вовсе.
+    """
+    doc_id = _счёт()
+    doc_flow.hand_over(doc_id, to="findir", actor="snab")
+    doc_flow.change_state(doc_id, to=doc_flow.ЗАКРЫТ, actor="findir", note="оплачен")
+    # передан за 40 дней до сегодня, закрыт вчера; окно — 30 дней
+    with db_module.connect() as conn:
+        строки = conn.execute(
+            "SELECT id FROM doc_flow_event WHERE doc_id = ? ORDER BY id", (doc_id,)
+        ).fetchall()
+        for r, дней in zip(строки, (41, 40, 1), strict=True):
+            conn.execute(
+                "UPDATE doc_flow_event SET at = ? WHERE id = ?",
+                (
+                    (datetime.now() - timedelta(days=дней)).isoformat(sep=" ", timespec="seconds"),
+                    r["id"],
+                ),
+            )
+    у_кого = {r["кто"]: r for r in doc_flow.timing(30, with_people=True)["у_кого"]}
+    assert "findir" in у_кого, "залёживание длиной 39 дней не должно пропасть"
+    assert у_кого["findir"]["медиана_часов"] == pytest.approx(39 * 24, rel=0.02)
+
+
+def test_instant_registration_does_not_drag_the_median(_db: None) -> None:
+    """«Завёл и сразу передал» — не пребывание, а след регистрации.
+
+    Такие нули тянули медиану секретаря вниз и делали её неотличимой от нуля у
+    того, кто и правда держит документы днями.
+    """
+    for i in range(4):
+        d = _счёт(number=f"СЧ-{i}", holder="secretary", author="secretary")
+        doc_flow.hand_over(d, to="snab", actor="secretary")  # мгновенно, тот же миг
+        doc_flow.change_state(d, to=doc_flow.ЗАКРЫТ, actor="snab", note="оплачен")
+    у_кого = {r["кто"]: r for r in doc_flow.timing(with_people=True)["у_кого"]}
+    assert "secretary" not in у_кого, "мгновенная регистрация — не пребывание"
+
+
+def test_forgotten_document_comes_first(_db: None) -> None:
+    """Забытый документ обязан быть сверху, а не тонуть под свежими.
+
+    Экран существует ровно для того, чтобы такие находились: при сортировке по
+    свежести записи забытый счёт уходил в самый низ и при обрезке списка
+    исчезал совсем.
+    """
+    старый = _счёт(number="ЗАБЫТЫЙ")
+    with db_module.connect() as conn:
+        conn.execute(
+            "UPDATE doc_flow_event SET at = ? WHERE doc_id = ?",
+            ((datetime.now() - timedelta(days=21)).isoformat(sep=" ", timespec="seconds"), старый),
+        )
+    for i in range(3):
+        _счёт(number=f"СВЕЖИЙ-{i}")
+    assert doc_flow.search()[0]["number"] == "ЗАБЫТЫЙ"
