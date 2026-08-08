@@ -174,6 +174,65 @@ CREATE TABLE IF NOT EXISTS task_results (
 
 CREATE INDEX IF NOT EXISTS idx_task_results_owner ON task_results(owner);
 
+-- ── Журнал прохождения документов ─────────────────────────────────────────
+--
+-- Отвечает на вопрос, на который сегодня не отвечает никто: где счёт, у кого
+-- лежит и сколько уже. Ради этого в карте информационного потока существуют
+-- три шага телефонных выяснений (12, 13 и 20) — они и есть цена отсутствия
+-- этой таблицы.
+--
+-- Второе назначение важнее первого и незаметно: журнал СОБИРАЕТ ОТМЕТКИ
+-- ВРЕМЕНИ САМ. В карте строка «Время протекания процесса» пуста, то есть
+-- компания не может сказать, где теряет дни, и любую следующую функцию
+-- приходится приоритизировать на ощупь. Как только документы заводятся сюда,
+-- время считается из движений, без единой минуты ручного труда.
+--
+-- Видно ВСЕМ вошедшим, а не только владельцу. Это осознанно и отличается от
+-- правила для файлов в data/outputs: смысл журнала в том, чтобы снабженец
+-- увидел, что его счёт у финдиректора, — при разграничении по владельцу он бы
+-- этого не увидел, и функция потеряла бы смысл. Суммы и контрагенты здесь
+-- есть, но они и так известны всем, кто эти документы носит.
+CREATE TABLE IF NOT EXISTS doc_flow (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    number TEXT NOT NULL DEFAULT '',
+    counterparty TEXT NOT NULL DEFAULT '',
+    subject TEXT NOT NULL DEFAULT '',
+    -- Деньги ЦЕЛЫМИ копейками, как везде в проекте: суммы складываются
+    -- сотнями документов, и погрешность float даёт расхождение с
+    -- бухгалтерией, которое нечем объяснить.
+    amount_kop INTEGER,
+    state TEXT NOT NULL DEFAULT 'в работе',
+    -- Логин того, у кого документ лежит сейчас. Пусто — документ закрыт.
+    holder TEXT NOT NULL DEFAULT '',
+    due_at TEXT,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    closed_at TEXT
+);
+
+-- Каждое движение отдельной строкой, и состояние документа ВЫВОДИТСЯ из них.
+-- Хранить только текущего держателя было бы дешевле, но тогда «сколько счёт
+-- пролежал у финдиректора» посчитать нечем, а это половина смысла функции.
+CREATE TABLE IF NOT EXISTS doc_flow_event (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id INTEGER NOT NULL REFERENCES doc_flow(id) ON DELETE CASCADE,
+    at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actor TEXT NOT NULL DEFAULT '',
+    action TEXT NOT NULL,
+    from_holder TEXT NOT NULL DEFAULT '',
+    to_holder TEXT NOT NULL DEFAULT '',
+    from_state TEXT NOT NULL DEFAULT '',
+    to_state TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT ''
+);
+
+-- Под фактические запросы: «что лежит на мне» (holder), «что просрочено»
+-- (state + due_at), «история документа» (doc_id + порядок).
+CREATE INDEX IF NOT EXISTS idx_doc_flow_holder ON doc_flow(holder, state);
+CREATE INDEX IF NOT EXISTS idx_doc_flow_due ON doc_flow(state, due_at);
+CREATE INDEX IF NOT EXISTS idx_doc_flow_event_doc ON doc_flow_event(doc_id, id);
+
 -- ── Транспорт ─────────────────────────────────────────────────────────────
 -- Модуль строится ручным вводом вперёд, а не вокруг трекера: ГЛОНАСС стоит на
 -- 3 машинах из 12, и если сделать основой его, девять машин останутся без
