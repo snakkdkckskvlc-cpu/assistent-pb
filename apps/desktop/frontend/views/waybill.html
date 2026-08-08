@@ -71,9 +71,9 @@
 
       <div class="actions">
         <button class="btn" id="wb-save">Сохранить лист</button>
-        <button class="btn" id="wb-print">Скачать бланк</button>
+        <button class="btn secondary" id="wb-print">Скачать бланк</button>
         <button class="btn secondary" id="wb-close-editor">Закрыть</button>
-        <button class="btn secondary" id="wb-delete">Удалить лист</button>
+        <button class="btn danger" id="wb-delete">Удалить лист</button>
         <span class="hint" id="wb-status"></span>
       </div>
     </div>
@@ -420,7 +420,16 @@
         renderTrailerSlots(wb);
         renderDowntimes(wb.downtimes || []);
       }
-      renderWaybillTrips(wb.id);
+      // Отказ этого запроса раньше уходил в никуда: renderEditor не async,
+      // вызов шёл без await и без перехвата. Дальше — самое неприятное: блок
+      // ездок между открытиями листов не пересоздаётся (он переносится узлом,
+      // см. ниже), поэтому при неудаче в нём оставались ездки ПРЕДЫДУЩЕЙ
+      // машины, и ничто об этом не сообщало. Человек смотрит на оборотную
+      // сторону и решает, заполнена ли она.
+      //
+      // В сам документ чужие ездки не попадали — бланк собирает сервер заново
+      // из базы, — но экран показывал не то, и решение принималось по нему.
+      renderWaybillTrips(wb.id).catch(showError);
 
       // Блоки прицепов, ездок и простоев переезжают в свой шаг: прицепы
       // цепляют к машине утром, ездки идут по заданию, простои считают по
@@ -477,8 +486,18 @@
     }
 
     async function renderWaybillTrips(waybillId) {
-      const trips = await api(`/api/transport/trips?waybill_id=${waybillId}&limit=200`);
       const box = document.getElementById("wb-trips");
+      // Чистим ДО запроса, а не после ответа: иначе при отказе в таблице
+      // остаётся содержимое от прошлого листа и выглядит как своё.
+      box.innerHTML = '<p class="hint">Загружаю ездки…</p>';
+      let trips;
+      try {
+        trips = await api(`/api/transport/trips?waybill_id=${waybillId}&limit=200`);
+      } catch (e) {
+        box.innerHTML = '<p class="hint">Не удалось загрузить ездки по этому листу. ' +
+          'Оборотная сторона может быть заполнена — обновите страницу, прежде чем закрывать лист.</p>';
+        throw e;
+      }
       box.innerHTML = trips.length
         ? `<table><thead><tr><th>№</th><th>Откуда</th><th>Куда</th><th>Выезд</th><th>Возврат</th>
              <th>Пройдено</th><th>Груз</th><th>ТТД</th></tr></thead><tbody>${trips
@@ -487,10 +506,10 @@
                 <td>${t.seq ?? "—"}</td>
                 <td>${escapeHtml(t.place_from_name || "—")}</td>
                 <td>${escapeHtml(t.place_to_name || t.destination_text || "—")}</td>
-                <td>${escapeHtml(String(t.departed_at || "").slice(0, 16))}</td>
-                <td>${escapeHtml(String(t.returned_at || "").slice(0, 16))}</td>
-                <td>${t.distance_km === null ? "—" : t.distance_km + " км"}</td>
-                <td>${t.cargo_weight_kg === null ? "—" : t.cargo_weight_kg + " кг"}</td>
+                <td>${fmtWhen(t.departed_at)}</td>
+                <td>${fmtWhen(t.returned_at)}</td>
+                <td>${num(t.distance_km, "км")}</td>
+                <td>${num(t.cargo_weight_kg, "кг")}</td>
                 <td>${escapeHtml(t.ttd_numbers || "")}</td>
               </tr>`
             )
