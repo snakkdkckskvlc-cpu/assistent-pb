@@ -701,7 +701,7 @@
            <tbody>${rows
              .map(
                (w) => `<tr>
-                 <td>${escapeHtml(w.date_from)}${w.date_to !== w.date_from ? " — " + escapeHtml(w.date_to) : ""}</td>
+                 <td>${fmtDate(w.date_from)}${w.date_to !== w.date_from ? " — " + fmtDate(w.date_to) : ""}</td>
                  <td>${w.form === "4-S" ? "4-С грузовой" : "№ 3 легковой"}</td>
                  <td>${escapeHtml([w.series, w.number].filter(Boolean).join(" ") || "—")}</td>
                  <td>${escapeHtml(w.vehicle_name)}</td>
