@@ -63,6 +63,32 @@ CREATE TABLE IF NOT EXISTS addressees (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Подтверждённые человеком соответствия позиций для сверки таблиц.
+-- «Кабель ВВГнг 3х1,5» в смете и «Кабель ВВГ нг 3*1.5» в накладной — одна
+-- позиция, но нормализация их не склеивает: она намеренно не умеет догадок
+-- (services/table_compare.py::normalize). Человек подтверждает пару один раз,
+-- дальше движок сопоставляет молча.
+--
+-- Память ОБЩАЯ на компанию, а не личная: номенклатура одна на всех, и
+-- заставлять каждого подтверждать «кабель» заново значит не сделать ничего.
+-- Автор записан — по нему разбираются, если пара окажется ошибочной.
+--
+-- Ошибочное подтверждение молча склеивает две РАЗНЫЕ позиции навсегда, и
+-- отчёт скажет «всё сошлось» там, где не сошлось. Поэтому пары обязаны быть
+-- видимыми и отзываемыми, а цепочки (A→B, B→C) запрещены: иначе смысл пары
+-- зависит от порядка применения.
+CREATE TABLE IF NOT EXISTS compare_synonym (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Нормализованные ключи, как их считает table_compare.normalize.
+    key_from TEXT NOT NULL UNIQUE,
+    key_to TEXT NOT NULL,
+    -- Исходные написания — чтобы человек понимал, что именно он подтвердил.
+    name_from TEXT NOT NULL DEFAULT '',
+    name_to TEXT NOT NULL DEFAULT '',
+    confirmed_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS feedback (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -97,6 +123,11 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash BLOB NOT NULL,
     salt BLOB NOT NULL,
     is_admin INTEGER NOT NULL DEFAULT 0,
+    -- Кем человек работает: секретарь, инженер, руководитель, бухгалтер.
+    -- Не права доступа, а подсказка интерфейсу, с чего начинать день. Пусто —
+    -- начальный экран как у всех; полноценная ролевая модель появится, только
+    -- если появится третья организация (docs/02-product/backlog-plan.md §3.2).
+    role TEXT NOT NULL DEFAULT '',
     disabled INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -142,6 +173,65 @@ CREATE TABLE IF NOT EXISTS task_results (
 );
 
 CREATE INDEX IF NOT EXISTS idx_task_results_owner ON task_results(owner);
+
+-- ── Журнал прохождения документов ─────────────────────────────────────────
+--
+-- Отвечает на вопрос, на который сегодня не отвечает никто: где счёт, у кого
+-- лежит и сколько уже. Ради этого в карте информационного потока существуют
+-- три шага телефонных выяснений (12, 13 и 20) — они и есть цена отсутствия
+-- этой таблицы.
+--
+-- Второе назначение важнее первого и незаметно: журнал СОБИРАЕТ ОТМЕТКИ
+-- ВРЕМЕНИ САМ. В карте строка «Время протекания процесса» пуста, то есть
+-- компания не может сказать, где теряет дни, и любую следующую функцию
+-- приходится приоритизировать на ощупь. Как только документы заводятся сюда,
+-- время считается из движений, без единой минуты ручного труда.
+--
+-- Видно ВСЕМ вошедшим, а не только владельцу. Это осознанно и отличается от
+-- правила для файлов в data/outputs: смысл журнала в том, чтобы снабженец
+-- увидел, что его счёт у финдиректора, — при разграничении по владельцу он бы
+-- этого не увидел, и функция потеряла бы смысл. Суммы и контрагенты здесь
+-- есть, но они и так известны всем, кто эти документы носит.
+CREATE TABLE IF NOT EXISTS doc_flow (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    number TEXT NOT NULL DEFAULT '',
+    counterparty TEXT NOT NULL DEFAULT '',
+    subject TEXT NOT NULL DEFAULT '',
+    -- Деньги ЦЕЛЫМИ копейками, как везде в проекте: суммы складываются
+    -- сотнями документов, и погрешность float даёт расхождение с
+    -- бухгалтерией, которое нечем объяснить.
+    amount_kop INTEGER,
+    state TEXT NOT NULL DEFAULT 'в работе',
+    -- Логин того, у кого документ лежит сейчас. Пусто — документ закрыт.
+    holder TEXT NOT NULL DEFAULT '',
+    due_at TEXT,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    closed_at TEXT
+);
+
+-- Каждое движение отдельной строкой, и состояние документа ВЫВОДИТСЯ из них.
+-- Хранить только текущего держателя было бы дешевле, но тогда «сколько счёт
+-- пролежал у финдиректора» посчитать нечем, а это половина смысла функции.
+CREATE TABLE IF NOT EXISTS doc_flow_event (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id INTEGER NOT NULL REFERENCES doc_flow(id) ON DELETE CASCADE,
+    at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actor TEXT NOT NULL DEFAULT '',
+    action TEXT NOT NULL,
+    from_holder TEXT NOT NULL DEFAULT '',
+    to_holder TEXT NOT NULL DEFAULT '',
+    from_state TEXT NOT NULL DEFAULT '',
+    to_state TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT ''
+);
+
+-- Под фактические запросы: «что лежит на мне» (holder), «что просрочено»
+-- (state + due_at), «история документа» (doc_id + порядок).
+CREATE INDEX IF NOT EXISTS idx_doc_flow_holder ON doc_flow(holder, state);
+CREATE INDEX IF NOT EXISTS idx_doc_flow_due ON doc_flow(state, due_at);
+CREATE INDEX IF NOT EXISTS idx_doc_flow_event_doc ON doc_flow_event(doc_id, id);
 
 -- ── Транспорт ─────────────────────────────────────────────────────────────
 -- Модуль строится ручным вводом вперёд, а не вокруг трекера: ГЛОНАСС стоит на
@@ -341,6 +431,11 @@ CREATE INDEX IF NOT EXISTS idx_trip_open ON trip(returned_at) WHERE returned_at 
 -- именно) хранятся: это печатаемый текст бланка.
 CREATE TABLE IF NOT EXISTS waybill (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Какие графы заполнила программа из карточки машины, а не человек.
+    -- Список имён через запятую. Нужен интерфейсу: подставленное значение
+    -- надо отличать от введённого, иначе человек не понимает, можно ли его
+    -- трогать, и на всякий случай не трогает.
+    autofilled TEXT NOT NULL DEFAULT '',
     form TEXT NOT NULL DEFAULT '3',
     org_id INTEGER REFERENCES organization(id),
     series TEXT NOT NULL DEFAULT '',
@@ -495,6 +590,21 @@ CREATE INDEX IF NOT EXISTS idx_downtime_waybill ON downtime(waybill_id);
 # существующую таблицу НЕ трогает, поэтому у пользователей с рабочей базой
 # новые поля появятся только через ALTER TABLE.
 _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    (
+        # Учётные записи заведены задолго до ролей — столбец доезжает ALTER'ом,
+        # у всех прежних сотрудников роль пустая, и экран у них прежний.
+        "users",
+        "role",
+        "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        # База с путевыми листами могла быть создана до появления пометок
+        # автоподстановки. Старые листы получат пустое значение — это честно:
+        # чем их заполняли, мы уже не знаем.
+        "waybill",
+        "autofilled",
+        "ALTER TABLE waybill ADD COLUMN autofilled TEXT NOT NULL DEFAULT ''",
+    ),
     (
         "feedback",
         "bad_output",

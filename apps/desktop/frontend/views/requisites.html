@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Проверка реквизитов — Ассистент</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><a href="/">Ассистент</a></div>
+    <div class="status" id="health"></div>
+  </header>
+
+  <main class="page">
+    <a class="back" href="/">← На главную</a>
+    <div class="section">
+      <h2>Проверка реквизитов</h2>
+      <p class="hint">Программа проходит всю таблицу и проверяет ИНН, КПП, ОГРН, ОКПО, СНИЛС, БИК и расчётный счёт по контрольным цифрам. Заодно ловит перепутанные русские и латинские буквы, лишние пробелы и числа, записанные текстом. Ничего в файле не меняется.</p>
+      <p class="hint">Опечатка в ИНН или счёте выглядит как обычный номер — глазами её не найти. Контрольная цифра ловит перестановку соседних цифр и потерянный разряд. Но она не может знать, существует ли такая организация: это проверяется только запросом в налоговую, а приложение работает без интернета.</p>
+
+      <div class="field">
+        <span class="field-label">Реестр, заявка или справочник в Excel</span>
+        <div class="file-picker">
+          <label class="btn btn-secondary" for="file">Выбрать файл</label>
+          <input type="file" id="file" class="visually-hidden" accept=".xlsx,.xlsm">
+          <span class="file-name" id="file-name">Файл не выбран</span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn" id="submit" disabled>Проверить</button>
+        <span class="hint" id="status"></span>
+      </div>
+
+      <div id="error" class="error-box" style="display:none"></div>
+      <div id="result" class="result"></div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    updateHealth();
+
+    const файл = document.getElementById("file");
+    const кнопка = document.getElementById("submit");
+
+    файл.addEventListener("change", () => {
+      document.getElementById("file-name").textContent =
+        файл.files[0] ? файл.files[0].name : "Файл не выбран";
+      кнопка.disabled = !файл.files[0];
+    });
+
+    function render(d) {
+      const p = [];
+      const сошлось = d["всё_сходится"];
+
+      p.push(`<div class="verdict ${сошлось ? "go" : "stop"}">
+        <div class="verdict-head">
+          <div>
+            <div class="verdict-headline">${сошлось ? "Всё сходится" : `Замечаний: ${d["всего_проблем"]}`}</div>
+            <div style="margin-top:4px">Проверено строк: ${d["строк"]}, заполненных ячеек: ${d["ячеек"]}${d["лист"] ? `. Лист «${escapeHtml(d["лист"])}»` : ""}</div>
+          </div>
+        </div>
+      </div>`);
+
+      // Как программа поняла шапку — показывается всегда. Разбор заголовков это
+      // догадка, и отчёт по неверно понятой колонке выглядит правильным.
+      if (d["колонки"].length) {
+        p.push(`<h3>Что программа приняла за реквизиты</h3>`);
+        p.push(`<p class="hint">${d["колонки"].map(к =>
+          `столбец ${escapeHtml(к["буква"])} «${escapeHtml(к["заголовок"])}» → ${escapeHtml(к["виды"].join(" и "))}`
+        ).join("; ")}. Если колонку поняли неверно — переименуйте её в шапке и загрузите снова.</p>`);
+      }
+
+      if (d["проблемы"].length) {
+        p.push(`<h3>Что не так</h3>`);
+        p.push(`<table><thead><tr><th>Строка</th><th>Столбец</th><th>Что</th><th>Значение</th><th>Замечание</th></tr></thead><tbody>`);
+        for (const пр of d["проблемы"]) {
+          p.push(`<tr>
+            <td>${пр["строка"]}</td>
+            <td>${escapeHtml(пр["колонка"])}${пр["заголовок"] ? ` «${escapeHtml(пр["заголовок"])}»` : ""}</td>
+            <td>${escapeHtml(пр["вид"])}</td>
+            <td>${escapeHtml(пр["значение"])}</td>
+            <td>${escapeHtml(пр["что"])}</td>
+          </tr>`);
+        }
+        p.push(`</tbody></table>`);
+        p.push(`<p class="hint">Номер строки и буква столбца — как в самом файле, можно открыть и посмотреть. Программа ничего не исправляет: подставить свою цифру в чужой реквизит значит взять на себя ответственность за платёж.</p>`);
+      }
+
+      // Обо всём, что проверить не удалось, надо сказать вслух: иначе человек
+      // решит, что раз замечаний нет — значит всё сошлось.
+      for (const з of d["заметки"] || []) {
+        p.push(`<div class="verdict">⚠ ${escapeHtml(з)}</div>`);
+      }
+
+      document.getElementById("result").innerHTML = p.join("");
+    }
+
+    кнопка.addEventListener("click", async () => {
+      const ошибка = document.getElementById("error");
+      const статус = document.getElementById("status");
+      ошибка.style.display = "none";
+      document.getElementById("result").innerHTML = "";
+      кнопка.disabled = true;
+      статус.textContent = "Проверяю…";
+      try {
+        const fd = new FormData();
+        fd.append("файл", файл.files[0]);
+        const r = await fetch("/api/requisites", { method: "POST", body: fd });
+        if (!r.ok) {
+          const e = await r.json().catch(() => ({}));
+          ошибка.textContent = e.detail || "Не удалось проверить файл";
+          ошибка.style.display = "";
+          return;
+        }
+        render(await r.json());
+      } catch (e) {
+        ошибка.textContent = "Не удалось проверить файл";
+        ошибка.style.display = "";
+      } finally {
+        кнопка.disabled = false;
+        статус.textContent = "";
+      }
+    });
+  </script>
+</body>
+</html>

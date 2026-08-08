@@ -48,6 +48,11 @@ def main() -> int:
     parser.add_argument("--disable", action="store_true", help="закрыть доступ")
     parser.add_argument("--enable", action="store_true", help="вернуть доступ")
     parser.add_argument("--list", action="store_true", help="показать список учётных записей")
+    parser.add_argument(
+        "--role",
+        choices=[*auth.ROLES, ""],
+        help="кем работает: с этого экран и начнётся. Пусто — как у всех",
+    )
     args = parser.parse_args()
 
     init_db()
@@ -62,6 +67,10 @@ def main() -> int:
             flags = []
             if u["is_admin"]:
                 flags.append("администратор")
+            # Роль видна в списке: иначе администратор не может проверить, кому
+            # что назначено, и «почему у Петровой не тот экран» не выяснить.
+            if u["role"]:
+                flags.append(u["role"])
             if u["disabled"]:
                 flags.append("отключён")
             print(f"  {u['login']:20} {u['created_at']}  {', '.join(flags)}")
@@ -83,8 +92,19 @@ def main() -> int:
             print(f"[OK] Доступ возвращён: {args.login}")
         return 0
 
+    # Роль у уже заведённого меняется отдельно: людей заводят один раз, а
+    # должность меняется, и заставлять администратора пересоздавать запись
+    # значило бы потерять её историю задач.
+    if args.role is not None and not args.admin and auth.set_role(args.login, args.role):
+        print(
+            f"[OK] Роль изменена: {args.login} — "
+            + (args.role if args.role else "без роли, экран как у всех")
+        )
+        return 0
+        # Пользователя нет — падать не будем, ниже он создастся с этой ролью.
+
     try:
-        auth.create_user(args.login, is_admin=args.admin)
+        auth.create_user(args.login, is_admin=args.admin, role=args.role or "")
     except sqlite3.IntegrityError:
         print(f"[X] Пользователь уже существует: {args.login}")
         return 1
@@ -92,8 +112,13 @@ def main() -> int:
         print(f"[X] {e}")
         return 1
 
-    role = " (администратор)" if args.admin else ""
-    print(f"[OK] Учётная запись создана: {args.login}{role}")
+    marks = []
+    if args.admin:
+        marks.append("администратор")
+    if args.role:
+        marks.append(args.role)
+    suffix = f" ({', '.join(marks)})" if marks else ""
+    print(f"[OK] Учётная запись создана: {args.login}{suffix}")
     print("     Пароля нет — вход по логину, он запомнится на компьютере сотрудника.")
     return 0
 

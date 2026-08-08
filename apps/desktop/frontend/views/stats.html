@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Что происходит — Ассистент</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><a href="/">Ассистент</a></div>
+    <div class="status" id="health"></div>
+  </header>
+
+  <main class="page">
+    <a class="back" href="/">← На главную</a>
+    <div class="section">
+      <h2>Что происходит</h2>
+      <p class="hint">Чем пользуются, сколько ждут и где чаще недовольны. Содержание документов сюда не попадает — только счётчики.</p>
+
+      <div class="actions">
+        <button class="btn secondary tab period-btn" data-days="7">7 дней</button>
+        <button class="btn secondary tab period-btn" data-days="30">30 дней</button>
+        <button class="btn secondary tab period-btn" data-days="90">90 дней</button>
+      </div>
+
+      <div id="error" class="error-box" style="display:none"></div>
+      <div id="body" class="result"></div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    updateHealth();
+
+    let days = 30;
+
+    // Длительность считает общая fmtDuration из app.js: своя копия здесь была
+    // третьей реализацией одного и того же, и все три расходились на числах
+    // свыше часа.
+
+    // «07.08.2026» → «07.08». В подписи оси год лишний: период и так не длиннее
+    // девяноста дней, и повторять его тридцать раз значит забить строку.
+    function деньМесяц(iso) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+      return m ? `${m[3]}.${m[2]}` : "";
+    }
+
+    // Полоска активности рисуется инлайновым SVG. Библиотеку графиков не
+    // подключаем: сборки в проекте нет намеренно, а один столбчатый график
+    // без неё — двадцать строк.
+    function activity(daysList) {
+      if (!daysList.length) return "";
+      const max = Math.max(1, ...daysList.map((d) => d["всего"]));
+      const w = 6, gap = 2, h = 40;
+      const bars = daysList.map((d, i) => {
+        const bh = Math.max(d["всего"] ? 2 : 0, Math.round((d["всего"] / max) * h));
+        // title внутри rect — это подсказка при наведении, доступная без JS
+        return `<rect x="${i * (w + gap)}" y="${h - bh}" width="${w}" height="${bh}" rx="1" fill="var(--graphite)"><title>${escapeHtml(d["дата"])}: ${d["всего"]}</title></rect>`;
+      }).join("");
+      const width = daysList.length * (w + gap);
+      const svg = `<svg viewBox="0 0 ${width} ${h}" width="100%" height="${h}" preserveAspectRatio="none" role="img" aria-label="Задач по дням">${bars}</svg>`;
+
+      // Столбики без подписей — украшение, а не график: по ним нельзя сказать,
+      // какой это день и сколько там задач. Подсказка при наведении была, но
+      // мышью водят по графику только те, кто уже подозревает, что там что-то
+      // есть. Поэтому границы периода и самый нагруженный день пишутся текстом.
+      const первый = деньМесяц(daysList[0]["дата"]);
+      const последний = деньМесяц(daysList[daysList.length - 1]["дата"]);
+      const пик = daysList.reduce((a, b) => (b["всего"] > a["всего"] ? b : a), daysList[0]);
+      const подпись = пик["всего"]
+        ? `Больше всего — ${деньМесяц(пик["дата"])}: ${пик["всего"]}`
+        : "Задач за период не было";
+      return `${svg}
+        <div class="hint" style="display:flex;justify-content:space-between;gap:12px;margin-top:4px">
+          <span>${escapeHtml(первый)}</span>
+          <span>${escapeHtml(подпись)}</span>
+          <span>${escapeHtml(последний)}</span>
+        </div>`;
+    }
+
+    function render(data) {
+      const p = [];
+      const total = data["всего_задач"];
+
+      if (!total) {
+        p.push(`<p class="hint">За выбранный период задач не было. Это не ошибка: счётчики появятся, как только приложением начнут пользоваться.</p>`);
+        document.getElementById("body").innerHTML = p.join("");
+        return;
+      }
+
+      // Отменённые считаются отдельно от упавших: отмену нажал сам человек,
+      // это обычное рабочее действие, а не отказ программы. Пока они шли
+      // вместе, сводка краснела от нажатия кнопки «Отменить».
+      const failed = data["неудачных"];
+      const cancelled = data["отменённых"] || 0;
+      const строки = [];
+      if (failed) строки.push(`<div style="margin-top:4px">Сорвалось с ошибкой: ${failed}</div>`);
+      if (cancelled) строки.push(`<div class="hint" style="margin-top:4px">Отменено вручную: ${cancelled} — это не сбой</div>`);
+      if (!failed && !cancelled) строки.push(`<div style="margin-top:4px">Все дошли до конца</div>`);
+      // Число задач — не приговор, а объём работы, и красным ему быть незачем:
+      // красный в интерфейсе означает проблему. Тревожный вид плашки остаётся
+      // только за настоящими отказами.
+      p.push(`<div class="verdict count ${failed ? "" : "go"}">
+        <div class="verdict-head">
+          <div>
+            <div class="verdict-headline">${total} ${total % 10 === 1 && total % 100 !== 11 ? "задача" : "задач"} за ${data["период_дней"]} дней</div>
+            ${строки.join("")}
+          </div>
+        </div>
+      </div>`);
+
+      p.push(`<h3>Активность по дням</h3>`);
+      p.push(`<div style="margin:8px 0 20px">${activity(data["по_дням"] || [])}</div>`);
+
+      p.push(`<h3>Чем пользуются</h3>`);
+      p.push(`<table><thead><tr>
+        <th>Функция</th><th>Запусков</th><th>С ошибкой</th><th>Отменено</th><th>Обычно ждут</th><th>Долгий случай</th>
+      </tr></thead><tbody>`);
+      for (const k of data["по_видам"]) {
+        p.push(`<tr>
+          <td>${escapeHtml(k["название"])}</td>
+          <td>${k["всего"]}</td>
+          <td>${k["неудачных"] ? `<span class="chip bad">${k["неудачных"]}</span>` : "—"}</td>
+          <td>${k["отменённых"] ? `<span class="hint">${k["отменённых"]}</span>` : "—"}</td>
+          <td>${fmtDuration(k["медиана_сек"])}</td>
+          <td>${fmtDuration(k["девяностый_сек"])}</td>
+        </tr>`);
+      }
+      p.push(`</tbody></table>`);
+      p.push(`<p class="hint">«Обычно ждут» — середина: половина задач быстрее. «Долгий случай» — каждая десятая. Считается только по дошедшим до конца.</p>`);
+
+      const votes = data["оценки"] || [];
+      if (votes.length) {
+        p.push(`<h3>Оценки</h3>`);
+        p.push(`<table><thead><tr><th>Функция</th><th>Хорошо</th><th>Плохо</th></tr></thead><tbody>`);
+        for (const v of votes) {
+          p.push(`<tr>
+            <td>${escapeHtml(v["название"])}</td>
+            <td>${v["вверх"] || "—"}</td>
+            <td>${v["вниз"] ? `<span class="chip bad">${v["вниз"]}</span>` : "—"}</td>
+          </tr>`);
+        }
+        p.push(`</tbody></table>`);
+        p.push(`<p class="hint">Комментарии к оценкам «плохо» — в разборе обратной связи, здесь только счёт.</p>`);
+      }
+
+      // Приходит только администратору: остальным разбивка по людям не
+      // показывается, потому что это наблюдение за коллегами.
+      const people = data["по_людям"];
+      if (people && people.length) {
+        p.push(`<h3>Кто пользуется</h3>`);
+        p.push(`<table><thead><tr><th>Сотрудник</th><th>Запусков</th></tr></thead><tbody>`);
+        for (const person of people) {
+          p.push(`<tr><td>${escapeHtml(person["кто"])}</td><td>${person["всего"]}</td></tr>`);
+        }
+        p.push(`</tbody></table>`);
+        p.push(`<p class="hint">Прочерк — задачи, запущенные до того, как появились учётные записи.</p>`);
+      }
+
+      document.getElementById("body").innerHTML = p.join("");
+    }
+
+    async function load() {
+      const err = document.getElementById("error");
+      err.style.display = "none";
+      document.querySelectorAll(".period-btn").forEach((b) => {
+        // Выбранный период помечается снятием класса secondary — так же, как
+        // вкладки на «Где документе». Стили вкладок в styles.css опираются
+        // именно на это, поэтому способ менять нельзя, не тронув их.
+        b.classList.toggle("secondary", Number(b.getAttribute("data-days")) !== days);
+      });
+      try {
+        const r = await fetch(`/api/stats?days=${days}`);
+        if (!r.ok) throw new Error("Сводка недоступна");
+        render(await r.json());
+      } catch (e) {
+        err.textContent = "Не удалось загрузить сводку";
+        err.style.display = "";
+      }
+    }
+
+    document.querySelectorAll(".period-btn").forEach((b) => {
+      b.addEventListener("click", () => {
+        days = Number(b.getAttribute("data-days"));
+        load();
+      });
+    });
+
+    load();
+  </script>
+</body>
+</html>

@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Парк и точки — Ассистент</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><a href="/">Ассистент</a></div>
+    <div class="status" id="health"></div>
+  </header>
+
+  <main class="page">
+    <div class="section">
+      <h2>Парк</h2>
+      <p class="hint">Машины компании и их реквизиты для путевого листа. Заводится один раз — дальше выдача занимает два клика на странице «Машины и рейсы».</p>
+      <div class="actions">
+        <button class="btn secondary" id="v-toggle-form">Добавить машину</button>
+        <button class="btn secondary" id="v-refresh">Обновить</button>
+      </div>
+
+      <div id="v-form" style="display:none">
+        <div class="field">
+          <label for="v-name">Как называют вслух</label>
+          <input id="v-name" type="text" placeholder="Логан 145">
+        </div>
+        <div class="field">
+          <label for="v-plate">Госномер</label>
+          <input id="v-plate" type="text" placeholder="А123ВС48">
+        </div>
+        <div class="field">
+          <label for="v-brand">Марка</label>
+          <input id="v-brand" type="text" placeholder="Renault">
+        </div>
+        <div class="field">
+          <label for="v-model">Модель</label>
+          <input id="v-model" type="text" placeholder="Logan">
+        </div>
+        <div class="field">
+          <label for="v-year">Год выпуска</label>
+          <input id="v-year" type="number" min="1950" max="2100">
+        </div>
+        <div class="field">
+          <label for="v-category">Категория из ПТС</label>
+          <select id="v-category">
+            <option value="">не указана</option>
+            <option value="M1">M1 — легковая</option>
+            <option value="M2">M2 — автобус до 5 т</option>
+            <option value="M3">M3 — автобус свыше 5 т</option>
+            <option value="N1">N1 — грузовая до 3,5 т</option>
+            <option value="N2">N2 — грузовая 3,5–12 т</option>
+            <option value="N3">N3 — грузовая свыше 12 т</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="v-fuel-type">Топливо</label>
+          <input id="v-fuel-type" type="text" placeholder="АИ-92">
+        </div>
+        <div class="field">
+          <label for="v-tank">Объём бака, л</label>
+          <input id="v-tank" type="number" step="1" min="1">
+        </div>
+        <div class="field">
+          <label for="v-odo">Пробег по одометру, км</label>
+          <input id="v-odo" type="number" step="0.1" min="0" value="0">
+        </div>
+        <div class="field">
+          <label for="v-norm">Норма расхода, л на 100 км</label>
+          <input id="v-norm" type="number" step="0.1" min="0" placeholder="из приказа директора">
+          <p class="hint">Пока не заполнено — расход по норме не считается, показывается только факт выдачи.</p>
+        </div>
+        <div class="field">
+          <label><input id="v-glonass" type="checkbox"> На машине стоит ГЛОНАСС</label>
+        </div>
+        <h3>Реквизиты для путевого листа</h3>
+        <div class="field">
+          <label for="v-org">Организация-владелец</label>
+          <select id="v-org"></select>
+        </div>
+        <div class="field">
+          <label for="v-form-blank">Бланк путевого листа</label>
+          <select id="v-form-blank">
+            <option value="">по категории ТС</option>
+            <option value="3">№ 3 — легковой автомобиль</option>
+            <option value="4-S">№ 4-С — грузовой автомобиль</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="v-driver">Закреплённый водитель</label>
+          <select id="v-driver"></select>
+        </div>
+        <div class="field">
+          <label for="v-garage">Гаражный номер</label>
+          <input id="v-garage" type="text">
+        </div>
+        <div class="field">
+          <label for="v-vcode">Код марки автомобиля</label>
+          <input id="v-vcode" type="text">
+        </div>
+        <div class="field">
+          <label for="v-fcode">Код марки горючего</label>
+          <input id="v-fcode" type="text">
+        </div>
+        <div class="field">
+          <label for="v-column">Колонна</label>
+          <input id="v-column" type="text">
+        </div>
+        <div class="field">
+          <label for="v-brigade">Бригада</label>
+          <input id="v-brigade" type="text">
+        </div>
+        <div class="actions">
+          <button class="btn" id="v-save">Сохранить</button>
+          <span class="hint" id="v-status"></span>
+        </div>
+      </div>
+
+      <div id="vehicles" class="result"></div>
+    </div>
+
+    <div class="section">
+      <h2>Постоянные точки</h2>
+      <p class="hint">Площадки НЛМК, ТЭЦ, склады, база. Расстояние от базы вводится вручную — по нему считается километраж.</p>
+      <div class="field">
+        <label for="p-name">Название</label>
+        <input id="p-name" type="text" placeholder="ТЭЦ-2">
+      </div>
+      <div class="field">
+        <label for="p-address">Адрес</label>
+        <input id="p-address" type="text">
+      </div>
+      <div class="field">
+        <label for="p-dist">Расстояние от базы, км</label>
+        <input id="p-dist" type="number" step="0.1" min="0">
+      </div>
+      <div class="field">
+        <label><input id="p-base" type="checkbox"> Это наша база (выезд отсюда)</label>
+      </div>
+      <div class="actions">
+        <button class="btn secondary" id="p-save">Добавить точку</button>
+        <span class="hint" id="p-status"></span>
+      </div>
+      <div id="places" class="result"></div>
+    </div>
+
+    <div id="error" class="error-box" style="display:none"></div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    updateHealth();
+
+    // api, showError, fmtWhen и num — общие, живут в app.js: до выноса
+    // справочников их копии расходились по страницам транспорта.
+
+    async function loadVehicles() {
+      const vehicles = await api("/api/transport/vehicles");
+      const box = document.getElementById("vehicles");
+      if (!vehicles.length) {
+        box.innerHTML = '<p class="hint">Машин пока нет. Добавьте первую — дальше выдача займёт два клика.</p>';
+        return;
+      }
+      const rows = vehicles.map((v) => `
+        <tr>
+          <td><b>${escapeHtml(v.call_name)}</b><br><span class="hint">${escapeHtml(v.plate)}</span></td>
+          <td>${escapeHtml([v.brand, v.model].filter(Boolean).join(" "))}${v.year ? ` (${v.year})` : ""}</td>
+          <td>${escapeHtml(v.category || "—")}</td>
+          <td>${v.odometer_km.toLocaleString("ru-RU")} км</td>
+          <td>${v.fuel_norm_l_100km ? v.fuel_norm_l_100km + " л/100" : '<span class="hint">нет нормы</span>'}</td>
+          <td>${v.has_glonass ? '<span class="chip ok">есть</span>' : '<span class="hint">нет</span>'}</td>
+          <td>${v.waybill_form === "4-S" ? "4-С" : "№ 3"}</td>
+          <td>${v.open_trip_id ? '<span class="chip warn">в рейсе</span>' : `<span class="chip ok">${escapeHtml(v.state_title)}</span>`}</td>
+          <td><button class="btn secondary" data-del-vehicle="${v.id}">убрать</button></td>
+        </tr>`).join("");
+      box.innerHTML = `<table><thead><tr>
+          <th>Машина</th><th>Марка</th><th>Кат.</th><th>Пробег</th><th>Норма</th><th>ГЛОНАСС</th><th>Бланк</th><th>Состояние</th><th></th>
+        </tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    async function loadRefs() {
+      const [orgs, drivers] = await Promise.all([
+        api("/api/transport/orgs"),
+        api("/api/transport/drivers"),
+      ]);
+      document.getElementById("v-org").innerHTML =
+        '<option value="">— основная —</option>' +
+        orgs.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join("");
+      document.getElementById("v-driver").innerHTML =
+        '<option value="">— не закреплён —</option>' +
+        drivers.map((d) => `<option value="${d.id}">${escapeHtml(d.full_name)}</option>`).join("");
+    }
+
+    async function loadPlaces() {
+      const places = await api("/api/transport/places");
+      const box = document.getElementById("places");
+      box.innerHTML = places.length
+        ? `<table><tbody>${places.map((p) => `
+            <tr>
+              <td>${escapeHtml(p.name)}${p.is_base ? ' <span class="chip ok">база</span>' : ""}</td>
+              <td class="hint">${escapeHtml(p.address)}</td>
+              <td>${num(p.distance_from_base_km, "км")}</td>
+              <td><button class="btn secondary" data-del-place="${p.id}">удалить</button></td>
+            </tr>`).join("")}</tbody></table>`
+        : '<p class="hint">Справочник пуст.</p>';
+    }
+
+    async function reloadAll() {
+      try {
+        document.getElementById("error").style.display = "none";
+        await loadRefs();
+        await loadVehicles();
+        await loadPlaces();
+      } catch (e) {
+        showError(e);
+      }
+    }
+
+    document.getElementById("v-toggle-form").addEventListener("click", () => {
+      const form = document.getElementById("v-form");
+      form.style.display = form.style.display === "none" ? "block" : "none";
+    });
+
+    document.getElementById("v-refresh").addEventListener("click", reloadAll);
+
+    document.getElementById("v-save").addEventListener("click", async () => {
+      const status = document.getElementById("v-status");
+      const val = (id) => document.getElementById(id).value.trim();
+      const numOrNull = (id) => (val(id) === "" ? null : Number(val(id)));
+      status.textContent = "Сохраняю…";
+      try {
+        await api("/api/transport/vehicles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            call_name: val("v-name"),
+            plate: val("v-plate"),
+            brand: val("v-brand"),
+            model: val("v-model"),
+            year: numOrNull("v-year"),
+            category: val("v-category"),
+            fuel_type: val("v-fuel-type"),
+            tank_l: numOrNull("v-tank"),
+            odometer_km: Number(val("v-odo") || 0),
+            fuel_norm_l_100km: numOrNull("v-norm"),
+            has_glonass: document.getElementById("v-glonass").checked,
+            org_id: numOrNull("v-org"),
+            // ЗАМЕРЕННАЯ ОШИБКА, которую этот id чинит: на прежней странице
+            // id="v-form" носили и блок формы, и <select> бланка.
+            // getElementById отдаёт первый совпавший — то есть div, у него нет
+            // .value, и в запрос уходило undefined. Выбранный бланк путевого
+            // листа молча терялся, машина получала форму по категории ТС.
+            waybill_form: val("v-form-blank"),
+            default_driver_id: numOrNull("v-driver"),
+            garage_number: val("v-garage"),
+            vehicle_code: val("v-vcode"),
+            fuel_code: val("v-fcode"),
+            column_number: val("v-column"),
+            brigade: val("v-brigade"),
+          }),
+        });
+        status.textContent = "Машина добавлена.";
+        document.getElementById("v-form").style.display = "none";
+        await reloadAll();
+      } catch (e) {
+        status.textContent = "";
+        showError(e);
+      }
+    });
+
+    document.getElementById("p-save").addEventListener("click", async () => {
+      const status = document.getElementById("p-status");
+      status.textContent = "Сохраняю…";
+      try {
+        await api("/api/transport/places", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: document.getElementById("p-name").value.trim(),
+            address: document.getElementById("p-address").value.trim(),
+            distance_from_base_km:
+              document.getElementById("p-dist").value === ""
+                ? null
+                : Number(document.getElementById("p-dist").value),
+            is_base: document.getElementById("p-base").checked,
+          }),
+        });
+        status.textContent = "Точка добавлена.";
+        document.getElementById("p-name").value = "";
+        document.getElementById("p-address").value = "";
+        document.getElementById("p-dist").value = "";
+        document.getElementById("p-base").checked = false;
+        await reloadAll();
+      } catch (e) {
+        status.textContent = "";
+        showError(e);
+      }
+    });
+
+    document.addEventListener("click", async (e) => {
+      const vehicleId = e.target.getAttribute?.("data-del-vehicle");
+      const placeId = e.target.getAttribute?.("data-del-place");
+      try {
+        if (vehicleId) {
+          if (!confirm("Убрать машину из списка? Рейсы по ней сохранятся.")) return;
+          await api(`/api/transport/vehicles/${vehicleId}`, { method: "DELETE" });
+          await reloadAll();
+        } else if (placeId) {
+          if (!confirm("Удалить точку из справочника?")) return;
+          await api(`/api/transport/places/${placeId}`, { method: "DELETE" });
+          await reloadAll();
+        }
+      } catch (err) {
+        showError(err);
+      }
+    });
+
+    reloadAll();
+  </script>
+</body>
+</html>

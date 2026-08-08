@@ -35,7 +35,12 @@ class Task:
     # выдача: результат задачи — это разбор договора целиком, и отдавать его
     # по одному лишь знанию id нельзя.
     owner: str = ""
-    status: str = "queued"  # queued | running | done | error
+    status: str = "queued"  # queued | running | done | error | cancelled
+    # Отмену просил человек, а не выключение сервера. Флаг нужен воркеру, чтобы
+    # отличить одно от другого: CancelledError прилетает одинаковый, но в первом
+    # случае задачу надо пометить отменённой, а во втором — дать приложению
+    # выключиться, пробросив сигнал дальше.
+    cancel_requested: bool = False
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     started_at: str | None = None
     finished_at: str | None = None
@@ -67,6 +72,11 @@ class TaskQueue:
         # владельцев: недавно обслуженный уходит в конец.
         self._recent_owners: list[str] = []
         self._worker_task: asyncio.Task | None = None
+        # Считающаяся прямо сейчас корутина. Держим ссылку, чтобы отмену можно
+        # было довести до конвейера, а не ждать его завершения впустую: разбор
+        # договора идёт до восьми минут и всё это время занимает очередь,
+        # общую на тридцать человек.
+        self._running_job: asyncio.Task[Any] | None = None
         # Колбэк «задача завершена» (успех или ошибка). Назначается снаружи
         # (lifespan main.py пишет историю задач) — сама очередь не знает о
         # сервисах, слои не переворачиваются. Ошибка колбэка не валит воркер.
@@ -110,6 +120,34 @@ class TaskQueue:
             return None
         return task
 
+    def cancel(self, task_id: str, owner: str | None = None) -> bool:
+        """Отменяет свою задачу. True — отменили, False — нечего отменять.
+
+        Ждущая просто убирается из плана; считающаяся — снимается по-настоящему,
+        через отмену корутины. Пускать сюда чужую задачу нельзя: отмена чужого
+        разбора договора это порча чужой работы, поэтому фильтр по owner тот же,
+        что и в get().
+        """
+        task = self.get(task_id, owner=owner)
+        if task is None or task.status not in ("queued", "running"):
+            return False
+
+        task.cancel_requested = True
+        if task.status == "queued":
+            self._pending = [item for item in self._pending if item[0].id != task_id]
+            task.status = "cancelled"
+            task.finished_at = datetime.now(UTC).isoformat()
+            log.info("Task cancelled (в очереди): %s", task_id)
+            return True
+
+        # Считающаяся: статус выставит воркер, поймав CancelledError, — иначе
+        # он затрёт его своим «done» или «error» в том же finally.
+        if self._running_job is not None and not self._running_job.done():
+            self._running_job.cancel()
+            log.info("Task cancelled (на счёте): %s", task_id)
+            return True
+        return False
+
     def _evict_finished(self) -> None:
         """Выкидывает самые старые ЗАВЕРШЁННЫЕ задачи сверх предела.
 
@@ -119,7 +157,7 @@ class TaskQueue:
         if len(self._tasks) <= _MAX_TASKS_IN_MEMORY:
             return
         finished = sorted(
-            (t for t in self._tasks.values() if t.status in ("done", "error")),
+            (t for t in self._tasks.values() if t.status in ("done", "error", "cancelled")),
             key=lambda t: t.created_at,
         )
         for task in finished[: len(self._tasks) - _MAX_TASKS_IN_MEMORY]:
@@ -199,7 +237,7 @@ class TaskQueue:
             return tasks
         return [t for t in tasks if t.owner == owner]
 
-    def _next_pending(self) -> tuple[Task, Callable[[Task], Awaitable[Any]]]:
+    def _next_pending(self) -> tuple[Task, Callable[[Task], Awaitable[Any]]] | None:
         """Следующая задача: круговой обход по владельцам, а не строгая очередь.
 
         Зачем. Сотрудников тридцать, а считающая задача одна. При честном FIFO
@@ -221,6 +259,12 @@ class TaskQueue:
         # Петрова — и Иванов обслуживался дважды подряд, ровно то, ради чего
         # правка делалась. Общий путь на одной задаче стоит столько же.
 
+        # Пусто бывает после отмены: заявку убрали из плана, а будильник в
+        # asyncio.Queue остался. Раньше здесь падал min() на пустом списке и
+        # вместе с ним умирал воркер — то есть очередь вставала у всех.
+        if not self._pending:
+            return None
+
         # Владелец, который дольше всех не получал очереди, — первый.
         def staleness(item: tuple[Task, Any]) -> tuple[int, str]:
             owner = item[0].owner
@@ -240,19 +284,39 @@ class TaskQueue:
             await self._queue.get()
             # Что именно считать, решает _next_pending, а не порядок в
             # asyncio.Queue: она здесь только будильник «работа появилась».
-            task, coro_factory = self._next_pending()
+            chosen = self._next_pending()
+            if chosen is None:
+                continue
+            task, coro_factory = chosen
             task.status = "running"
             task.started_at = datetime.now(UTC).isoformat()
             log.info("Task start: %s [%s]", task.id, task.kind)
+            # Отдельной asyncio-задачей, а не прямым await: иначе отменить
+            # считающийся конвейер нечем, и «Отменить» пришлось бы ждать до
+            # конца — до восьми минут на договоре.
+            # ensure_future, а не create_task: фабрика объявлена возвращающей
+            # Awaitable, и create_task такой тип не принимает.
+            job: asyncio.Task[Any] = asyncio.ensure_future(coro_factory(task))
+            self._running_job = job
             try:
-                task.result = await coro_factory(task)
+                task.result = await job
                 task.status = "done"
+            except asyncio.CancelledError:
+                # Отменили задачу — помечаем и живём дальше. Отменили воркер
+                # (выключение приложения) — снимаем работу и пробрасываем
+                # сигнал, иначе процесс не завершится.
+                if not task.cancel_requested:
+                    job.cancel()
+                    raise
+                task.status = "cancelled"
+                log.info("Task cancelled: %s", task.id)
             except Exception as e:
                 log.exception("Task failed: %s", task.id)
                 task.status = "error"
                 task.error = f"{type(e).__name__}: {e}"
                 task.result = {"traceback": traceback.format_exc()}
             finally:
+                self._running_job = None
                 task.finished_at = datetime.now(UTC).isoformat()
                 log.info("Task end: %s → %s", task.id, task.status)
                 if self.on_task_finished is not None:

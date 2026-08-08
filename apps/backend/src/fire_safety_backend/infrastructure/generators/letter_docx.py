@@ -36,6 +36,37 @@ if TYPE_CHECKING:
 _PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
 
 
+def letterhead_requisites() -> list[str] | None:
+    """Строки реквизитов из самого бланка. None — шаблона нет.
+
+    Предпросмотр письма показывал реквизиты СВОЕЙ копией, зашитой строкой в
+    letter.html. Две копии одного и того же расходятся при первой же правке
+    реквизитов, а расходятся они в худшем месте: на экране человек видит один
+    расчётный счёт, в отправленном документе — другой. Подмена счёта в
+    исходящем письме — классическая схема мошенничества, и выглядеть она будет
+    как наша ошибка.
+
+    Поэтому источник один — тот файл, который и уходит контрагенту. Реквизиты
+    лежат в первой ячейке шапки-таблицы, рядом с плейсхолдером {{recipient}};
+    плейсхолдеры и пустые строки отбрасываются.
+    """
+    if not config.LETTERHEAD_TEMPLATE.exists():
+        return None
+    try:
+        doc = Document(str(config.LETTERHEAD_TEMPLATE))
+        if not doc.tables:
+            return None
+        cell = doc.tables[0].rows[0].cells[0]
+        lines = [p.text.strip() for p in cell.paragraphs]
+        return [ln for ln in lines if ln and not _PLACEHOLDER_RE.search(ln)]
+    except Exception:
+        # Бланк может быть заменён организацией на свой (см. security.md), и
+        # структура окажется другой. Это не повод ронять страницу письма:
+        # предпросмотр просто скажет, что реквизиты не прочитались.
+        log.exception("Не удалось прочитать реквизиты из бланка")
+        return None
+
+
 def _substitute(text: str, mapping: dict[str, str]) -> str | None:
     """Заменяет все плейсхолдеры в исходном тексте параграфа за один проход.
 

@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Где документ — Ассистент</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><a href="/">Ассистент</a></div>
+    <div class="status" id="health"></div>
+  </header>
+
+  <main class="page">
+    <a class="back" href="/">← На главную</a>
+    <div class="section">
+      <h2>Где документ</h2>
+      <p class="hint">Видно, у кого лежит счёт, накладная или акт и сколько уже. Заводит документ тот, к кому он попал первым; дальше каждый отмечает передачу.</p>
+
+      <div class="actions">
+        <button class="btn secondary tab" data-tab="mine">У меня</button>
+        <button class="btn secondary tab" data-tab="all">Все в работе</button>
+        <button class="btn secondary tab" data-tab="overdue">Просроченные</button>
+        <button class="btn secondary tab" data-tab="timing">Сколько идут</button>
+        <button class="btn" id="new-btn">Завести документ</button>
+      </div>
+
+      <div class="field" id="search-field">
+        <input type="text" id="search" placeholder="Номер, контрагент или тема…">
+      </div>
+
+      <div id="error" class="error-box" style="display:none"></div>
+      <div id="body" class="result"></div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    updateHealth();
+
+    let вкладка = "mine";
+    let справочник = { виды: [], переходы: {} };
+    let люди = [];
+    let я = "";
+
+    const рубли = (kop) => (kop === null || kop === undefined)
+      ? "" : (kop / 100).toLocaleString("ru-RU", {minimumFractionDigits: 2, maximumFractionDigits: 2}) + " ₽";
+
+    function срок(дней) {
+      if (почти_ноль(дней)) return "только что";
+      if (дней < 1) return Math.round(дней * 24) + " ч";
+      return Math.round(дней) + " " + склонение(Math.round(дней), "день", "дня", "дней");
+    }
+    const почти_ноль = (д) => !д || д < 0.02;
+
+    function склонение(n, один, два, много) {
+      const с = n % 100, д = n % 10;
+      if (с >= 11 && с <= 14) return много;
+      if (д === 1) return один;
+      if (д >= 2 && д <= 4) return два;
+      return много;
+    }
+
+    const название_вида = (код) =>
+      (справочник.виды.find((v) => v["код"] === код) || {})["название"] || код;
+
+    function карточка(d) {
+      const просрочен = d["просрочен"];
+      const cls = (просрочен || d["держатель_потерян"]) ? "crit-red"
+        : d["state"] === "отклонён" ? "crit-yellow" : "";
+      return `<div class="finding ${cls}" data-id="${d.id}">
+        <div class="crit-label">${escapeHtml(название_вида(d.kind))}${d.number ? " № " + escapeHtml(d.number) : ""}
+          ${просрочен ? '<span class="chip bad">просрочен</span>' : ""}
+          ${d.state !== "в работе" ? `<span class="chip">${escapeHtml(d.state)}</span>` : ""}
+        </div>
+        <div><b>${escapeHtml(d.counterparty || "—")}</b> ${d.amount_kop != null ? "· " + рубли(d.amount_kop) : ""}</div>
+        ${d.subject ? `<div>${escapeHtml(d.subject)}</div>` : ""}
+        <div class="hint">${d.holder ? `у <b>${escapeHtml(d.holder)}</b>, ${срок(d["дней_у_текущего"])}` : "закрыт"}
+          ${d["держатель_потерян"] ? '<span class="chip bad">сотрудник больше не работает — документ повис</span>' : ""}</div>
+        <div class="actions">
+          <button class="btn secondary act-open" data-id="${d.id}">История и действия</button>
+        </div>
+      </div>`;
+    }
+
+    async function список() {
+      const текст = document.getElementById("search").value.trim();
+      const параметры = new URLSearchParams();
+      if (вкладка === "mine") параметры.set("mine", "true");
+      if (вкладка === "overdue") параметры.set("overdue", "true");
+      if (текст) параметры.set("text", текст);
+      const r = await fetch("/api/doc-flow?" + параметры.toString());
+      if (!r.ok) throw new Error("не удалось загрузить");
+      const данные = await r.json();
+      if (!данные.length) {
+        return вкладка === "mine"
+          ? `<p class="hint">На вас ничего не числится.</p>`
+          : `<p class="hint">Документов не найдено.</p>`;
+      }
+      return данные.map(карточка).join("");
+    }
+
+    async function сроки() {
+      const r = await fetch("/api/doc-flow/timing?days=90");
+      const d = await r.json();
+      const части = [];
+      части.push(`<p class="hint">Считается из отметок, которые журнал собирает сам, в <b>рабочих часах</b>: ночь, выходные и обед не в счёт. Так цифры сравнимы с картой процессов, которая меряет то же самое. Медиана, а не среднее: один документ, пролежавший месяц в отпуске, сдвинул бы среднее так, что оно перестало бы описывать типичный срок.</p>`);
+
+      if (!d["по_видам"].length && !(d["у_кого"] || []).length) {
+        части.push(`<p class="hint">Пока нечего считать: нужны закрытые документы, прошедшие хотя бы через одни руки.</p>`);
+        return части.join("");
+      }
+      if (d["по_видам"].length) {
+        части.push(`<h3>Сколько идёт документ целиком</h3><table><thead><tr><th>Вид</th><th>Закрыто</th><th>Обычно, рабочих</th></tr></thead><tbody>`);
+        for (const s of d["по_видам"]) {
+          части.push(`<tr><td>${escapeHtml(s["название"])}</td><td>${s["закрыто"]}</td><td>${часы(s["медиана_часов"])}</td></tr>`);
+        }
+        части.push(`</tbody></table>`);
+      }
+      // Разбивка по людям приходит только администратору — у остальных ключа
+      // в ответе нет вовсе.
+      if ((d["у_кого"] || []).length) {
+        части.push(`<h3>Сколько лежит у каждого</h3><table><thead><tr><th>Сотрудник</th><th>Пребываний</th><th>Обычно, рабочих</th><th>Дольше всего</th></tr></thead><tbody>`);
+        for (const s of d["у_кого"]) {
+          части.push(`<tr><td>${escapeHtml(s["кто"])}</td><td>${s["передач"]}</td><td>${часы(s["медиана_часов"])}</td><td>${часы(s["дольше_всего_часов"])}</td></tr>`);
+        }
+        части.push(`</tbody></table>`);
+        части.push(`<p class="hint">Это про документы, а не про людей: цифра показывает, где поток встаёт, и часто причина не в человеке, а в том, что до него документ дошёл поздно.</p>`);
+      }
+      return части.join("");
+    }
+
+    const часы = (ч) => ч == null ? "—"
+      : ч < 24 ? Math.round(ч) + " ч"
+      : Math.round(ч / 24) + " " + склонение(Math.round(ч / 24), "день", "дня", "дней");
+
+    async function карточка_подробно(id) {
+      const r = await fetch(`/api/doc-flow/${id}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      const переходы = справочник["переходы"][d.state] || [];
+      const части = [];
+      части.push(`<h3>${escapeHtml(название_вида(d.kind))}${d.number ? " № " + escapeHtml(d.number) : ""}</h3>`);
+      части.push(`<div><b>${escapeHtml(d.counterparty || "—")}</b> ${d.amount_kop != null ? "· " + рубли(d.amount_kop) : ""}</div>`);
+      части.push(`<p class="hint">Состояние: <b>${escapeHtml(d.state)}</b>${d.holder ? `, у <b>${escapeHtml(d.holder)}</b> уже ${срок(d["дней_у_текущего"])}` : ""}</p>`);
+
+      if (d.holder) {
+        части.push(`<div class="field"><span class="field-label">Передать</span>
+          <select id="to">${люди.filter((l) => l !== d.holder).map((l) => `<option>${escapeHtml(l)}</option>`).join("")}</select>
+          <input type="text" id="hand-note" placeholder="Комментарий (необязательно)">
+          <button class="btn secondary" id="do-hand">Передать</button></div>`);
+      }
+      if (переходы.length) {
+        части.push(`<div class="field"><span class="field-label">Действие</span>
+          <select id="to-state">
+            <option value="">— выберите действие —</option>
+            ${переходы.map((s) => `<option>${escapeHtml(s)}</option>`).join("")}
+          </select>
+          <input type="text" id="state-note" placeholder="Комментарий; для отклонения — причина обязательна">
+          <button class="btn secondary" id="do-state">Применить</button></div>`);
+      }
+      части.push(`<h3>История</h3><table><thead><tr><th>Когда</th><th>Кто</th><th>Что</th><th>Кому</th><th>Комментарий</th></tr></thead><tbody>`);
+      for (const e of d["история"]) {
+        части.push(`<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.actor)}</td><td>${escapeHtml(e.action)}</td><td>${escapeHtml(e.to_holder || "")}</td><td>${escapeHtml(e.note || "")}</td></tr>`);
+      }
+      части.push(`</tbody></table>`);
+      части.push(`<div class="actions"><button class="btn secondary" id="back-to-list">← К списку</button><span class="hint" id="card-status"></span></div>`);
+      document.getElementById("body").innerHTML = части.join("");
+
+      document.getElementById("back-to-list").addEventListener("click", обновить);
+      const жалоба = (t) => { document.getElementById("card-status").textContent = t; };
+
+      const кнопка_передать = document.getElementById("do-hand");
+      if (кнопка_передать) кнопка_передать.addEventListener("click", async () => {
+        const r = await fetch(`/api/doc-flow/${id}/hand-over`, {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ to: document.getElementById("to").value, note: document.getElementById("hand-note").value }),
+        });
+        if (!r.ok) return жалоба((await r.json().catch(() => ({}))).detail || "Не удалось передать");
+        карточка_подробно(id);
+      });
+
+      const кнопка_состояние = document.getElementById("do-state");
+      if (кнопка_состояние) кнопка_состояние.addEventListener("click", async () => {
+        // Пустой первый пункт и проверка здесь — потому что «завизировать» это
+        // финансовое решение. Раньше «завизирован» стоял выбранным по
+        // умолчанию, и виза на счёт ставилась одним промахом мимо кнопки.
+        if (!document.getElementById("to-state").value) return жалоба("Выберите действие");
+        const r = await fetch(`/api/doc-flow/${id}/state`, {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ to: document.getElementById("to-state").value, note: document.getElementById("state-note").value }),
+        });
+        if (!r.ok) return жалоба((await r.json().catch(() => ({}))).detail || "Не удалось применить");
+        карточка_подробно(id);
+      });
+    }
+
+    function форма_заведения() {
+      const части = [`<h3>Новый документ</h3>`];
+      части.push(`<div class="field"><span class="field-label">Вид</span>
+        <select id="f-kind">${справочник.виды.map((v) => `<option value="${escapeHtml(v["код"])}">${escapeHtml(v["название"])}</option>`).join("")}</select></div>`);
+      части.push(`<div class="field"><span class="field-label">Номер</span><input type="text" id="f-number"></div>`);
+      части.push(`<div class="field"><span class="field-label">Контрагент</span><input type="text" id="f-cp"></div>`);
+      части.push(`<div class="field"><span class="field-label">Тема</span><input type="text" id="f-subject"></div>`);
+      части.push(`<div class="field"><span class="field-label">Сумма, ₽</span><input type="text" id="f-amount" placeholder="напр. 62 880,00"></div>`);
+      части.push(`<div class="field"><span class="field-label">Срок</span><input type="date" id="f-due"></div>`);
+      части.push(`<div class="field"><span class="field-label">У кого сейчас</span>
+        <select id="f-holder">${люди.map((l) => `<option${l === я ? " selected" : ""}>${escapeHtml(l)}</option>`).join("")}</select></div>`);
+      части.push(`<div class="actions"><button class="btn" id="f-save">Завести</button><button class="btn secondary" id="f-cancel">Отмена</button><span class="hint" id="f-status"></span></div>`);
+      document.getElementById("body").innerHTML = части.join("");
+
+      document.getElementById("f-cancel").addEventListener("click", обновить);
+      document.getElementById("f-save").addEventListener("click", async (ev) => {
+        // Кнопка гасится СРАЗУ: без этого двойной щелчок заводил два
+        // одинаковых документа, и второй навсегда оставался «в работе» —
+        // мусор, который никто не закроет, потому что о нём не знают.
+        if (ev.currentTarget.disabled) return;
+        ev.currentTarget.disabled = true;
+        try {
+        const сырое = document.getElementById("f-amount").value.replace(/\s| /g, "").replace(",", ".");
+        const рублей = сырое ? Number(сырое) : null;
+        if (сырое && Number.isNaN(рублей)) {
+          document.getElementById("f-status").textContent = "Сумма не похожа на число";
+          return;
+        }
+        const срок_поле = document.getElementById("f-due").value;
+        const r = await fetch("/api/doc-flow", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            kind: document.getElementById("f-kind").value,
+            number: document.getElementById("f-number").value,
+            counterparty: document.getElementById("f-cp").value,
+            subject: document.getElementById("f-subject").value,
+            amount_kop: рублей == null ? null : Math.round(рублей * 100),
+            due_at: срок_поле ? срок_поле + " 23:59:59" : null,
+            holder: document.getElementById("f-holder").value,
+          }),
+        });
+        if (!r.ok) {
+          document.getElementById("f-status").textContent = (await r.json().catch(() => ({}))).detail || "Не удалось завести";
+          ev.currentTarget.disabled = false;
+          return;
+        }
+        вкладка = "mine";
+        обновить();
+        } catch (e) {
+          document.getElementById("f-status").textContent = "Не удалось завести";
+          ev.currentTarget.disabled = false;
+        }
+      });
+    }
+
+    async function обновить() {
+      const err = document.getElementById("error");
+      err.style.display = "none";
+      document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("secondary", b.getAttribute("data-tab") !== вкладка));
+      document.getElementById("search-field").style.display = вкладка === "timing" ? "none" : "";
+      try {
+        document.getElementById("body").innerHTML = вкладка === "timing" ? await сроки() : await список();
+        document.querySelectorAll(".act-open").forEach((b) =>
+          b.addEventListener("click", () => карточка_подробно(Number(b.getAttribute("data-id")))));
+      } catch (e) {
+        err.textContent = "Не удалось загрузить журнал";
+        err.style.display = "";
+      }
+    }
+
+    document.querySelectorAll(".tab").forEach((b) =>
+      b.addEventListener("click", () => { вкладка = b.getAttribute("data-tab"); обновить(); }));
+    document.getElementById("new-btn").addEventListener("click", форма_заведения);
+    let таймер;
+    document.getElementById("search").addEventListener("input", () => {
+      clearTimeout(таймер);
+      таймер = setTimeout(обновить, 300);
+    });
+
+    (async () => {
+      справочник = await (await fetch("/api/doc-flow/reference")).json();
+      люди = (await (await fetch("/api/doc-flow/reference/people")).json())["логины"] || [];
+      я = ((await (await fetch("/api/auth/me")).json()) || {}).login || "";
+      обновить();
+    })();
+  </script>
+</body>
+</html>

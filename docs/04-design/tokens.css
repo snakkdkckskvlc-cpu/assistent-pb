@@ -1,0 +1,279 @@
+/* Фирменная дизайн-система «Ассистент ПБ» — токены и базовые компоненты.
+ *
+ * Спецификация: redesign-2026-08.md. Здесь лежит готовый к переносу CSS;
+ * в apps/desktop/frontend/styles.css он попадает на этапе внедрения — там же,
+ * тем же коммитом, пересобирается integrity.json, иначе приложение не стартует.
+ *
+ * Значения цвета сняты с «Маркетинг-кит 7.0» пипеткой, не подобраны на глаз.
+ * Шрифт Manrope уже лежит в apps/desktop/frontend/fonts/ (OFL, вариативный).
+ */
+
+/* Кириллица и латиница разными файлами с unicode-range — иначе браузер тянет
+   оба на любой странице. U+2116 это «№»: он нужен путевому листу и письму,
+   и в латинском подмножестве его нет. */
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("/static/fonts/manrope-cyrillic.woff2") format("woff2");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("/static/fonts/manrope-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  /* --- цвет --- */
+  --red: #e31e24;        /* действие и проблема. Больше нигде */
+  --red-dark: #c1161b;   /* наведение на главную кнопку */
+  --red-soft: #fdecec;   /* подложка критичной находки и выбранного пункта */
+  --graphite: #27323d;   /* боковая панель, шапка, основной текст */
+  --graphite-2: #3b454f; /* вторичный текст на тёмном */
+  --bg: #f5f7f9;
+  --surface: #ffffff;
+  --line: #e3e7ec;
+  --line-soft: #f1f4f7;  /* разделители внутри таблиц */
+  --text: #27323d;
+  --muted: #6b7681;      /* контраст на белом 4.63 — выше нормы 4.5 */
+  --on-dark: #c6cdd5;    /* пункт меню на графите, контраст 8.13 */
+  --on-dark-mut: #7c8894;
+
+  /* Жёлтый #d4a017 из старой системы убран: на белом он давал 2.38 при норме
+     4.5, то есть «существенный риск» договора читался хуже остальных. */
+  --ok: #1f7a45;
+  --warn: #8a6400;
+  --danger: #b01f19;
+
+  /* --- шрифт --- */
+  --font: "Manrope", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+
+  /* --- размер и ритм --- */
+  --step: 4px;
+  --r-sm: 6px;
+  --r-md: 9px;
+  --r-lg: 12px;
+  --shadow: 0 1px 2px rgba(39, 50, 61, .05), 0 4px 12px rgba(39, 50, 61, .06);
+  --sidebar-w: 186px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  /* Колонки пробега, топлива и процентов не должны плясать при обновлении. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- типографика --- */
+h1 { font-size: 19px; font-weight: 800; letter-spacing: -.02em; margin: 0; }
+h2 { font-size: 15px; font-weight: 700; margin: 0; }
+h3 { font-size: 13px; font-weight: 700; margin: 0; }
+.title-lg { font-size: 26px; font-weight: 800; letter-spacing: -.025em; }
+.hint { font-size: 11.5px; color: var(--muted); }
+.label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
+}
+
+/* --- каркас: боковая панель + рабочее поле --- */
+.app { display: flex; flex-direction: column; height: 100vh; }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 16px; background: var(--graphite); flex-shrink: 0;
+}
+.topbar .brand { display: flex; align-items: center; gap: 9px; font-weight: 800; color: #fff; }
+.topbar .brand img { width: 24px; height: 24px; }
+.topbar .brand span { font-weight: 500; color: var(--on-dark-mut); }
+.body { flex: 1; display: flex; min-height: 0; }
+
+.sidebar {
+  width: var(--sidebar-w); flex-shrink: 0; background: var(--graphite);
+  display: flex; flex-direction: column; padding: 10px 0; overflow-y: auto;
+}
+.sidebar .group {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--on-dark-mut); padding: 12px 16px 4px;
+}
+.sidebar a {
+  display: flex; align-items: center; gap: 8px; font-size: 12px;
+  color: var(--on-dark); text-decoration: none;
+  padding: 6px 9px; margin: 0 8px; border-radius: var(--r-sm);
+}
+.sidebar a:hover { background: rgba(255, 255, 255, .07); }
+.sidebar a[aria-current] { background: var(--red); color: #fff; font-weight: 700; }
+.sidebar svg { width: 14px; height: 14px; fill: none; stroke: var(--on-dark-mut); stroke-width: 1.7; }
+.sidebar a[aria-current] svg { stroke: #fff; }
+.sidebar .bottom { margin-top: auto; }
+
+.work { flex: 1; min-width: 0; padding: 16px 20px; overflow-y: auto; background: var(--surface); }
+
+/* --- фокус ---
+   В старой системе стиля фокуса не было вовсе, кроме поля бланка письма:
+   работа с клавиатуры шла вслепую. Кольцо снаружи элемента, чтобы не сдвигать
+   разметку и быть заметным на любом фоне. */
+:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* --- кнопки --- */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--red); color: #fff; border: 1px solid var(--red);
+  border-radius: var(--r-sm); padding: 6px 13px;
+  font: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: var(--red-dark); border-color: var(--red-dark); }
+.btn:disabled { background: #c3cad2; border-color: #c3cad2; cursor: not-allowed; }
+.btn.secondary {
+  background: var(--surface); color: var(--text); border-color: var(--line); font-weight: 600;
+}
+.btn.secondary:hover:not(:disabled) { background: var(--bg); border-color: #cdd6df; }
+.btn.ghost { background: none; border-color: transparent; color: var(--muted); font-weight: 600; }
+.btn.ghost:hover:not(:disabled) { background: var(--bg); color: var(--text); }
+
+/* --- поля --- */
+.field { margin-top: 12px; }
+.field > label, .field > .field-label {
+  display: block; font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--muted); margin-bottom: 5px;
+}
+input[type="text"], input[type="number"], select, textarea {
+  width: 100%; padding: 7px 10px; font: inherit; font-size: 12.5px;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text);
+}
+input:hover, select:hover, textarea:hover { border-color: #cdd6df; }
+textarea { min-height: 140px; resize: vertical; }
+
+/* Поле, заполненное программой. Серый фон говорит «это не ты вводил», подпись
+   под ним — откуда значение взялось. Без этого человек не понимает, можно ли
+   исправлять, и на всякий случай не трогает. */
+.field .auto { background: #f5f8fa; color: var(--muted); }
+.field .source { font-size: 9.5px; color: var(--muted); margin-top: 2px; }
+
+/* Загрузка файла: зона перетаскивания вместо кнопки «Выбрать файл» —
+   документ обычно уже лежит в открытой папке рядом. */
+.dropzone {
+  border: 1.5px dashed #c8d2dc; border-radius: var(--r-md); background: #fafcfd;
+  padding: 18px; text-align: center; color: var(--muted); font-size: 11.5px; cursor: pointer;
+}
+.dropzone:hover, .dropzone.over { border-color: var(--red); background: var(--red-soft); }
+.dropzone b { display: block; color: var(--text); font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+
+/* --- таблицы --- */
+table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+th {
+  text-align: left; font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted);
+  padding: 0 8px 6px 0; border-bottom: 1px solid var(--line);
+}
+td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+
+/* --- метки типов --- */
+.tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 9.5px; font-weight: 700; }
+.tag.spelling { background: #fdecec; color: var(--danger); }
+.tag.punct { background: #fff6e0; color: var(--warn); }
+.tag.style { background: #eaf1fb; color: #1b5aa8; }
+.tag.ok { background: #e7f5ec; color: var(--ok); }
+
+/* --- вердикт договора: стоит НАД находками, а не под ними --- */
+.verdict { display: flex; gap: 14px; align-items: flex-start; border-radius: var(--r-lg); padding: 13px 15px; }
+.verdict.stop { background: var(--red-soft); border: 1px solid #f5c6c4; }
+.verdict.warn { background: #fff8e8; border: 1px solid #f0dcae; }
+.verdict.go { background: #eef9f1; border: 1px solid #bfe3cd; }
+.verdict .headline { font-size: 14px; font-weight: 800; color: var(--danger); }
+.verdict .counts { display: flex; gap: 8px; margin-left: auto; }
+.verdict .counts div {
+  background: var(--surface); border-radius: 7px; padding: 5px 10px; text-align: center; min-width: 44px;
+}
+.verdict .counts b { display: block; font-size: 16px; font-weight: 800; line-height: 1.1; }
+.verdict .counts i { font-style: normal; font-size: 9px; color: var(--muted); }
+
+/* --- находка --- */
+.finding {
+  border: 1px solid var(--line); border-left: 3px solid var(--line);
+  border-radius: 0 var(--r-md) var(--r-md) 0; padding: 9px 12px; margin-top: 8px;
+}
+.finding.crit-red { border-left-color: var(--red); }
+.finding.crit-yellow { border-left-color: var(--warn); }
+.finding.crit-green { border-left-color: var(--ok); }
+.finding .crit {
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em;
+}
+.finding.crit-red .crit { color: var(--danger); }
+.finding.crit-yellow .crit { color: var(--warn); }
+.finding.crit-green .crit { color: var(--ok); }
+/* Причина автоповышения — приглушённо: это утверждение программы, а не модели,
+   и юрист должен иметь возможность с ним не согласиться. */
+.finding .raised { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted); }
+.finding blockquote {
+  margin: 6px 0; padding: 5px 9px; background: #fafbfc; border-left: 2px solid var(--line);
+  font-size: 11px; font-style: italic; color: var(--muted);
+}
+.finding .redline { background: #eef9f1; border-radius: 5px; padding: 5px 9px; font-size: 11px; margin-top: 5px; }
+.finding .norm {
+  display: inline-block; margin-top: 5px; font-size: 9.5px; padding: 1px 6px;
+  border-radius: 4px; border: 1px solid var(--line); color: var(--muted);
+}
+.finding .norm.grounded { border-color: #a8d8bc; color: var(--ok); }
+.finding .norm.unverified { border-color: #e2c894; color: var(--warn); }
+
+/* --- ожидание ---
+   Состояние, которое видят все и каждый день: задача на CPU идёт минутами.
+   Поэтому здесь стадия словами, остаток времени и явное разрешение уйти. */
+.progress { border: 1px solid var(--line); border-radius: var(--r-md); background: #fafcfd; padding: 13px 15px; }
+.progress .stage { font-size: 12.5px; font-weight: 700; }
+.progress .eta { font-size: 11.5px; color: var(--muted); margin-left: auto; }
+.progress .bar { height: 5px; background: #e7ecf1; border-radius: 3px; margin-top: 8px; overflow: hidden; }
+.progress .bar i { display: block; height: 100%; background: var(--red); border-radius: 3px; transition: width .4s ease; }
+.progress .leave { font-size: 11.5px; color: var(--muted); margin: 9px 0 0; }
+
+/* --- шаги (путевой лист) --- */
+.steps { display: flex; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+.steps .step {
+  flex: 1; display: flex; align-items: center; gap: 7px; padding: 7px 10px;
+  font-size: 11px; color: var(--muted); border-right: 1px solid var(--line);
+}
+.steps .step:last-child { border-right: 0; }
+.steps .step b {
+  width: 16px; height: 16px; border-radius: 50%; background: #edf1f5; color: var(--muted);
+  font-size: 9.5px; font-weight: 800; display: flex; align-items: center; justify-content: center;
+}
+.steps .step[aria-current] { background: var(--red-soft); color: var(--danger); font-weight: 700; }
+.steps .step[aria-current] b { background: var(--red); color: #fff; }
+.steps .step.done b { background: var(--ok); color: #fff; }
+
+/* --- сообщения --- */
+.error-box {
+  border: 1px solid #f5c6c4; background: var(--red-soft); color: var(--danger);
+  border-radius: var(--r-md); padding: 11px 14px; font-size: 12px;
+}
+.empty { text-align: center; color: var(--muted); padding: 32px 16px; font-size: 12px; }
+
+/* --- узкий экран ---
+   Ноутбук 1366×768 — рабочая ширина. Панель сворачивается в иконки раньше,
+   чем содержимое начнёт ломаться. */
+@media (max-width: 1180px) {
+  :root { --sidebar-w: 52px; }
+  .sidebar a span, .sidebar .group { display: none; }
+  .sidebar a { justify-content: center; margin: 0 6px; }
+}

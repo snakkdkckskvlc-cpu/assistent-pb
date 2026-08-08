@@ -8,56 +8,203 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">🔥 Ассистент</div>
+    <div class="brand">Ассистент</div>
     <div class="status" id="health">Проверка соединения…</div>
   </header>
 
   <main class="hero">
-    <h1>Внутренний ассистент компании</h1>
-    <p class="subtitle">Работает локально, без интернета. Выберите задачу.</p>
+    <h1>Сегодня</h1>
+    <p class="subtitle" id="today-date"></p>
 
-    <div class="cards">
-      <a class="card" href="/spellcheck.html">
-        <div class="card-icon">📝</div>
-        <h2>Проверка документа</h2>
-        <p>Орфография и пунктуация. DOCX, PDF, скан или текст.</p>
-      </a>
+    <div class="llm-state" id="llm-state"></div>
 
-      <a class="card" href="/legal.html">
-        <div class="card-icon">⚖️</div>
-        <h2>Анализ договора</h2>
-        <p>Подводные камни, ссылки на ФЗ и СП, плюсы и минусы, предложения правок.</p>
-      </a>
+    <div class="kpi" id="kpi"></div>
 
-      <a class="card" href="/letter.html">
-        <div class="card-icon">✉️</div>
-        <h2>Официальное письмо</h2>
-        <p>Превратить набросок в письмо на фирменном бланке по ГОСТ Р 7.0.97-2016.</p>
-      </a>
+    <div id="active-block"></div>
+    <div id="trips-block"></div>
+    <div id="recent-block"></div>
 
-      <a class="card" href="/ask.html">
-        <div class="card-icon">🔍</div>
-        <h2>Вопрос по документу</h2>
-        <p>Спросить своими словами. Ответ — только из файла, со ссылками на страницы.</p>
-      </a>
-
-      <a class="card" href="/transport.html">
-        <div class="card-icon">🚚</div>
-        <h2>Транспорт</h2>
-        <p>Машины, рейсы, топливо и пробег. Выдача машины в два клика.</p>
-      </a>
-
-      <a class="card" href="/batch.html">
-        <div class="card-icon">📦</div>
-        <h2>Пакетная проверка</h2>
-        <p>Несколько договоров разом: тип определяется сам, в конце — сводный DOCX-отчёт.</p>
-      </a>
-    </div>
-
-    <p class="history-link"><a href="/history.html">🕘 История задач</a></p>
+    <div class="section-label">Начать работу</div>
+    <div class="cards" id="launch"></div>
   </main>
 
   <script src="/static/app.js"></script>
-  <script>updateHealth();</script>
+  <script>
+    updateHealth();
+
+    const KIND = {
+      spellcheck: ["Проверка документа", "doc"],
+      legal: ["Анализ договора", "scales"],
+      letter: ["Письмо", "mail"],
+      batch: ["Пакетная проверка", "stack"],
+      ask: ["Вопрос по документу", "search"],
+    };
+
+    const LAUNCH = [
+      ["/spellcheck.html", "doc", "Проверка документа", "Орфография и пунктуация. DOCX, PDF, скан или текст."],
+      ["/legal.html", "scales", "Анализ договора", "Риски, ссылки на закон, предложения правок."],
+      ["/letter.html", "mail", "Официальное письмо", "Набросок превращается в письмо на бланке по ГОСТ."],
+      ["/ask.html", "search", "Вопрос по документу", "Ответ только из файла, со ссылками на страницы."],
+      ["/transport.html", "truck", "Транспорт", "Машины, рейсы, топливо. Выдача в два клика."],
+      ["/batch.html", "stack", "Пакетная проверка", "Несколько договоров разом, в конце сводный отчёт."],
+    ];
+
+    // С чего начинается день у каждой роли. Экран «Сегодня» остаётся общим —
+    // он отвечает на вопрос «что происходит», одинаково нужный всем. Роль
+    // меняет только порядок плиток: секретарь не должен искать письма среди
+    // путевых листов, а механик — наоборот.
+    //
+    // Бухгалтеру пока даётся транспорт: таблицы для него (backlog §4.2) ещё не
+    // сделаны, и ставить в начало несуществующее нельзя.
+    const ROLE_FIRST = {
+      "секретарь": ["/letter.html", "/spellcheck.html"],
+      "инженер": ["/spellcheck.html", "/ask.html"],
+      "руководитель": ["/legal.html", "/batch.html"],
+      "бухгалтер": ["/transport.html", "/spellcheck.html"],
+    };
+
+    function renderLaunch(role) {
+      const first = ROLE_FIRST[role] || [];
+      const ordered = [...LAUNCH].sort((a, b) => {
+        const ia = first.indexOf(a[0]), ib = first.indexOf(b[0]);
+        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+      });
+      document.getElementById("launch").innerHTML = ordered.map(([href, ic, title, text], i) => `
+        <a class="card${i === 0 && first.length ? " primary" : ""}" href="${href}">
+          <span class="card-icon">${icon(ic)}</span>
+          <h2>${escapeHtml(title)}${i === 0 && first.length ? '<span class="card-mark">ваша работа</span>' : ""}</h2>
+          <p>${escapeHtml(text)}</p>
+        </a>`).join("");
+    }
+
+    renderLaunch("");
+    // Роль приходит вместе с учётной записью. Пока не пришла — плитки уже
+    // нарисованы в обычном порядке: экран не должен мигать пустотой из-за
+    // одного запроса.
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((d) => { if (d && d.role) renderLaunch(d.role); })
+      .catch(() => {});
+
+    // Лента «Готово» показывает последние шесть задач независимо от дня, а
+    // счётчик рядом считает только сегодняшние. Пока время выводилось без
+    // даты, на одном экране стояли два несогласных числа: «0 готово сегодня»
+    // и под ним шесть готовых строк со временем, которое читается как
+    // сегодняшнее. Число было верным, врал показ.
+    // Поэтому у несегодняшней задачи дописывается дата. У сегодняшней — нет:
+    // «сегодня» и так написано в заголовке экрана, и повторять его в каждой
+    // строке значит утопить в шуме то единственное, что стоит замечать.
+    function fmtTime(iso) {
+      const d = new Date(iso);
+      if (isNaN(d)) return "";
+      const время = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+      if (d.toDateString() === new Date().toDateString()) return время;
+      return `${d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })}, ${время}`;
+    }
+
+    // Не fmtDate: так называется общий помощник в app.js, который делает
+    // другое — «07.08.2026» для таблиц. Оба объявлены в общей области, и
+    // побеждал бы тот, чей скрипт подключён позже. Подзаголовок страницы
+    // молча превратился бы в набор цифр от одной перестановки тегов.
+    function fmtWeekday(iso) {
+      const d = new Date(iso);
+      if (isNaN(d)) return "";
+      return d.toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" });
+    }
+
+    function taskRow(t) {
+      const [label, ic] = KIND[t.kind] || [t.kind, "doc"];
+      // Стадия словами приходит с сервера (task.progress). Пока её нет —
+      // честное «в очереди» с местом, а не выдуманный процент.
+      const state = t.status === "running"
+        ? `<span class="state run">${escapeHtml(t.progress || "считается")} · ${t.percent || 0}%</span>`
+        : `<span class="state">${t.position > 1 ? `в очереди, ${t.position}-я` : "следующая в очереди"}</span>`;
+      return `<div class="row">${icon(ic)}<span class="name">${escapeHtml(label)}</span>${state}</div>`;
+    }
+
+    function doneRow(r) {
+      const [label, ic] = KIND[r.kind] || [r.kind, "doc"];
+      const what = r.summary ? ` · ${escapeHtml(r.summary)}` : "";
+      // Готовое кликабельно: ради этого «Сегодня» и делался — запустил, ушёл
+      // писать письмо, вернулся и забрал.
+      return `<div class="row">${icon(ic)}<span class="name">` +
+        `${taskLink(r.kind, r.task_id, label)}${what}</span>` +
+        `<span class="state done">${escapeHtml(fmtTime(r.finished_at))}</span></div>`;
+    }
+
+    function tripRow(t) {
+      const where = t.to ? ` · ${escapeHtml(t.to)}` : "";
+      return `<div class="row">${icon("truck")}<span class="name">${escapeHtml(t.vehicle)} · ` +
+        `${escapeHtml(t.driver)}${where}</span>` +
+        `<span class="state">в рейсе с ${escapeHtml(fmtTime(t.departed_at))}</span></div>`;
+    }
+
+    function block(id, title, rows) {
+      const el = document.getElementById(id);
+      el.innerHTML = rows.length
+        ? `<div class="section-label">${title}</div><div class="feed">${rows.join("")}</div>`
+        : "";
+    }
+
+    async function loadDashboard() {
+      try {
+        const r = await fetch("/api/dashboard");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const d = await r.json();
+
+        document.getElementById("today-date").textContent = fmtWeekday(d.date);
+
+        // Занятость модели — общая на компанию. Пишем обычными словами: человек
+        // должен понять, почему его задача стоит, не разбираясь в очередях.
+        // Чья задача считается — не показываем, это чужой документ.
+        const llm = d.llm || {};
+        const waiting = llm.waiting || 0;
+        const tail = waiting ? ` Ждут своей очереди: ${waiting}.` : "";
+        const box = document.getElementById("llm-state");
+        // «Свободен» и «не готов» — разные вещи, и раньше строка их путала:
+        // при неустановленной модели в шапке висело «работать нельзя», а здесь
+        // тут же — «ИИ свободен». Два утверждения на одном экране спорили,
+        // причём второе обещало то, чего нет: свободен — значит бери и
+        // пользуйся. Готовность спрашиваем у того же health, что и шапка.
+        // Готовность берём из общей переменной, которую заполняет updateHealth,
+        // а не спрашиваем сами: /api/health ходит к модели и не кэширован, а
+        // этот код выполняется каждые пять секунд. Пока проверка не ответила
+        // (null), ничего не утверждаем — через пять секунд строка обновится.
+        if (ИИ_ГОТОВ === false) {
+          box.innerHTML = `<span class="dot busy"></span>ИИ сейчас недоступен — задачи запускать нельзя. Это чинит ИТ-администратор.`;
+          box.className = "llm-state busy";
+        } else {
+          box.innerHTML = llm.busy
+            ? `<span class="dot busy"></span>ИИ в данный момент используется.${escapeHtml(tail)}`
+            : `<span class="dot free"></span>ИИ свободен.${escapeHtml(tail)}`;
+          box.className = "llm-state" + (llm.busy ? " busy" : "");
+        }
+
+        const m = d.metrics;
+        document.getElementById("kpi").innerHTML = `
+          <div><b class="${m.active ? "hot" : ""}">${m.active}</b><span>${m.active === 1 ? "задача считается" : "задач считается"}</span></div>
+          <div><b>${m.on_the_road}</b><span>машин в рейсе</span></div>
+          <div><b>${m.done_today}</b><span>готово сегодня</span></div>`;
+
+        block("active-block", "В работе", d.active.map(taskRow));
+        block("trips-block", "Машины в рейсе", d.trips.map(tripRow));
+        block("recent-block", "Готово", d.recent.map(doneRow));
+
+        if (!d.active.length && !d.trips.length && !d.recent.length) {
+          document.getElementById("active-block").innerHTML =
+            '<p class="empty">Пока пусто. Выберите задачу ниже — она появится здесь и будет считаться, даже если вы уйдёте на другой экран.</p>';
+        }
+      } catch (e) {
+        document.getElementById("active-block").innerHTML =
+          '<p class="empty">Не удалось получить сводку. Проверьте, что программа запущена.</p>';
+      }
+    }
+
+    loadDashboard();
+    // Задачи идут минутами, поэтому пять секунд — достаточно часто, чтобы
+    // человек видел движение, и достаточно редко, чтобы не долбить SQLite на
+    // сервере, общем для тридцати человек.
+    setInterval(loadDashboard, 5000);
+  </script>
 </body>
 </html>

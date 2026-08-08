@@ -71,6 +71,12 @@ def _with_known_errors(chunk: str, lt_errors: list[dict]) -> str:
     )
 
 
+def apply_selected(text: str, errors: list[dict]) -> str:
+    """Публичное имя для _apply_to_text: роутер собирает документ из ЧАСТИ
+    правок, и лезть в приватную функцию модуля ради этого не надо."""
+    return _apply_to_text(text, errors)
+
+
 def _apply_to_text(text: str, errors: list[dict]) -> str:
     """Собирает исправленный текст из найденных правок.
 
@@ -601,6 +607,13 @@ async def run_spellcheck(
         out = {
             "errors": errors,
             "corrected_text": _apply_to_text(text, errors),
+            # Исходный текст и путь к файлу нужны, чтобы пересобрать документ с
+            # ЧАСТЬЮ правок: человек принимает не все двадцать три, а девять.
+            # Хранится исходник, а не откат уже применённых замен: откат на
+            # неоднозначной правке промахивается, и текст на экране разошёлся бы
+            # с текстом в скачанном файле — в этом проекте так уже было.
+            "_source_text": text,
+            "_source_path": source_path.name if source_path is not None else None,
             "stats": {
                 "total_errors": len(errors),
                 "by_type": _count_by_type(errors),
@@ -667,6 +680,10 @@ async def run_spellcheck(
     out: dict = {
         "errors": all_errors,
         "corrected_text": corrected_text,
+        # См. быстрый режим выше: исходник хранится ради пересборки документа с
+        # частью принятых правок.
+        "_source_text": text,
+        "_source_path": source_path.name if source_path is not None else None,
         "stats": {
             "total_errors": len(all_errors),
             "by_type": _count_by_type(all_errors),

@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Сверка таблиц — Ассистент</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><a href="/">Ассистент</a></div>
+    <div class="status" id="health"></div>
+  </header>
+
+  <main class="page">
+    <a class="back" href="/">← На главную</a>
+    <div class="section">
+      <h2>Сверка таблиц</h2>
+      <p class="hint">Смета против акта, счёт против накладной, ведомость против выгрузки. Программа находит расхождения в количествах и суммах, позиции, которых нет во втором файле, и повторы. Ничего не считает модель — только арифметика.</p>
+
+      <div class="field">
+        <span class="field-label">Первый файл — что должно быть (смета, счёт)</span>
+        <div class="file-picker">
+          <label class="btn btn-secondary" for="file1">Выбрать файл</label>
+          <input type="file" id="file1" class="visually-hidden" accept=".xlsx,.xlsm">
+          <span class="file-name" id="name1">Файл не выбран</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Второй файл — что предъявлено (акт, накладная)</span>
+        <div class="file-picker">
+          <label class="btn btn-secondary" for="file2">Выбрать файл</label>
+          <input type="file" id="file2" class="visually-hidden" accept=".xlsx,.xlsm">
+          <span class="file-name" id="name2">Файл не выбран</span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn" id="submit" disabled>Сверить</button>
+        <span class="hint" id="status"></span>
+      </div>
+
+      <div id="error" class="error-box" style="display:none"></div>
+      <div id="result" class="result"></div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    updateHealth();
+
+    const f1 = document.getElementById("file1");
+    const f2 = document.getElementById("file2");
+    const submit = document.getElementById("submit");
+
+    function bindName(input, spanId) {
+      input.addEventListener("change", () => {
+        document.getElementById(spanId).textContent = input.files[0] ? input.files[0].name : "Файл не выбран";
+        submit.disabled = !(f1.files[0] && f2.files[0]);
+      });
+    }
+    bindName(f1, "name1");
+    bindName(f2, "name2");
+
+    const рубли = (kop) => (kop === null || kop === undefined) ? "—" : (kop / 100).toLocaleString("ru-RU", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    const штуки = (x) => (x === null || x === undefined) ? "—" : (x / 1000).toLocaleString("ru-RU", {maximumFractionDigits: 3});
+
+    function таблица(заголовки, строки) {
+      const th = заголовки.map((h) => `<th>${escapeHtml(h)}</th>`).join("");
+      const tr = строки.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("");
+      return `<table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
+    }
+
+    function render(d) {
+      const it = d["итог"];
+      const p = [];
+
+      const tone = it["всё_сошлось"] ? "go" : "stop";
+      const headline = it["всё_сошлось"] ? "Расхождений не найдено" : "Есть расхождения";
+      p.push(`<div class="verdict ${tone}">
+        <div class="verdict-head">
+          <div>
+            <div class="verdict-headline">${headline}</div>
+            <div style="margin-top:4px">Итоги: ${рубли(it["сумма_слева"])} ₽ против ${рубли(it["сумма_справа"])} ₽, разница <b>${рубли(it["разница"])} ₽</b></div>
+          </div>
+          <div class="verdict-counts">
+            <div><b>${it["расхождений"]}</b><i>расходится</i></div>
+            <div><b>${it["только_слева"] + it["только_справа"]}</b><i>нет во втором</i></div>
+            <div><b>${it["похожих"]}</b><i>решить</i></div>
+          </div>
+        </div>
+      </div>`);
+
+      // Как программа поняла файлы. Показывается ВСЕГДА, а не только при
+      // ошибке: определение колонок — догадка, и человек должен увидеть,
+      // по каким столбцам его посчитали, до того как поверит цифрам.
+      for (const сторона of ["слева", "справа"]) {
+        const s = d[сторона];
+        const роли = Object.keys(s["колонки"] || {}).join(", ") || "не определены";
+        p.push(`<p class="hint">${escapeHtml(s["имя"])}, лист «${escapeHtml(s["лист"])}»: строк ${s["строк"]}, распознаны колонки — ${escapeHtml(роли)}${s["пропущено_итогов"] ? `, пропущено итоговых строк: ${s["пропущено_итогов"]}` : ""}</p>`);
+        for (const w of s["предупреждения"] || []) {
+          p.push(`<div class="verdict">⚠ ${escapeHtml(s["имя"])}: ${escapeHtml(w)}</div>`);
+        }
+      }
+
+      if (d["расхождения"].length) {
+        p.push(`<h3>Расходится: ${it["расхождений"]}</h3>`);
+        p.push(таблица(
+          ["Наименование", "Строка", "Кол-во было", "Кол-во стало", "Разница", "Сумма была", "Сумма стала", "Разница, ₽"],
+          d["расхождения"].map((r) => [
+            escapeHtml(r["название"]), r["строка"],
+            штуки(r["кол_слева"]), штуки(r["кол_справа"]),
+            `<b>${штуки(r["разница_кол"])}</b>`,
+            рубли(r["сум_слева"]), рубли(r["сум_справа"]),
+            `<b>${рубли(r["разница_сум"])}</b>`,
+          ])
+        ));
+      }
+
+      for (const [ключ, title] of [["нет_справа", `Нет во втором файле: ${it["только_слева"]}`],
+                                   ["нет_слева", `Нет в первом файле: ${it["только_справа"]}`]]) {
+        if (!d[ключ].length) continue;
+        p.push(`<h3>${title}</h3>`);
+        p.push(таблица(["Наименование", "Строка", "Сумма, ₽"],
+          d[ключ].map((r) => [escapeHtml(r["название"]), r["строка"], рубли(r["сумма"])])));
+      }
+
+      if (d["похожие"].length) {
+        p.push(`<h3>Похожи, но программа их не сопоставила: ${it["похожих"]}</h3>`);
+        p.push(`<p class="hint">Решает человек. Программа склеивает строки только при точном совпадении названия — ложное совпадение молча превратило бы две разные позиции в одну. Подтвердите один раз: в следующих сверках эта пара сойдётся сама.</p>`);
+        p.push(таблица(
+          ["В первом файле", "Строка", "Во втором файле", "Строка", "Похожесть", ""],
+          d["похожие"].map((k, i) => [
+            escapeHtml(k["слева"]), k["строка_слева"],
+            escapeHtml(k["справа"]), k["строка_справа"], k["похожесть"],
+            `<button class="btn secondary alias-ok" data-i="${i}">Это одна позиция</button>`,
+          ])
+        ));
+      }
+
+      if (it["повторов"]) {
+        p.push(`<p class="hint">Повторяющихся позиций внутри файлов: ${it["повторов"]}. Пока они не объединены, сверять их не с чем — смотрите лист «Повторы» в отчёте.</p>`);
+      }
+
+      p.push(`<div class="actions"><button class="btn secondary" id="dl">Скачать отчёт в Excel</button><span class="hint" id="dlstatus"></span></div>`);
+      document.getElementById("result").innerHTML = p.join("");
+
+      document.getElementById("dl").addEventListener("click", async () => {
+        const st = document.getElementById("dlstatus");
+        const res = await downloadFile(`/api/download/${encodeURIComponent(d["файл"])}`, d["файл"]);
+        if (res && res.ok === false && res.error !== "cancelled") st.textContent = "Не удалось сохранить: " + res.error;
+      });
+
+      // Подтверждение соответствия. Кнопка меняется на месте, а не
+      // перезапускает сверку: человек разбирает список сверху вниз, и
+      // перерисовка увела бы его с того места, где он остановился.
+      document.querySelectorAll(".alias-ok").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const k = d["похожие"][Number(btn.getAttribute("data-i"))];
+          btn.disabled = true;
+          try {
+            const r = await fetch("/api/compare/alias", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ слева: k["справа"], справа: k["слева"] }),
+            });
+            if (!r.ok) {
+              const e = await r.json().catch(() => ({}));
+              btn.replaceWith(Object.assign(document.createElement("span"),
+                { className: "hint", textContent: e.detail || "Не удалось запомнить" }));
+              return;
+            }
+            btn.replaceWith(Object.assign(document.createElement("span"),
+              { className: "hint", textContent: "Запомнено — в следующий раз сойдётся само" }));
+          } catch (e) {
+            // Раньше здесь кнопка просто оживала обратно. Со стороны это
+            // выглядит как «не нажалось»: человек жмёт ещё раз, снова ничего,
+            // и уходит в уверенности, что пара запомнена. В следующей сверке
+            // она не сходится, и виноватой выглядит сверка.
+            // Соседняя ветка (ответ не 200) уже говорит об отказе — обрыв
+            // связи ничем не лучше и молчать о нём нет причины.
+            btn.disabled = false;
+            // Кнопку нажмут ещё раз, и подсказка не должна размножаться:
+            // старая заменяется, а не дописывается рядом.
+            if (btn.nextElementSibling?.classList.contains("alias-fail")) {
+              btn.nextElementSibling.remove();
+            }
+            btn.after(Object.assign(document.createElement("span"),
+              { className: "hint alias-fail",
+                textContent: " Не удалось запомнить — связь прервалась, попробуйте ещё раз" }));
+          }
+        });
+      });
+    }
+
+    submit.addEventListener("click", async () => {
+      const err = document.getElementById("error");
+      const status = document.getElementById("status");
+      err.style.display = "none";
+      document.getElementById("result").innerHTML = "";
+      submit.disabled = true;
+      status.textContent = "Сверяю…";
+      try {
+        const fd = new FormData();
+        fd.append("файл1", f1.files[0]);
+        fd.append("файл2", f2.files[0]);
+        const r = await fetch("/api/compare", { method: "POST", body: fd });
+        if (!r.ok) {
+          const e = await r.json().catch(() => ({}));
+          err.textContent = e.detail || "Не удалось сверить файлы";
+          err.style.display = "";
+          return;
+        }
+        render(await r.json());
+      } catch (e) {
+        err.textContent = "Не удалось сверить файлы";
+        err.style.display = "";
+      } finally {
+        submit.disabled = false;
+        status.textContent = "";
+      }
+    });
+  </script>
+</body>
+</html>

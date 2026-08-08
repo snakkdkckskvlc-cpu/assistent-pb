@@ -66,6 +66,37 @@ class Driver(BaseModel):
     created_at: str
 
 
+class DriverBrief(BaseModel):
+    """Водитель для СПИСКА — без персональных данных.
+
+    СНИЛС и номер водительского удостоверения — персональные данные. Правило
+    проекта: в списковых ответах их не отдавать (CLAUDE.md §4.4). Причина не
+    формальная: справочник открыт всем вошедшим, а вошедших тридцать человек,
+    и общий список с СНИЛС коллег — это выгрузка персональных данных по
+    одному запросу, без всякого взлома.
+
+    Заполнено поле или нет, знать всё же надо: пустой СНИЛС делает путевой лист
+    недействительным, и увидеть это должно быть можно, не показывая сам номер.
+    Отсюда два признака вместо двух значений.
+
+    Сами номера отдаёт `GET /drivers/{id}` — по одному, когда человек
+    осознанно открыл карточку, и печать листа (`print_data`), где они
+    обязательны по форме.
+    """
+
+    id: int
+    full_name: str
+    tab_number: str = ""
+    licence_series: str = ""
+    licence_issued_at: str | None = None
+    licence_class: str = ""
+    licence_card: str = ""
+    is_active: bool = True
+    created_at: str
+    есть_снилс: bool = False
+    есть_удостоверение: bool = False
+
+
 class DriverCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=120)
     tab_number: str = Field(default="", max_length=20)
@@ -307,6 +338,11 @@ class Waybill(WaybillFields):
     # пробег известен; иначе None и в бланке прочерк. Отдаётся отдельно от
     # fuel_used_norm_l: то — цифра, вписанная человеком, и она главнее.
     fuel_by_norm_l: float | None = None
+    # Графы, заполненные программой из карточки машины при выписке листа.
+    # Интерфейс помечает их и подписывает источник: значение, взявшееся само,
+    # без объяснения читается как чужая ошибка, и его либо боятся трогать,
+    # либо молча перебивают.
+    autofilled: list[str] = Field(default_factory=list)
     trailers: list[Trailer] = Field(default_factory=list)
     downtimes: list[Downtime] = Field(default_factory=list)
     created_by: str = ""

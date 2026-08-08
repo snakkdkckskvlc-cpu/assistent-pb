@@ -7,21 +7,21 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><a href="/">🔥 Ассистент</a></div>
+    <div class="brand"><a href="/">Ассистент</a></div>
     <div class="status" id="health"></div>
   </header>
 
   <main class="page">
     <a class="back" href="/">← На главную</a>
-    <p class="history-link"><a href="/waybill.html">📋 Путевые листы, водители, прицепы</a></p>
 
     <div class="section">
-      <h2>🚚 Выдать машину</h2>
+      <h2>Выдать машину</h2>
       <p class="hint">«Беру Логан 145, до ТЭЦ-2». Показание одометра можно не вводить — подставится последнее известное.</p>
 
       <div class="field">
         <label for="t-vehicle">Машина</label>
         <select id="t-vehicle"></select>
+        <p class="hint" id="t-vehicle-hint"></p>
       </div>
       <div class="field">
         <label for="t-driver">Водитель</label>
@@ -55,144 +55,15 @@
     </div>
 
     <div class="section">
-      <h2>🅿️ Машины в рейсе</h2>
+      <h2>Машины в рейсе</h2>
       <p class="hint">Отметьте возврат — пробег перенесётся в карточку машины.</p>
       <div id="open-trips" class="result"></div>
     </div>
 
-    <div class="section">
-      <h2>🚗 Парк</h2>
-      <div class="actions">
-        <button class="btn secondary" id="v-toggle-form">Добавить машину</button>
-        <button class="btn secondary" id="v-refresh">Обновить</button>
-      </div>
 
-      <div id="v-form" style="display:none">
-        <div class="field">
-          <label for="v-name">Как называют вслух</label>
-          <input id="v-name" type="text" placeholder="Логан 145">
-        </div>
-        <div class="field">
-          <label for="v-plate">Госномер</label>
-          <input id="v-plate" type="text" placeholder="А123ВС48">
-        </div>
-        <div class="field">
-          <label for="v-brand">Марка</label>
-          <input id="v-brand" type="text" placeholder="Renault">
-        </div>
-        <div class="field">
-          <label for="v-model">Модель</label>
-          <input id="v-model" type="text" placeholder="Logan">
-        </div>
-        <div class="field">
-          <label for="v-year">Год выпуска</label>
-          <input id="v-year" type="number" min="1950" max="2100">
-        </div>
-        <div class="field">
-          <label for="v-category">Категория из ПТС</label>
-          <select id="v-category">
-            <option value="">не указана</option>
-            <option value="M1">M1 — легковая</option>
-            <option value="M2">M2 — автобус до 5 т</option>
-            <option value="M3">M3 — автобус свыше 5 т</option>
-            <option value="N1">N1 — грузовая до 3,5 т</option>
-            <option value="N2">N2 — грузовая 3,5–12 т</option>
-            <option value="N3">N3 — грузовая свыше 12 т</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="v-fuel-type">Топливо</label>
-          <input id="v-fuel-type" type="text" placeholder="АИ-92">
-        </div>
-        <div class="field">
-          <label for="v-tank">Объём бака, л</label>
-          <input id="v-tank" type="number" step="1" min="1">
-        </div>
-        <div class="field">
-          <label for="v-odo">Пробег по одометру, км</label>
-          <input id="v-odo" type="number" step="0.1" min="0" value="0">
-        </div>
-        <div class="field">
-          <label for="v-norm">Норма расхода, л на 100 км</label>
-          <input id="v-norm" type="number" step="0.1" min="0" placeholder="из приказа директора">
-          <p class="hint">Пока не заполнено — расход по норме не считается, показывается только факт выдачи.</p>
-        </div>
-        <div class="field">
-          <label><input id="v-glonass" type="checkbox"> На машине стоит ГЛОНАСС</label>
-        </div>
-        <h3>Реквизиты для путевого листа</h3>
-        <div class="field">
-          <label for="v-org">Организация-владелец</label>
-          <select id="v-org"></select>
-        </div>
-        <div class="field">
-          <label for="v-form">Бланк путевого листа</label>
-          <select id="v-form">
-            <option value="">по категории ТС</option>
-            <option value="3">№ 3 — легковой автомобиль</option>
-            <option value="4-S">№ 4-С — грузовой автомобиль</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="v-driver">Закреплённый водитель</label>
-          <select id="v-driver"></select>
-        </div>
-        <div class="field">
-          <label for="v-garage">Гаражный номер</label>
-          <input id="v-garage" type="text">
-        </div>
-        <div class="field">
-          <label for="v-vcode">Код марки автомобиля</label>
-          <input id="v-vcode" type="text">
-        </div>
-        <div class="field">
-          <label for="v-fcode">Код марки горючего</label>
-          <input id="v-fcode" type="text">
-        </div>
-        <div class="field">
-          <label for="v-column">Колонна</label>
-          <input id="v-column" type="text">
-        </div>
-        <div class="field">
-          <label for="v-brigade">Бригада</label>
-          <input id="v-brigade" type="text">
-        </div>
-        <div class="actions">
-          <button class="btn" id="v-save">Сохранить</button>
-          <span class="hint" id="v-status"></span>
-        </div>
-      </div>
-
-      <div id="vehicles" class="result"></div>
-    </div>
 
     <div class="section">
-      <h2>📍 Постоянные точки</h2>
-      <p class="hint">Площадки НЛМК, ТЭЦ, склады, база. Расстояние от базы вводится вручную — по нему считается километраж.</p>
-      <div class="field">
-        <label for="p-name">Название</label>
-        <input id="p-name" type="text" placeholder="ТЭЦ-2">
-      </div>
-      <div class="field">
-        <label for="p-address">Адрес</label>
-        <input id="p-address" type="text">
-      </div>
-      <div class="field">
-        <label for="p-dist">Расстояние от базы, км</label>
-        <input id="p-dist" type="number" step="0.1" min="0">
-      </div>
-      <div class="field">
-        <label><input id="p-base" type="checkbox"> Это наша база (выезд отсюда)</label>
-      </div>
-      <div class="actions">
-        <button class="btn secondary" id="p-save">Добавить точку</button>
-        <span class="hint" id="p-status"></span>
-      </div>
-      <div id="places" class="result"></div>
-    </div>
-
-    <div class="section">
-      <h2>🕘 Журнал рейсов</h2>
+      <h2>Журнал рейсов</h2>
       <div id="trips" class="result"></div>
     </div>
 
@@ -206,92 +77,34 @@
     let VEHICLES = [];
     let PLACES = [];
 
-    function showError(e) {
-      const box = document.getElementById("error");
-      box.style.display = "block";
-      box.textContent = e.message || String(e);
-    }
-
-    // Ошибку от backend'а показываем словами, а не «HTTP 409»: сообщения
-    // сервиса написаны для секретаря («Машина уже в рейсе»), и подменять их
-    // кодом значило бы выбросить единственную понятную подсказку.
-    async function api(url, options) {
-      const r = await fetch(url, options);
-      if (r.status === 204) return null;
-      const data = await r.json().catch(() => null);
-      if (!r.ok) throw new Error((data && data.detail) || `HTTP ${r.status}`);
-      return data;
-    }
-
-    function fmtWhen(iso) {
-      if (!iso) return "—";
-      // SQLite отдаёт CURRENT_TIMESTAMP как «2026-08-06 09:14:22» без зоны;
-      // без замены пробела на «T» Safari и Firefox дают Invalid Date.
-      const d = new Date(iso.replace(" ", "T") + (iso.endsWith("Z") ? "" : "Z"));
-      return isNaN(d) ? escapeHtml(iso) : d.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" });
-    }
-
-    const num = (v, suffix) => (v === null || v === undefined ? "—" : `${v} ${suffix}`);
-
-    // ── Справочники ──────────────────────────────────────────────────────
+    // ── Выбор машины и точки ─────────────────────────────────────────────
+    // Таблицы парка и точек уехали в «Справочники → Парк и точки»: их заводят
+    // раз в полгода, а машину выдают каждое утро. Здесь остались только
+    // выпадающие списки, ради которых справочники и нужны на этом экране.
 
     async function loadVehicles() {
       VEHICLES = await api("/api/transport/vehicles");
-      const box = document.getElementById("vehicles");
-      if (!VEHICLES.length) {
-        box.innerHTML = '<p class="hint">Машин пока нет. Добавьте первую — дальше выдача займёт два клика.</p>';
-      } else {
-        const rows = VEHICLES.map((v) => `
-          <tr>
-            <td><b>${escapeHtml(v.call_name)}</b><br><span class="hint">${escapeHtml(v.plate)}</span></td>
-            <td>${escapeHtml([v.brand, v.model].filter(Boolean).join(" "))}${v.year ? ` (${v.year})` : ""}</td>
-            <td>${escapeHtml(v.category || "—")}</td>
-            <td>${v.odometer_km.toLocaleString("ru-RU")} км</td>
-            <td>${v.fuel_norm_l_100km ? v.fuel_norm_l_100km + " л/100" : '<span class="hint">нет нормы</span>'}</td>
-            <td>${v.has_glonass ? "📡" : ""}</td>
-            <td>${v.waybill_form === "4-S" ? "4-С" : "№ 3"}</td>
-            <td>${v.open_trip_id ? '<span class="chip warn">в рейсе</span>' : `<span class="chip ok">${escapeHtml(v.state_title)}</span>`}</td>
-            <td><button class="btn secondary" data-del-vehicle="${v.id}">убрать</button></td>
-          </tr>`).join("");
-        box.innerHTML = `<table><thead><tr>
-            <th>Машина</th><th>Марка</th><th>Кат.</th><th>Пробег</th><th>Норма</th><th></th><th>Бланк</th><th>Состояние</th><th></th>
-          </tr></thead><tbody>${rows}</tbody></table>`;
-      }
-
       const select = document.getElementById("t-vehicle");
       const free = VEHICLES.filter((v) => !v.open_trip_id);
       select.innerHTML = free.length
         ? free.map((v) => `<option value="${v.id}">${escapeHtml(v.call_name)}${v.plate ? " · " + escapeHtml(v.plate) : ""}</option>`).join("")
         : '<option value="">— свободных машин нет —</option>';
+      // Кнопка гаснет и когда машин нет вовсе, и когда все в рейсе. Подсказка
+      // рядом объясняет, что именно из двух — иначе выключенная кнопка молчит.
       document.getElementById("t-submit").disabled = !free.length;
-    }
-
-    async function loadRefs() {
-      const [orgs, drivers] = await Promise.all([
-        api("/api/transport/orgs"),
-        api("/api/transport/drivers"),
-      ]);
-      document.getElementById("v-org").innerHTML =
-        '<option value="">— основная —</option>' +
-        orgs.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join("");
-      document.getElementById("v-driver").innerHTML =
-        '<option value="">— не закреплён —</option>' +
-        drivers.map((d) => `<option value="${d.id}">${escapeHtml(d.full_name)}</option>`).join("");
+      const hint = document.getElementById("t-vehicle-hint");
+      hint.textContent = free.length
+        ? ""
+        : VEHICLES.length
+          ? "Все машины сейчас в рейсе — отметьте возврат ниже."
+          : "Машин в справочнике нет.";
+      hint.innerHTML += VEHICLES.length
+        ? ""
+        : ' <a href="/reference-fleet.html">Добавить машину</a>';
     }
 
     async function loadPlaces() {
       PLACES = await api("/api/transport/places");
-      const box = document.getElementById("places");
-      box.innerHTML = PLACES.length
-        ? `<table><tbody>${PLACES.map((p) => `
-            <tr>
-              <td>${p.is_base ? "🏠 " : ""}${escapeHtml(p.name)}</td>
-              <td class="hint">${escapeHtml(p.address)}</td>
-              <td>${num(p.distance_from_base_km, "км")}</td>
-              <td><button class="btn secondary" data-del-place="${p.id}">удалить</button></td>
-            </tr>`).join("")}</tbody></table>`
-        : '<p class="hint">Справочник пуст.</p>';
-
       const select = document.getElementById("t-place");
       select.innerHTML =
         PLACES.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("") +
@@ -319,6 +132,20 @@
               <td>${escapeHtml(t.place_to_name || t.destination_text || "—")}</td>
               <td class="hint">с ${fmtWhen(t.departed_at)}</td>
               <td><button class="btn" data-close-trip="${t.id}">Вернулась</button></td>
+            </tr>
+            <tr class="close-trip-form" data-form-for="${t.id}" hidden>
+              <td colspan="5">
+                <div class="row-form">
+                  <label>Одометр на возврате, км
+                    <input type="number" step="0.1" min="0" data-odo="${t.id}" placeholder="можно не вводить">
+                  </label>
+                  <label>Заправлено за рейс, л
+                    <input type="number" step="0.1" min="0" data-fuel="${t.id}" placeholder="пусто — не менять">
+                  </label>
+                  <button class="btn" data-confirm-close="${t.id}">Записать возврат</button>
+                  <button class="btn secondary" data-cancel-close="${t.id}">Отмена</button>
+                </div>
+              </td>
             </tr>`).join("")}</tbody></table>`
         : '<p class="hint">Все машины на месте.</p>';
 
@@ -344,7 +171,6 @@
     async function reloadAll() {
       try {
         document.getElementById("error").style.display = "none";
-        await loadRefs();
         await loadVehicles();
         await loadPlaces();
         await loadTrips();
@@ -386,106 +212,40 @@
       }
     });
 
-    document.getElementById("v-toggle-form").addEventListener("click", () => {
-      const form = document.getElementById("v-form");
-      form.style.display = form.style.display === "none" ? "block" : "none";
-    });
-
-    document.getElementById("v-refresh").addEventListener("click", reloadAll);
-
-    document.getElementById("v-save").addEventListener("click", async () => {
-      const status = document.getElementById("v-status");
-      const val = (id) => document.getElementById(id).value;
-      const numOrNull = (id) => (val(id) === "" ? null : Number(val(id)));
-      status.textContent = "Сохраняю…";
-      try {
-        await api("/api/transport/vehicles", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            call_name: val("v-name"),
-            plate: val("v-plate"),
-            brand: val("v-brand"),
-            model: val("v-model"),
-            year: numOrNull("v-year"),
-            category: val("v-category"),
-            fuel_type: val("v-fuel-type"),
-            tank_l: numOrNull("v-tank"),
-            odometer_km: Number(val("v-odo") || 0),
-            fuel_norm_l_100km: numOrNull("v-norm"),
-            has_glonass: document.getElementById("v-glonass").checked,
-            org_id: numOrNull("v-org"),
-            waybill_form: val("v-form"),
-            default_driver_id: numOrNull("v-driver"),
-            garage_number: val("v-garage"),
-            vehicle_code: val("v-vcode"),
-            fuel_code: val("v-fcode"),
-            column_number: val("v-column"),
-            brigade: val("v-brigade"),
-          }),
-        });
-        status.textContent = "Машина добавлена.";
-        ["v-name", "v-plate", "v-brand", "v-model", "v-year", "v-tank", "v-norm",
-         "v-garage", "v-vcode", "v-fcode", "v-column", "v-brigade"].forEach(
-          (id) => (document.getElementById(id).value = "")
-        );
-        document.getElementById("v-odo").value = "0";
-        document.getElementById("v-glonass").checked = false;
-        await reloadAll();
-      } catch (e) {
-        status.textContent = e.message || String(e);
-      }
-    });
-
-    document.getElementById("p-save").addEventListener("click", async () => {
-      const status = document.getElementById("p-status");
-      const dist = document.getElementById("p-dist").value;
-      status.textContent = "Сохраняю…";
-      try {
-        await api("/api/transport/places", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: document.getElementById("p-name").value,
-            address: document.getElementById("p-address").value,
-            distance_from_base_km: dist === "" ? null : Number(dist),
-            is_base: document.getElementById("p-base").checked,
-          }),
-        });
-        status.textContent = "Точка добавлена.";
-        ["p-name", "p-address", "p-dist"].forEach((id) => (document.getElementById(id).value = ""));
-        document.getElementById("p-base").checked = false;
-        await reloadAll();
-      } catch (e) {
-        status.textContent = e.message || String(e);
-      }
-    });
-
     // Кнопки в таблицах перерисовываются при каждой загрузке, поэтому слушатель
     // висит на документе, а не на каждой кнопке.
     document.addEventListener("click", async (e) => {
-      const btn = e.target.closest("button[data-close-trip], button[data-del-vehicle], button[data-del-place]");
+      const btn = e.target.closest("button[data-close-trip], button[data-confirm-close], button[data-cancel-close]");
       if (!btn) return;
       try {
+        // Возврат отмечается строкой прямо в таблице, а не двумя системными
+        // prompt() подряд. В prompt не видно, о какой машине речь (диалог
+        // перекрывает таблицу), нельзя вернуться назад, исправив первое
+        // значение, и нельзя набрать запятую как на клавиатуре — Number("12,3")
+        // это NaN.
         if (btn.dataset.closeTrip) {
-          const km = prompt("Показание одометра на возврате, км (можно оставить пустым):", "");
-          if (km === null) return;
-          const litres = prompt("Заправлено за рейс, л (пусто — не менять):", "");
-          if (litres === null) return;
-          await api(`/api/transport/trips/${btn.dataset.closeTrip}/close`, {
+          const form = document.querySelector(`[data-form-for="${btn.dataset.closeTrip}"]`);
+          if (form) form.hidden = !form.hidden;
+          return;
+        }
+        if (btn.dataset.cancelClose) {
+          const form = document.querySelector(`[data-form-for="${btn.dataset.cancelClose}"]`);
+          if (form) form.hidden = true;
+          return;
+        }
+        if (btn.dataset.confirmClose) {
+          const id = btn.dataset.confirmClose;
+          const raw = (sel) => document.querySelector(`[${sel}="${id}"]`).value.trim();
+          const km = raw("data-odo");
+          const litres = raw("data-fuel");
+          await api(`/api/transport/trips/${id}/close`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              odometer_end_km: km.trim() === "" ? null : Number(km.replace(",", ".")),
-              fuel_issued_l: litres.trim() === "" ? null : Number(litres.replace(",", ".")),
+              odometer_end_km: km === "" ? null : Number(km),
+              fuel_issued_l: litres === "" ? null : Number(litres),
             }),
           });
-        } else if (btn.dataset.delVehicle) {
-          if (!confirm("Убрать машину из списка? Рейсы по ней сохранятся.")) return;
-          await api(`/api/transport/vehicles/${btn.dataset.delVehicle}`, { method: "DELETE" });
-        } else if (btn.dataset.delPlace) {
-          if (!confirm("Удалить точку из справочника?")) return;
-          await api(`/api/transport/places/${btn.dataset.delPlace}`, { method: "DELETE" });
         }
         await reloadAll();
       } catch (err) {

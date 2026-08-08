@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Защита данных — Ассистент</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><a href="/">Ассистент</a></div>
+    <div class="status" id="health"></div>
+  </header>
+
+  <main class="page">
+    <div class="section">
+      <h2>Защита данных</h2>
+      <!-- Раньше здесь стояло утверждение: «файлы лежат зашифрованными». Оно
+           печаталось всегда, в том числе когда строка ниже сообщала обратное —
+           «выключено, документы лежат незашифрованными». Человек читает
+           сверху вниз и верит первому предложению, а оно ничего не проверяло.
+           Тот же случай, что с фирменным бланком: обещание защиты, выданное
+           без проверки, хуже отсутствия обещания. Теперь вступление говорит,
+           ГДЕ лежат файлы, а состояние защиты — дело строк под ним. -->
+      <p class="hint">
+        Загруженные документы и всё, что программа собрала, лежат в её рабочей
+        папке на сервере. В каком состоянии защита сейчас — в таблице ниже.
+        Скачанного вами файла это не касается: он лежит там, куда вы его
+        сохранили, и защищается настройками вашего компьютера.
+      </p>
+
+      <div id="security" class="result"></div>
+      <div id="error" class="error-box" style="display:none"></div>
+    </div>
+
+    <div class="section">
+      <h2>Рабочие файлы</h2>
+      <p class="hint">
+        Здесь копятся загруженные документы и всё, что программа собрала:
+        исправленные DOCX, письма, разборы договоров. Удаление освобождает
+        место и не трогает то, что вы уже скачали себе.
+      </p>
+      <div class="actions">
+        <button class="btn danger" id="purge">Удалить рабочие файлы</button>
+        <span class="hint" id="purge-status"></span>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    updateHealth();
+
+    // Значения приходят из нашего же backend'а, но выводятся через escapeHtml
+    // по общему правилу проекта: в HTML не уходит ничего неэкранированного.
+    function chip(cls, text) {
+      return `<span class="chip ${cls}">${escapeHtml(text)}</span>`;
+    }
+
+    function encryptionRow(s) {
+      if (s.encryption === "dpapi") return chip("ok", "включено") + ` ${escapeHtml(s.encryption_reason)}`;
+      if (s.encryption_broken) {
+        return chip("bad", "не работает") +
+          ` ${escapeHtml(s.encryption_reason)} — документы не сохраняются, обработка будет отклонена`;
+      }
+      return chip("warn", "выключено") + ` ${escapeHtml(s.encryption_reason)}`;
+    }
+
+    // Тексты этой страницы читает секретарь, а не программист. Команды консоли
+    // отсюда убраны: раньше здесь предлагалось выполнить «manage-bde -status» и
+    // «git reset --hard origin/main» — сотрудник не только не может этого
+    // сделать, но и не должен, а инструкция выглядела как требование к нему.
+    function bitlockerRow(state) {
+      if (state === "on") return chip("ok", "включено");
+      if (state === "off") {
+        return chip("bad", "выключено") +
+          " — база истории и архив писем на диске лежат открытым текстом. Это настраивает администратор компьютера";
+      }
+      return chip("warn", "не удалось проверить") +
+        " — у программы нет на это прав. Покажите этот экран администратору компьютера";
+    }
+
+    function retentionRow(days) {
+      if (days > 0) return chip("ok", `${days} дн.`) + " — потом файлы удаляются сами";
+      return chip("warn", "бессрочно") + " — рабочие файлы копятся, пока их не удалить кнопкой ниже";
+    }
+
+    function networkRow(s) {
+      if (s.network !== "loopback") {
+        return chip("bad", "разрешён") +
+          ` ${escapeHtml(s.network_reason)} — приложение может обращаться в интернет`;
+      }
+      const n = s.network_blocked_attempts || 0;
+      if (!n) return chip("ok", "запрещён") + " — за эту сессию наружу не обращалось";
+      // Список показываем: «пыталось выйти» без «куда» бесполезно.
+      const where = (s.network_blocked_targets || []).map(escapeHtml).join(", ");
+      return chip("warn", "запрещён") +
+        ` — отклонено попыток: ${n}${where ? ` (${where})` : ""}`;
+    }
+
+    function integrityRow(state) {
+      if (state === "ok") return chip("ok", "не изменены");
+      if (state === "changed") {
+        return chip("bad", "изменены") +
+          " — файлы программы отличаются от выпущенных разработчиком. Работать в таком виде нельзя: сообщите разработчику";
+      }
+      return chip("warn", "не проверить") + " — нет файла контрольных сумм, сообщите разработчику";
+    }
+
+    async function loadSecurity() {
+      const box = document.getElementById("security");
+      try {
+        const s = (await api("/api/health")).security;
+        if (!s) throw new Error("состояние защиты недоступно");
+        box.innerHTML = `
+          <table>
+            <tbody>
+              <tr><td>Шифрование документов</td><td>${encryptionRow(s)}</td></tr>
+              <tr><td>Шифрование диска (BitLocker)</td><td>${bitlockerRow(s.bitlocker)}</td></tr>
+              <tr><td>Срок хранения рабочих файлов</td><td>${retentionRow(s.retention_days)}</td></tr>
+              <tr><td>Выход в интернет</td><td>${networkRow(s)}</td></tr>
+              <tr><td>Файлы программы</td><td>${integrityRow(s.code_integrity)}</td></tr>
+            </tbody>
+          </table>`;
+      } catch (e) {
+        box.innerHTML = "";
+        const p = document.createElement("p");
+        p.className = "hint";
+        p.textContent = `Не удалось получить состояние защиты: ${e.message || e}`;
+        box.appendChild(p);
+      }
+    }
+
+    document.getElementById("purge").addEventListener("click", async () => {
+      const msg = "Удалить все загруженные и сгенерированные файлы из рабочей папки?\n\n" +
+        "Скачанные вами документы не тронутся. Ссылки «скачать» у прошлых задач перестанут работать.";
+      if (!confirm(msg)) return;
+      const btn = document.getElementById("purge");
+      const status = document.getElementById("purge-status");
+      btn.disabled = true;
+      status.textContent = "Удаляю…";
+      try {
+        // Через общий api, а не голым fetch: он переводит отказ на русский.
+        // Прежде здесь строилось «HTTP 500», и человек видел «Не удалось:
+        // HTTP 500» — строку, с которой нечего делать.
+        const s = await api("/api/data/purge", { method: "POST" });
+        const mb = (s.freed_bytes / 1024 / 1024).toFixed(1);
+        status.textContent = `Удалено файлов: загруженных ${s.uploads}, готовых ${s.outputs}. Освобождено ${mb} МБ.`;
+      } catch (e) {
+        status.textContent = `Не удалось: ${e.message || e}`;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    loadSecurity();
+  </script>
+</body>
+</html>

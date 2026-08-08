@@ -7,7 +7,7 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><a href="/">🔥 Ассистент</a></div>
+    <div class="brand"><a href="/">Ассистент</a></div>
     <div class="status" id="health"></div>
   </header>
 
@@ -15,7 +15,7 @@
     <a class="back" href="/transport.html">← Транспорт</a>
 
     <div class="section">
-      <h2>📋 Путевые листы</h2>
+      <h2>Путевые листы</h2>
       <p class="hint">
         Типовые межотраслевые формы: № 3 для легкового автомобиля, № 4-С для грузового.
         Бланк подставляется по категории ТС из карточки машины. Заполняется всё, кроме подписей.
@@ -24,12 +24,31 @@
         <button class="btn" id="wb-new">Выписать лист</button>
         <button class="btn secondary" id="wb-refresh">Обновить</button>
       </div>
+
+      <div id="wb-new-form" style="display:none">
+        <div class="field">
+          <label for="wb-new-vehicle">Машина</label>
+          <select id="wb-new-vehicle"></select>
+          <p class="hint" id="wb-new-hint"></p>
+        </div>
+        <div class="field">
+          <label for="wb-new-date">Срок действия</label>
+          <input id="wb-new-date" type="date">
+        </div>
+        <div class="actions">
+          <button class="btn" id="wb-new-create">Выписать</button>
+          <button class="btn secondary" id="wb-new-cancel">Отмена</button>
+        </div>
+      </div>
+
       <div id="wb-list" class="result"></div>
     </div>
 
     <div class="section" id="wb-editor" style="display:none">
       <h2 id="wb-title">Путевой лист</h2>
       <p class="hint" id="wb-subtitle"></p>
+      <div class="steps" id="wb-steps"></div>
+      <p class="hint">Черновик сохраняется кнопкой ниже: переход между шагами ничего не теряет, все графы бланка остаются заполненными.</p>
       <div id="wb-form"></div>
 
       <div class="section" id="wb-trailers-box" style="display:none">
@@ -44,49 +63,19 @@
         <div class="actions"><button class="btn secondary" id="dt-add">Добавить простой</button></div>
       </div>
 
-      <div class="section">
+      <div class="section" id="wb-trips-box">
         <h3>Оборотная сторона — выполнение задания</h3>
-        <p class="hint">Ездки этого листа. Добавляются на странице «Транспорт» при выдаче машины.</p>
+        <p class="hint">Ездки этого листа. Добавляются на странице «Машины и рейсы» при выдаче машины.</p>
         <div id="wb-trips"></div>
       </div>
 
       <div class="actions">
         <button class="btn" id="wb-save">Сохранить лист</button>
-        <button class="btn" id="wb-print">📄 Скачать бланк</button>
+        <button class="btn secondary" id="wb-print">Скачать бланк</button>
         <button class="btn secondary" id="wb-close-editor">Закрыть</button>
-        <button class="btn secondary" id="wb-delete">Удалить лист</button>
+        <button class="btn danger" id="wb-delete">Удалить лист</button>
         <span class="hint" id="wb-status"></span>
       </div>
-    </div>
-
-    <div class="section">
-      <h2>👤 Водители</h2>
-      <p class="hint">
-        Номер удостоверения и СНИЛС — обязательные реквизиты путевого листа. Это персональные
-        данные: доступ только вошедшим, диск должен быть зашифрован.
-      </p>
-      <div id="dr-form"></div>
-      <div class="actions">
-        <button class="btn secondary" id="dr-save">Добавить водителя</button>
-        <span class="hint" id="dr-status"></span>
-      </div>
-      <div id="dr-list" class="result"></div>
-    </div>
-
-    <div class="section">
-      <h2>🚛 Прицепы</h2>
-      <div id="tr-form"></div>
-      <div class="actions">
-        <button class="btn secondary" id="tr-save">Добавить прицеп</button>
-        <span class="hint" id="tr-status"></span>
-      </div>
-      <div id="tr-list" class="result"></div>
-    </div>
-
-    <div class="section">
-      <h2>🏢 Организации</h2>
-      <p class="hint">Наименование, адрес и ОКПО печатаются в шапке листа. Лист с чужим наименованием юридически дефектен.</p>
-      <div id="org-list" class="result"></div>
     </div>
 
     <div id="error" class="error-box" style="display:none"></div>
@@ -99,7 +88,6 @@
     // Поля бланка описаны данными, а не разметкой: их около сотни, и руками
     // написанный HTML на две формы разошёлся бы с моделью при первой правке.
     // forms — в каком бланке поле есть: "3" легковой, "4" грузовой, "34" оба.
-    const T = { text: "text", num: "number", date: "date", dt: "datetime-local", area: "area", check: "check" };
     const SECTIONS = [
       ["Лист", [
         ["form", "Форма бланка", T.text, "34", { readonly: true }],
@@ -215,39 +203,14 @@
       ]],
     ];
 
-    const DRIVER_FIELDS = [
-      ["full_name", "ФИО полностью", T.text],
-      ["tab_number", "Табельный номер", T.text],
-      ["licence_series", "Удостоверение: серия", T.text],
-      ["licence_number", "номер", T.text],
-      ["licence_issued_at", "выдано", T.date],
-      ["licence_class", "Класс (категории)", T.text],
-      ["snils", "СНИЛС", T.text],
-      ["licence_card", "Лицензионная карточка", "card"],
-    ];
-
-    const TRAILER_FIELDS = [
-      ["mark", "Марка", T.text],
-      ["reg_number", "Регистрационный номер", T.text],
-      ["series", "Серия", T.text],
-      ["code", "Код марки", T.text],
-    ];
-
     let ORGS = [], DRIVERS = [], TRAILERS = [], VEHICLES = [], CURRENT = null;
 
-    function showError(e) {
-      const box = document.getElementById("error");
-      box.style.display = "block";
-      box.textContent = e.message || String(e);
-    }
-
-    async function api(url, options) {
-      const r = await fetch(url, options);
-      if (r.status === 204) return null;
-      const data = await r.json().catch(() => null);
-      if (!r.ok) throw new Error((data && data.detail) || `HTTP ${r.status}`);
-      return data;
-    }
+    // Своих api и showError здесь больше нет — берутся общие из app.js.
+    // Частная копия api отставала от общей и на этом экране стоила дороже
+    // всего: в бланке под сотню полей, замечания приходят чаще, чем где-либо,
+    // а в её тексте ошибки объект замечаний подставлялся в строку — человек
+    // видел «[object Object]» вместо «заполните поле». Общая переводит
+    // замечания на русский.
 
     // datetime-local не понимает «2026-08-14 09:30» из SQLite, а date не
     // понимает время. Режем к тому виду, который поле принимает, иначе
@@ -258,25 +221,6 @@
       if (type === T.date) return s.slice(0, 10);
       if (type === T.dt) return s.slice(0, 16);
       return s;
-    }
-
-    function fieldHtml(name, label, type, opts) {
-      const id = `f-${name}`;
-      const ro = opts && opts.readonly ? " disabled" : "";
-      if (type === T.check) {
-        return `<div class="field"><label><input type="checkbox" id="${id}"> ${escapeHtml(label)}</label></div>`;
-      }
-      if (type === T.area) {
-        return `<div class="field"><label for="${id}">${escapeHtml(label)}</label>
-          <textarea id="${id}" style="min-height:70px"${ro}></textarea></div>`;
-      }
-      if (["org", "driver", "vehicle", "card", "status"].includes(type)) {
-        return `<div class="field"><label for="${id}">${escapeHtml(label)}</label>
-          <select id="${id}"${ro}></select></div>`;
-      }
-      const step = type === T.num ? ' step="0.01"' : "";
-      return `<div class="field"><label for="${id}">${escapeHtml(label)}</label>
-        <input id="${id}" type="${type}"${step}${ro}></div>`;
     }
 
     function optionsFor(type) {
@@ -297,6 +241,85 @@
       el.value = value === null || value === undefined ? "" : String(value);
     }
 
+    // ── Шаги заполнения ──────────────────────────────────────────────────
+    //
+    // Бланк — это простыня, где «выезд из гаража» и «возвращение» стоят
+    // рядом, хотя между ними целый рабочий день. Заполняют лист тоже не
+    // подряд: утром механик отмечает выезд, вечером — возврат и топливо.
+    // Порядок здесь — порядок событий, а не порядок бланка.
+    //
+    // Внутри шага исходные разделы бланка сохранены: они и есть язык, на
+    // котором про лист говорят («движение горючего», «результаты за смену»).
+    const STEPS = [
+      ["Машина и водитель", [
+        "form", "org_id", "series", "number", "date_from", "date_to",
+        "vehicle_id", "driver_id", "column_number", "brigade", "work_mode",
+        "escorts", "status",
+      ]],
+      ["Выезд", [
+        "medical_pre_mark", "medical_pre_at", "medical_pre_position", "medical_pre_name",
+        "tech_control_mark", "tech_control_at", "tech_control_name", "licence_checked",
+        "mechanic_name", "dispatcher_name", "accepted_by_driver",
+        "scheduled_departure_at", "departure_at",
+        "odometer_start_km", "zero_run_start_km",
+        "fuel_brand", "fuel_code", "fuel_sheet_number", "fuel_start_l", "fuel_issued_l",
+        "fuel_norm_l_100km", "fuel_coeff_equipment", "fuel_coeff_engine",
+      ]],
+      ["Задание и рейсы", [
+        "communication_type", "transport_type", "customer_name", "customer_address",
+        "pickup_address", "delivery_address", "cargo_name", "planned_arrival_at",
+        "planned_trips", "planned_distance_km", "planned_cargo_kg", "fuel_to_issue_l",
+      ]],
+      // Всё, что заполняется после смены. Явного списка нет намеренно: поле
+      // бланка, забытое в разметке шагов, попадёт сюда, а не исчезнет с
+      // экрана — потерянная графа путевого листа это недействительный
+      // документ, и молчаливая пропажа тут недопустима.
+      ["Возврат и итоги смены", null],
+    ];
+    const LAST_STEP = STEPS.length - 1;
+    const STEP_OF = new Map();
+    STEPS.forEach(([, names], i) => (names || []).forEach((n) => STEP_OF.set(n, i)));
+    let CURRENT_STEP = 0;
+
+    function stepOf(name) {
+      const i = STEP_OF.get(name);
+      return i === undefined ? LAST_STEP : i;
+    }
+
+    function showStep(i) {
+      CURRENT_STEP = i;
+      document.querySelectorAll("[data-step]").forEach((el) => {
+        el.hidden = Number(el.getAttribute("data-step")) !== i;
+      });
+      renderStepNav();
+    }
+
+    // Заполненность считается по факту («сколько полей заполнено»), а НЕ по
+    // обязательности: какие графы формы № 3 обязательны, знает приказ, а не
+    // интерфейс, и выдумывать это число нельзя — по нему сдают документ.
+    function stepProgress(si) {
+      const fields = document.querySelectorAll(`[data-step="${si}"] [id^="f-"]`);
+      let filled = 0;
+      fields.forEach((el) => {
+        if (el.type === "checkbox" ? el.checked : String(el.value || "").trim()) filled++;
+      });
+      return { filled, total: fields.length };
+    }
+
+    function renderStepNav() {
+      const nav = document.getElementById("wb-steps");
+      if (!nav) return;
+      nav.innerHTML = STEPS.map(([title], i) => {
+        const { filled, total } = stepProgress(i);
+        const done = total > 0 && filled === total;
+        const current = i === CURRENT_STEP ? ' aria-current="step"' : "";
+        return `<button type="button" class="step${done ? " done" : ""}"${current} data-goto="${i}">
+          <b>${done ? "✓" : i + 1}</b>
+          <span>${escapeHtml(title)}<span class="step-count">${filled} из ${total}</span></span>
+        </button>`;
+      }).join("");
+    }
+
     // ── Редактор листа ───────────────────────────────────────────────────
 
     function renderEditor(wb) {
@@ -305,13 +328,34 @@
       const mark = isCargo ? "4" : "3";
       const box = document.getElementById("wb-form");
 
-      box.innerHTML = SECTIONS.map(([title, fields]) => {
-        const visible = fields.filter(([, , , forms]) => forms.includes(mark));
-        if (!visible.length) return "";
-        const body = visible
-          .map(([name, label, type, , opts]) => fieldHtml(name, label, type, opts))
-          .join("");
-        return `<div class="section"><h3>${escapeHtml(title)}</h3>${body}</div>`;
+      // Блоки прицепов, ездок и простоев на прошлой отрисовке переехали
+      // ВНУТРЬ #wb-form. Сброс innerHTML ниже снёс бы их вместе с разметкой
+      // шагов, и повторное открытие листа падало на обращении к удалённому
+      // узлу. Поэтому сначала возвращаем их наружу, а после отрисовки
+      // расставляем заново.
+      const editorBox = document.getElementById("wb-editor");
+      for (const id of ["wb-trailers-box", "wb-trips-box", "wb-downtimes-box"]) {
+        const el = document.getElementById(id);
+        if (el && el.parentElement !== editorBox) editorBox.appendChild(el);
+      }
+
+      // Поля РИСУЮТСЯ ВСЕ, а прячутся лишь чужие шаги. Так сохранение
+      // (collectWaybill) продолжает читать весь бланк одним проходом: рисуй
+      // мы только текущий шаг, отсутствующие в DOM графы молча не доехали бы
+      // до сервера, а в путевом листе пропавшая графа — недействительный
+      // документ.
+      box.innerHTML = STEPS.map(([, ], si) => {
+        const inner = SECTIONS.map(([title, fields]) => {
+          const visible = fields.filter(
+            ([name, , , forms]) => forms.includes(mark) && stepOf(name) === si
+          );
+          if (!visible.length) return "";
+          const body = visible
+            .map(([name, label, type, , opts]) => fieldHtml(name, label, type, opts))
+            .join("");
+          return `<div class="section"><h3>${escapeHtml(title)}</h3>${body}</div>`;
+        }).join("");
+        return `<div data-step="${si}"${si === CURRENT_STEP ? "" : " hidden"}>${inner}</div>`;
       }).join("");
 
       for (const [, fields] of SECTIONS) {
@@ -328,6 +372,33 @@
           }
         }
       }
+
+      // Графы, которые заполнила программа из карточки машины, помечаем и
+      // подписываем. Значение, взявшееся само и без объяснения, читается как
+      // чужая ошибка: его либо боятся трогать, либо молча перебивают.
+      // Список приходит с сервера (waybill.autofilled) — это факт, а не
+      // догадка по совпадению значений.
+      for (const name of wb.autofilled || []) {
+        const el = document.getElementById(`f-${name}`);
+        if (!el) continue;
+        el.classList.add("autofilled");
+        if (el.parentElement.querySelector(".source-note")) continue;
+        const note = document.createElement("p");
+        note.className = "source-note";
+        // «Можно исправить» — только там, где действительно можно: форма бланка
+        // и машина стоят readonly, и звать править то, что не правится, значит
+        // отправить человека искать несуществующую кнопку.
+        note.textContent = el.readOnly || el.disabled
+          ? "Подставлено из карточки машины."
+          : "Подставлено из карточки машины — можно исправить.";
+        el.insertAdjacentElement("afterend", note);
+      }
+
+      // Поле только для чтения, в сохранение не уходит (collectWaybill
+      // пропускает readonly), поэтому показываем человеческое название формы,
+      // а не служебный код «4-S» из базы.
+      const formEl = document.getElementById("f-form");
+      if (formEl) formEl.value = isCargo ? "4-С, грузовой автомобиль" : "№ 3, легковой автомобиль";
 
       document.getElementById("wb-title").textContent =
         `Путевой лист ${isCargo ? "грузового автомобиля (форма 4-С)" : "легкового автомобиля (форма № 3)"}`;
@@ -349,7 +420,32 @@
         renderTrailerSlots(wb);
         renderDowntimes(wb.downtimes || []);
       }
-      renderWaybillTrips(wb.id);
+      // Отказ этого запроса раньше уходил в никуда: renderEditor не async,
+      // вызов шёл без await и без перехвата. Дальше — самое неприятное: блок
+      // ездок между открытиями листов не пересоздаётся (он переносится узлом,
+      // см. ниже), поэтому при неудаче в нём оставались ездки ПРЕДЫДУЩЕЙ
+      // машины, и ничто об этом не сообщало. Человек смотрит на оборотную
+      // сторону и решает, заполнена ли она.
+      //
+      // В сам документ чужие ездки не попадали — бланк собирает сервер заново
+      // из базы, — но экран показывал не то, и решение принималось по нему.
+      renderWaybillTrips(wb.id).catch(showError);
+
+      // Блоки прицепов, ездок и простоев переезжают в свой шаг: прицепы
+      // цепляют к машине утром, ездки идут по заданию, простои считают по
+      // итогам смены. Перенос узлом, а не перерисовкой, — обработчики на
+      // кнопках внутри остаются живыми.
+      const stepBox = (i) => document.querySelector(`#wb-form [data-step="${i}"]`);
+      const place = (id, step) => {
+        const el = document.getElementById(id);
+        const target = stepBox(step);
+        if (el && target) target.appendChild(el);
+      };
+      place("wb-trailers-box", 0);
+      place("wb-trips-box", 2);
+      place("wb-downtimes-box", LAST_STEP);
+
+      showStep(0);
       document.getElementById("wb-editor").style.display = "block";
       document.getElementById("wb-editor").scrollIntoView({ behavior: "smooth" });
     }
@@ -390,8 +486,18 @@
     }
 
     async function renderWaybillTrips(waybillId) {
-      const trips = await api(`/api/transport/trips?waybill_id=${waybillId}&limit=200`);
       const box = document.getElementById("wb-trips");
+      // Чистим ДО запроса, а не после ответа: иначе при отказе в таблице
+      // остаётся содержимое от прошлого листа и выглядит как своё.
+      box.innerHTML = '<p class="hint">Загружаю ездки…</p>';
+      let trips;
+      try {
+        trips = await api(`/api/transport/trips?waybill_id=${waybillId}&limit=200`);
+      } catch (e) {
+        box.innerHTML = '<p class="hint">Не удалось загрузить ездки по этому листу. ' +
+          'Оборотная сторона может быть заполнена — обновите страницу, прежде чем закрывать лист.</p>';
+        throw e;
+      }
       box.innerHTML = trips.length
         ? `<table><thead><tr><th>№</th><th>Откуда</th><th>Куда</th><th>Выезд</th><th>Возврат</th>
              <th>Пройдено</th><th>Груз</th><th>ТТД</th></tr></thead><tbody>${trips
@@ -400,10 +506,10 @@
                 <td>${t.seq ?? "—"}</td>
                 <td>${escapeHtml(t.place_from_name || "—")}</td>
                 <td>${escapeHtml(t.place_to_name || t.destination_text || "—")}</td>
-                <td>${escapeHtml(String(t.departed_at || "").slice(0, 16))}</td>
-                <td>${escapeHtml(String(t.returned_at || "").slice(0, 16))}</td>
-                <td>${t.distance_km === null ? "—" : t.distance_km + " км"}</td>
-                <td>${t.cargo_weight_kg === null ? "—" : t.cargo_weight_kg + " кг"}</td>
+                <td>${fmtWhen(t.departed_at)}</td>
+                <td>${fmtWhen(t.returned_at)}</td>
+                <td>${num(t.distance_km, "км")}</td>
+                <td>${num(t.cargo_weight_kg, "кг")}</td>
                 <td>${escapeHtml(t.ttd_numbers || "")}</td>
               </tr>`
             )
@@ -474,6 +580,16 @@
       return wb;
     }
 
+    // Переключение шагов и живой счётчик заполненности. Делегированием:
+    // поля перерисовываются на каждом открытии листа, вешать обработчик на
+    // каждое из сотни — лишняя работа и лишний источник утечек.
+    document.getElementById("wb-steps").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-goto]");
+      if (btn) showStep(Number(btn.getAttribute("data-goto")));
+    });
+    document.getElementById("wb-form").addEventListener("input", renderStepNav);
+    document.getElementById("wb-form").addEventListener("change", renderStepNav);
+
     document.getElementById("wb-save").addEventListener("click", async () => {
       const status = document.getElementById("wb-status");
       status.textContent = "Сохраняю…";
@@ -541,22 +657,44 @@
       }
     });
 
-    document.getElementById("wb-new").addEventListener("click", async () => {
-      if (!VEHICLES.length) return showError(new Error("Сначала заведите машину на странице «Транспорт»"));
-      const names = VEHICLES.map((v, i) => `${i + 1}. ${v.call_name}`).join("\n");
-      const pick = prompt(`На какую машину выписать лист?\n\n${names}\n\nНомер:`, "1");
-      if (pick === null) return;
-      const vehicle = VEHICLES[Number(pick) - 1];
-      if (!vehicle) return showError(new Error("Такой машины в списке нет"));
-      const today = new Date().toISOString().slice(0, 10);
-      const date = prompt("Срок действия (дата):", today);
-      if (date === null) return;
+    // Выписка листа — маленькая форма, а не два системных prompt(). В prompt
+    // машину приходилось выбирать НОМЕРОМ СТРОКИ из текстового списка: набрал
+    // «3» вместо «2» — и лист выписан на чужую машину, а с ним поедут её
+    // норма расхода, бланк и закреплённый водитель. Ошибка молчаливая: она
+    // видна только в готовом документе.
+    document.getElementById("wb-new").addEventListener("click", () => {
+      const box = document.getElementById("wb-new-form");
+      const isHidden = box.style.display === "none";
+      box.style.display = isHidden ? "block" : "none";
+      if (!isHidden) return;
+      const sel = document.getElementById("wb-new-vehicle");
+      sel.innerHTML = VEHICLES.length
+        ? VEHICLES.map((v) => `<option value="${v.id}">${escapeHtml(v.call_name)}` +
+            `${v.plate ? " · " + escapeHtml(v.plate) : ""} · бланк ` +
+            `${v.waybill_form === "4-S" ? "4-С" : "№ 3"}</option>`).join("")
+        : '<option value="">— машин в справочнике нет —</option>';
+      document.getElementById("wb-new-date").value = new Date().toISOString().slice(0, 10);
+      document.getElementById("wb-new-create").disabled = !VEHICLES.length;
+      document.getElementById("wb-new-hint").innerHTML = VEHICLES.length
+        ? "Бланк подставится по карточке машины, вместе с нормой расхода и закреплённым водителем."
+        : 'Сначала заведите машину: <a href="/reference-fleet.html">Парк и точки</a>.';
+    });
+
+    document.getElementById("wb-new-cancel").addEventListener("click", () => {
+      document.getElementById("wb-new-form").style.display = "none";
+    });
+
+    document.getElementById("wb-new-create").addEventListener("click", async () => {
+      const vehicleId = Number(document.getElementById("wb-new-vehicle").value);
+      const date = document.getElementById("wb-new-date").value;
+      if (!vehicleId || !date) return;
       try {
         const wb = await api("/api/transport/waybills", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ vehicle_id: vehicle.id, date_from: date, date_to: date }),
+          body: JSON.stringify({ vehicle_id: vehicleId, date_from: date, date_to: date }),
         });
+        document.getElementById("wb-new-form").style.display = "none";
         await loadWaybills();
         renderEditor(wb);
       } catch (e) {
@@ -575,7 +713,7 @@
            <tbody>${rows
              .map(
                (w) => `<tr>
-                 <td>${escapeHtml(w.date_from)}${w.date_to !== w.date_from ? " — " + escapeHtml(w.date_to) : ""}</td>
+                 <td>${fmtDate(w.date_from)}${w.date_to !== w.date_from ? " — " + fmtDate(w.date_to) : ""}</td>
                  <td>${w.form === "4-S" ? "4-С грузовой" : "№ 3 легковой"}</td>
                  <td>${escapeHtml([w.series, w.number].filter(Boolean).join(" ") || "—")}</td>
                  <td>${escapeHtml(w.vehicle_name)}</td>
@@ -589,124 +727,24 @@
         : '<p class="hint">Листов пока нет.</p>';
     }
 
-    async function loadDrivers() {
-      DRIVERS = await api("/api/transport/drivers");
-      document.getElementById("dr-list").innerHTML = DRIVERS.length
-        ? `<table><thead><tr><th>ФИО</th><th>Таб. №</th><th>Удостоверение</th><th>Класс</th>
-             <th>СНИЛС</th><th>Карточка</th><th></th></tr></thead><tbody>${DRIVERS.map(
-            (d) => `<tr>
-              <td>${escapeHtml(d.full_name)}</td>
-              <td>${escapeHtml(d.tab_number || "—")}</td>
-              <td>${escapeHtml([d.licence_series, d.licence_number].filter(Boolean).join(" ") || "—")}
-                  ${d.licence_issued_at ? `<br><span class="hint">выдано ${escapeHtml(d.licence_issued_at)}</span>` : ""}</td>
-              <td>${escapeHtml(d.licence_class || "—")}</td>
-              <td>${escapeHtml(d.snils || "—")}</td>
-              <td>${escapeHtml(d.licence_card || "—")}</td>
-              <td><button class="btn secondary" data-del-driver="${d.id}">убрать</button></td>
-            </tr>`
-          ).join("")}</tbody></table>`
-        : '<p class="hint">Водителей пока нет.</p>';
+    // Справочники теперь на странице «Водители и прицепы». Здесь они нужны
+    // только как данные для выпадающих списков редактора листа — таблиц и
+    // форм добавления на этом экране больше нет.
+    async function loadRefs() {
+      [ORGS, DRIVERS, TRAILERS] = await Promise.all([
+        api("/api/transport/orgs"),
+        api("/api/transport/drivers"),
+        api("/api/transport/trailers"),
+      ]);
     }
-
-    async function loadTrailers() {
-      TRAILERS = await api("/api/transport/trailers");
-      document.getElementById("tr-list").innerHTML = TRAILERS.length
-        ? `<table><tbody>${TRAILERS.map(
-            (t) => `<tr>
-              <td>${escapeHtml(t.mark || "—")}</td>
-              <td><b>${escapeHtml(t.reg_number)}</b></td>
-              <td>${escapeHtml(t.series || "")}</td>
-              <td>${escapeHtml(t.code || "")}</td>
-              <td><button class="btn secondary" data-del-trailer="${t.id}">убрать</button></td>
-            </tr>`
-          ).join("")}</tbody></table>`
-        : '<p class="hint">Прицепов пока нет.</p>';
-    }
-
-    async function loadOrgs() {
-      ORGS = await api("/api/transport/orgs");
-      document.getElementById("org-list").innerHTML = `<table><thead><tr>
-          <th>Наименование</th><th>Адрес</th><th>Телефон</th><th>ОКПО</th><th>ОГРН</th><th></th>
-        </tr></thead><tbody>${ORGS.map(
-          (o) => `<tr>
-            <td>${escapeHtml(o.name)}</td>
-            <td>${escapeHtml(o.address)}</td>
-            <td>${escapeHtml(o.phone)}</td>
-            <td>${escapeHtml(o.okpo) || '<span class="hint">не заполнен</span>'}</td>
-            <td>${escapeHtml(o.ogrn)}</td>
-            <td>${o.is_default ? '<span class="chip ok">основная</span>' : ""}</td>
-          </tr>`
-        ).join("")}</tbody></table>`;
-    }
-
-    document.getElementById("dr-form").innerHTML = DRIVER_FIELDS.map(([n, l, t]) =>
-      fieldHtml(`dr-${n}`, l, t)
-    ).join("");
-    fillSelect("f-dr-licence_card", "card", "");
-
-    document.getElementById("tr-form").innerHTML = TRAILER_FIELDS.map(([n, l, t]) =>
-      fieldHtml(`tr-${n}`, l, t)
-    ).join("");
-
-    document.getElementById("dr-save").addEventListener("click", async () => {
-      const status = document.getElementById("dr-status");
-      status.textContent = "Сохраняю…";
-      try {
-        const payload = {};
-        for (const [n] of DRIVER_FIELDS) {
-          const v = document.getElementById(`f-dr-${n}`).value;
-          payload[n] = n === "licence_issued_at" ? v || null : v;
-        }
-        await api("/api/transport/drivers", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        status.textContent = "Водитель добавлен.";
-        DRIVER_FIELDS.forEach(([n, , t]) => {
-          if (t !== "card") document.getElementById(`f-dr-${n}`).value = "";
-        });
-        await loadDrivers();
-      } catch (e) {
-        status.textContent = e.message || String(e);
-      }
-    });
-
-    document.getElementById("tr-save").addEventListener("click", async () => {
-      const status = document.getElementById("tr-status");
-      status.textContent = "Сохраняю…";
-      try {
-        const payload = {};
-        for (const [n] of TRAILER_FIELDS) payload[n] = document.getElementById(`f-tr-${n}`).value;
-        await api("/api/transport/trailers", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        status.textContent = "Прицеп добавлен.";
-        TRAILER_FIELDS.forEach(([n]) => (document.getElementById(`f-tr-${n}`).value = ""));
-        await loadTrailers();
-      } catch (e) {
-        status.textContent = e.message || String(e);
-      }
-    });
 
     document.addEventListener("click", async (e) => {
-      const btn = e.target.closest("button[data-open], button[data-del-driver], button[data-del-trailer]");
+      const btn = e.target.closest("button[data-open]");
       if (!btn) return;
       try {
         if (btn.dataset.open) {
           renderEditor(await api(`/api/transport/waybills/${btn.dataset.open}`));
           return;
-        }
-        if (btn.dataset.delDriver) {
-          if (!confirm("Убрать водителя? Выписанные на него листы сохранятся.")) return;
-          await api(`/api/transport/drivers/${btn.dataset.delDriver}`, { method: "DELETE" });
-          await loadDrivers();
-        } else if (btn.dataset.delTrailer) {
-          if (!confirm("Убрать прицеп?")) return;
-          await api(`/api/transport/trailers/${btn.dataset.delTrailer}`, { method: "DELETE" });
-          await loadTrailers();
         }
       } catch (err) {
         showError(err);
@@ -719,9 +757,7 @@
       try {
         document.getElementById("error").style.display = "none";
         VEHICLES = await api("/api/transport/vehicles");
-        await loadOrgs();
-        await loadDrivers();
-        await loadTrailers();
+        await loadRefs();
         await loadWaybills();
       } catch (e) {
         showError(e);

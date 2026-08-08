@@ -7,14 +7,14 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><a href="/">🔥 Ассистент</a></div>
+    <div class="brand"><a href="/">Ассистент</a></div>
     <div class="status" id="health"></div>
   </header>
 
   <main class="page">
     <a class="back" href="/">← На главную</a>
     <div class="section">
-      <h2>✉️ Из наброска в официальное письмо</h2>
+      <h2>Из наброска в официальное письмо</h2>
       <p class="hint">Опишите суть в свободной форме — ассистент составит письмо по ГОСТ Р 7.0.97-2016 на фирменном бланке.</p>
 
       <div class="field">
@@ -34,9 +34,10 @@
 
       <div class="actions">
         <button class="btn" id="submit">Составить письмо</button>
-        <span class="hint">На CPU ≈ 20–40 сек.</span>
+        <span class="hint">Примерно 20–40 секунд.</span>
       </div>
 
+      <div id="letterhead-warning" class="error-box" style="display:none"></div>
       <div id="progress" class="progress" style="display:none"></div>
       <div id="error" class="error-box" style="display:none"></div>
       <div id="result" class="result"></div>
@@ -47,14 +48,15 @@
   <script>
     updateHealth();
     loadAddressees();
+    loadLetterhead();
 
     async function loadAddressees() {
       const list = document.getElementById("addressee-list");
       const options = document.getElementById("addressee-options");
       try {
-        const r = await fetch("/api/addressees");
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        const addressees = await r.json();
+        // Общий api вместо голого fetch: он переводит отказ на русский.
+        // Прежде строилось «HTTP 500» и уходило человеку как есть.
+        const addressees = await api("/api/addressees");
 
         options.innerHTML = addressees
           .map(a => `<option value="${escapeHtml(a.name)}"></option>`)
@@ -66,24 +68,30 @@
           return;
         }
         list.innerHTML = "Добавленные: " + custom.map(a =>
-          `<span style="margin-right:10px">${escapeHtml(a.name)} ` +
-          `<a href="#" data-id="${a.id}" class="delete-addressee" title="Удалить">✕</a></span>`
-        ).join("");
+          `<span class="tag">${escapeHtml(a.name)}` +
+          `<button type="button" data-id="${a.id}" class="delete-addressee" ` +
+          `title="Убрать «${escapeHtml(a.name)}» из справочника" ` +
+          `aria-label="Убрать ${escapeHtml(a.name)}">✕</button></span>`
+        ).join(" ");
         list.querySelectorAll(".delete-addressee").forEach(link => {
           link.addEventListener("click", async (ev) => {
             ev.preventDefault();
-            const id = ev.target.getAttribute("data-id");
+            const id = ev.currentTarget.getAttribute("data-id");
             try {
-              const r = await fetch(`/api/addressees/${id}`, { method: "DELETE" });
-              if (!r.ok && r.status !== 204) throw new Error("HTTP " + r.status);
+              await api(`/api/addressees/${id}`, { method: "DELETE" });
               await loadAddressees();
             } catch (e) {
-              document.getElementById("addressee-status").textContent = "Не удалось удалить: " + e.message;
+              // Приставку «не удалось» не дописываем: сервер отвечает готовой фразой
+              // («Нельзя удалить встроенный тип адресата»), и приставка её удваивает.
+              document.getElementById("addressee-status").textContent = e.message || "Не удалось удалить";
             }
           });
         });
       } catch (e) {
-        list.textContent = "";
+        // Раньше список просто очищался. Со стороны это неотличимо от «я
+        // ничего сюда не сохранял»: человек заводит тот же тип адресата
+        // второй раз и получает «такой уже есть» — из ниоткуда.
+        list.textContent = "Справочник адресатов не загрузился. Свои типы временно не видны; писать письмо это не мешает.";
       }
     }
 
@@ -95,42 +103,76 @@
         return;
       }
       try {
-        const r = await fetch("/api/addressees", {
+        // Отдельной ветки на «уже существует» больше нет: сервер отвечает
+        // «Адресат «Заказчик» уже существует» — с именем, то есть точнее, чем
+        // была наша заглушка «такой адресат уже есть».
+        await api("/api/addressees", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name }),
         });
-        if (r.status === 409) {
-          status.textContent = "Такой адресат уже есть в справочнике";
-          return;
-        }
-        if (!r.ok) throw new Error("HTTP " + r.status);
         status.textContent = "✓ Сохранено";
         setTimeout(() => (status.textContent = ""), 2500);
         await loadAddressees();
       } catch (e) {
-        status.textContent = "Не удалось сохранить: " + e.message;
+        status.textContent = e.message || "Не удалось сохранить";
       }
     });
 
-    // Реквизиты компании — фиксированный текст бланка, не редактируется
-    // (реальный источник — resources/templates/letterhead.docx, собранный
-    // из «бланк ПожСервис новый.docx» скриптом build_letterhead_template.py).
-    const LETTERHEAD_REQUISITES = `<strong>ООО «ПожСервис»</strong><br>
-      Юридический адрес: 398005, г. Липецк, ул. Парковая, д. 10<br>
-      Фактический (почтовый) адрес: 398017, г. Липецк, ул. 9 Мая, д. 9а<br>
-      ИНН 4823026435/КПП 482301001<br>
-      Р/сч 40702810435000105037, Алтайское отделение №8644 ПАО «Сбербанк России» г. Барнаул, БИК 040173604<br>
-      тел/факс (4742) 28-67-88, https://pozhservis48.ru · эл.почта: info@pozhservis48.ru`;
+    // Реквизиты для предпросмотра приходят из САМОГО бланка (/api/letter/letterhead).
+    // Раньше здесь лежала их копия строкой: две копии одного расходятся при
+    // первой правке реквизитов, и человек видел бы на экране один расчётный
+    // счёт, а в отправленном документе — другой.
+    // `unknown` — отдельно от `missing`, и это не педантизм. «Бланка нет» и
+    // «не смог проверить, есть ли бланк» — разные вещи, а раньше оба сбоя
+    // (обрыв связи и не-200) выставляли `missing: false`, то есть программа
+    // УТВЕРЖДАЛА, что бланк на месте, ничего о нём не зная. Предупреждение не
+    // показывалось, человек писал письмо и отправлял его контрагенту без
+    // реквизитов и банковских данных. Ровно этот отказ у проекта уже
+    // случался — «письмо без фирменного бланка выглядело нормально».
+    let LETTERHEAD = { lines: [], missing: false, unknown: false };
+
+    async function loadLetterhead() {
+      try {
+        const r = await fetch("/api/letter/letterhead");
+        LETTERHEAD = r.ok
+          ? await r.json()
+          : { lines: [], missing: false, unknown: true };
+      } catch (e) {
+        LETTERHEAD = { lines: [], missing: false, unknown: true };
+      }
+      // Про бланк говорим сразу, а не после нажатия «Скачать»: письмо без
+      // реквизитов отправлять контрагенту нельзя, и узнать об этом лучше до
+      // того, как оно написано.
+      const warn = document.getElementById("letterhead-warning");
+      if (!warn) return;
+      if (LETTERHEAD.missing) {
+        warn.style.display = "block";
+        warn.textContent = "Фирменный бланк не найден: письмо соберётся без реквизитов, ИНН и банковских данных. Отправлять в таком виде нельзя — сообщите разработчику.";
+      } else if (LETTERHEAD.unknown) {
+        warn.style.display = "block";
+        warn.textContent = "Не удалось проверить фирменный бланк — предпросмотр реквизитов будет пустым. Обновите страницу; если не поможет, скачанное письмо перед отправкой откройте и убедитесь, что реквизиты на месте.";
+      }
+    }
+
+    function letterheadHtml() {
+      if (!LETTERHEAD.lines.length) {
+        return '<span class="hint">Реквизиты подставит бланк при скачивании.</span>';
+      }
+      // Первая строка — наименование организации, она в бланке набрана крупнее.
+      return LETTERHEAD.lines
+        .map((ln, i) => (i === 0 ? `<strong>${escapeHtml(ln)}</strong>` : escapeHtml(ln)))
+        .join("<br>");
+    }
 
     function renderLetterResult(result, container) {
       const today = new Date().toLocaleDateString("ru-RU");
       container.innerHTML = `
-        <h3>📄 Официальное письмо (на бланке ПожСервис)</h3>
+        <h3>Официальное письмо (на бланке ПожСервис)</h3>
         <p class="hint">Документ на фирменном бланке уже готов — с шапкой, реквизитами и логотипом.
         Поля ниже редактируемые: поправьте текст, и при скачивании бланк соберётся заново с вашими правками.</p>
         <div class="letterhead-preview">
-          <div class="letterhead-requisites">${LETTERHEAD_REQUISITES}</div>
+          <div class="letterhead-requisites">${letterheadHtml()}</div>
           <div class="letterhead-dateline">${escapeHtml(today)} № ______________ · На №________ от ______________</div>
 
           <label class="field-label" for="f-recipient">Получатель</label>
@@ -152,7 +194,7 @@
           </div>
         </div>
         <div class="actions" style="margin-top:16px">
-          <button class="btn" id="letter-download">📄 Скачать DOCX</button>
+          <button class="btn" id="letter-download">Скачать DOCX</button>
           <span class="hint" id="letter-download-status"></span>
         </div>
       `;
@@ -220,6 +262,10 @@
         renderResult: renderLetterResult,
       });
     });
+
+    // Открыть результат прошлой задачи по ?task=<id> — ссылки ведут сюда
+    // из истории и с экрана «Сегодня».
+    openSavedTask(renderLetterResult, document.getElementById("result"));
   </script>
 </body>
 </html>

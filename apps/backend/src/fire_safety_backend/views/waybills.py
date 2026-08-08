@@ -18,6 +18,7 @@ from ..infrastructure.generators.waybill_docx import build_waybill_docx
 from ..models.waybill import (
     Downtime,
     Driver,
+    DriverBrief,
     DriverCreate,
     DriverUpdate,
     Organization,
@@ -58,14 +59,39 @@ async def update_org(org_id: int, payload: OrganizationCreate) -> Organization:
         return await asyncio.to_thread(service.update_organization, org_id, payload)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    # Без этой ветки испорченный ОГРН давал 500 и английское «Internal Server
+    # Error». Данные при этом не портились — проверка срабатывала, — но человек
+    # видел техническую строку вместо «ОГРН не сходится по контрольной цифре» и
+    # не мог понять, что от него хотят. Создание организации так умело с самого
+    # начала, правка отстала.
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 # ── Водители ──────────────────────────────────────────────────────────────
 
 
 @router.get("/drivers")
-async def list_drivers(include_inactive: bool = False) -> list[Driver]:
+async def list_drivers(include_inactive: bool = False) -> list[DriverBrief]:
+    # Тип ответа — DriverBrief, а не Driver, и это не косметика: FastAPI режет
+    # ответ по модели, поэтому именно здесь стоит замок от «случайно отдали
+    # СНИЛС всему списку». Раньше стоял Driver, и отдавалось всё.
     return await asyncio.to_thread(service.list_drivers, include_inactive=include_inactive)
+
+
+@router.get("/drivers/{driver_id}")
+async def get_driver(driver_id: int) -> Driver:
+    """Карточка водителя ЦЕЛИКОМ, включая СНИЛС и номер удостоверения.
+
+    Общий список этих полей не отдаёт (см. `DriverBrief`): справочник открыт
+    всем вошедшим, и выгрузить персональные данные всех тридцати человек одним
+    запросом быть не должно. Здесь — по одному, когда карточку открыли
+    осознанно, чтобы поправить.
+    """
+    try:
+        return await asyncio.to_thread(service.get_driver, driver_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.post("/drivers", status_code=201)
@@ -82,6 +108,9 @@ async def update_driver(driver_id: int, payload: DriverUpdate) -> Driver:
         return await asyncio.to_thread(service.update_driver, driver_id, payload)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    # То же, что у организации: испорченный СНИЛС на правке давал 500.
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 @router.delete("/drivers/{driver_id}", status_code=204, response_model=None)

@@ -17,6 +17,7 @@ from ..infrastructure.db import connect
 from ..models.waybill import (
     Downtime,
     Driver,
+    DriverBrief,
     DriverCreate,
     DriverUpdate,
     Organization,
@@ -27,6 +28,7 @@ from ..models.waybill import (
     WaybillCreate,
     WaybillUpdate,
 )
+from . import requisites
 from .units import (
     bool_to_int,
     km_to_m,
@@ -82,7 +84,40 @@ def list_organizations() -> list[Organization]:
     return [_row_to_org(r) for r in rows]
 
 
+def _проверить_реквизиты_организации(payload: OrganizationCreate) -> None:
+    """ОКПО и ОГРН печатаются в шапке путевого листа.
+
+    Опечатка в цифре не выглядит опечаткой: номер той же длины из тех же цифр.
+    Замечают её при сдаче документов, когда лист уже подписан и сдан, а
+    контрольная сумма ловит её на вводе. Пустое поле ошибкой не считается —
+    ОКПО в бланках компании не заполнен, и подставить его неоткуда.
+    """
+    for проверка, значение, что in (
+        (requisites.проверить_окпо, payload.okpo, "ОКПО"),
+        (requisites.проверить_огрн, payload.ogrn, "ОГРН"),
+    ):
+        ответ = проверка(значение)
+        if not ответ:
+            # Причина уже начинается с названия реквизита («ОКПО — восемь
+            # цифр…»), поэтому префикс добавляется только когда его там нет.
+            текст = ответ.причина
+            raise ValueError(текст if текст.startswith(что) else f"{что}: {текст}")
+
+
+def _проверить_реквизиты_водителя(payload: DriverCreate | DriverUpdate) -> None:
+    """СНИЛС — обязательный реквизит путевого листа.
+
+    Одиннадцать цифр глазами не сверяет никто, а лист с неверным СНИЛС
+    дефектен. Здесь это ловится один раз, при заведении водителя, а не на
+    каждом листе.
+    """
+    ответ = requisites.проверить_снилс(getattr(payload, "snils", ""))
+    if not ответ:
+        raise ValueError(ответ.причина)
+
+
 def create_organization(payload: OrganizationCreate) -> Organization:
+    _проверить_реквизиты_организации(payload)
     with connect() as conn:
         try:
             cur = conn.execute(
@@ -107,6 +142,7 @@ def create_organization(payload: OrganizationCreate) -> Organization:
 
 
 def update_organization(org_id: int, payload: OrganizationCreate) -> Organization:
+    _проверить_реквизиты_организации(payload)
     with connect() as conn:
         cur = conn.execute(
             "UPDATE organization SET name = ?, address = ?, phone = ?, okpo = ?, ogrn = ?, "
@@ -148,16 +184,41 @@ def _row_to_org(row: sqlite3.Row) -> Organization:
 # поля не показываются.
 
 
-def list_drivers(*, include_inactive: bool = False) -> list[Driver]:
+def list_drivers(*, include_inactive: bool = False) -> list[DriverBrief]:
+    """Список БЕЗ персональных данных — см. `DriverBrief`.
+
+    Столбцы перечислены поимённо, а не `SELECT *`: со звёздочкой любой новый
+    персональный столбец у таблицы поехал бы в общий список сам, молча и в тот
+    же день, когда его добавили. Именно так СНИЛС сюда и попал.
+    """
     where = "" if include_inactive else "WHERE is_active = 1"
     with connect() as conn:
         rows = conn.execute(
-            f"SELECT * FROM driver {where} ORDER BY full_name COLLATE NOCASE_UNICODE"
+            "SELECT id, full_name, tab_number, licence_series, licence_issued_at, "
+            "licence_class, licence_card, is_active, created_at, "
+            "       snils, licence_number "
+            f"FROM driver {where} ORDER BY full_name COLLATE NOCASE_UNICODE"
         ).fetchall()
-    return [_row_to_driver(r) for r in rows]
+    return [
+        DriverBrief(
+            id=r["id"],
+            full_name=r["full_name"],
+            tab_number=r["tab_number"] or "",
+            licence_series=r["licence_series"] or "",
+            licence_issued_at=r["licence_issued_at"],
+            licence_class=r["licence_class"] or "",
+            licence_card=r["licence_card"] or "",
+            is_active=bool(r["is_active"]),
+            created_at=r["created_at"],
+            есть_снилс=bool((r["snils"] or "").strip()),
+            есть_удостоверение=bool((r["licence_number"] or "").strip()),
+        )
+        for r in rows
+    ]
 
 
 def create_driver(payload: DriverCreate) -> Driver:
+    _проверить_реквизиты_водителя(payload)
     with connect() as conn:
         try:
             cur = conn.execute(
@@ -199,6 +260,10 @@ def update_driver(driver_id: int, payload: DriverUpdate) -> Driver:
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         return get_driver(driver_id)
+    # Только если СНИЛС действительно правят: DriverUpdate частичный, и
+    # проверять непереданное поле значило бы падать на правке одной фамилии.
+    if "snils" in changes:
+        _проверить_реквизиты_водителя(payload)
     sets, values = [], []
     for field, value in changes.items():
         if field not in _DRIVER_COLUMNS:
@@ -479,6 +544,11 @@ def create_waybill(payload: WaybillCreate, *, created_by: str = "") -> Waybill:
             raise LookupError(f"Машина id={payload.vehicle_id} не найдена")
 
         values = _to_columns(payload.model_dump())
+        # Что заполнила программа, а не человек, — запоминаем поимённо.
+        # Интерфейс это показывает: подставленное значение без объяснения
+        # читается как чужая ошибка, и его либо боятся трогать, либо молча
+        # перебивают. Обе беды дороже одного столбца.
+        filled: list[str] = []
         for field, column, source in (
             ("org_id", "org_id", vehicle["org_id"]),
             ("driver_id", "driver_id", vehicle["default_driver_id"]),
@@ -490,13 +560,19 @@ def create_waybill(payload: WaybillCreate, *, created_by: str = "") -> Waybill:
         ):
             if field not in sent and source:
                 values[column] = source
+                filled.append(field)
 
         # Норма — снимком: приказ поменяет её, а закрытый лист обязан
         # пересчитываться по той цифре, по которой списали топливо.
         if "fuel_norm_l_100km" not in sent:
             values["fuel_norm_hs_x100"] = vehicle["fuel_norm_hs_x100"]
+            if vehicle["fuel_norm_hs_x100"] is not None:
+                filled.append("fuel_norm_l_100km")
         if "odometer_start_km" not in sent:
             values["odometer_start_m"] = vehicle["odometer_m"]
+            if vehicle["odometer_m"] is not None:
+                filled.append("odometer_start_km")
+        values["autofilled"] = ",".join(filled)
 
         values["created_by"] = created_by
         columns = ", ".join(values)
@@ -734,6 +810,11 @@ def _row_to_waybill(
     for field, (column, _, from_db) in _CONVERTED.items():
         value = row[column]
         data[field] = None if value is None else from_db(value)
+
+    # Пустая строка — лист выписан до появления пометок либо ничего не
+    # подставлялось. Пустых имён в списке быть не должно: интерфейс сверяет по
+    # ним поля, и "" совпал бы не с тем.
+    data["autofilled"] = [x for x in str(row["autofilled"] or "").split(",") if x]
 
     fact_l, saving_l, norm_l = _fuel_figures(row)
     mark = " ".join(x for x in (row["vehicle_brand"], row["vehicle_model"]) if x)

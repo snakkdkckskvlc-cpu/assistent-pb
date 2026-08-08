@@ -7,40 +7,25 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><a href="/">🔥 Ассистент</a></div>
+    <div class="brand"><a href="/">Ассистент</a></div>
     <div class="status" id="health"></div>
   </header>
 
   <main class="page">
     <a class="back" href="/">← На главную</a>
     <div class="section">
-      <h2>🕘 История задач</h2>
-      <p class="hint">Что запускали, когда и с каким результатом. Тексты документов не сохраняются — только сводка.</p>
+      <h2>История задач</h2>
+      <p class="hint">Что запускали, когда и с каким результатом. Название функции — ссылка: по ней открывается сам результат, пока он не удалён автоочисткой.</p>
 
       <div class="actions">
         <button class="btn secondary" id="refresh">Обновить</button>
-        <button class="btn secondary" id="clear">Очистить историю</button>
+        <button class="btn danger" id="clear">Очистить историю</button>
       </div>
 
       <div id="error" class="error-box" style="display:none"></div>
       <div id="list" class="result"></div>
     </div>
 
-    <div class="section">
-      <h2>🔒 Защита данных</h2>
-      <p class="hint">
-        Загруженные документы и готовые файлы лежат в рабочей папке приложения
-        зашифрованными ключом этой учётной записи Windows. Скачанного вами
-        файла это не касается — он лежит там, куда вы его сохранили.
-      </p>
-
-      <div id="security" class="result"></div>
-
-      <div class="actions">
-        <button class="btn secondary" id="purge">Удалить рабочие файлы</button>
-        <span class="hint" id="purge-status"></span>
-      </div>
-    </div>
   </main>
 
   <script src="/static/app.js"></script>
@@ -48,37 +33,32 @@
     updateHealth();
 
     const KIND_LABELS = {
-      spellcheck: "📝 Проверка документа",
-      legal: "⚖️ Анализ договора",
-      letter: "✉️ Письмо",
-      batch: "📦 Пакетная проверка",
+      spellcheck: "Проверка документа",
+      legal: "Анализ договора",
+      letter: "Письмо",
+      batch: "Пакетная проверка",
     };
 
-    // Результат подставляется в innerHTML, поэтому «непонятную дату» отдаём
-    // экранированной: строка приходит из БД, а туда её пишет пайплайн, и
-    // полагаться на её формат при выводе в HTML не стоит.
-    function fmtWhen(iso) {
-      if (!iso) return "—";
-      const d = new Date(iso);
-      return isNaN(d)
-        ? escapeHtml(iso)
-        : d.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" });
-    }
+    // Своей копии fmtWhen здесь больше нет. Их было две, и вели они себя
+    // по-разному на одном и том же значении: местная разбирала отметку с
+    // указанной зоной, общая на ней ломалась. Пока страницы показывали разные
+    // поля, это не всплывало, но расхождение между «когда» на двух экранах —
+    // ровно тот случай, ради которого общие помощники и вынесены в app.js.
+    // Разбор обоих форматов теперь там, в одном месте.
 
-    function fmtDuration(sec) {
-      if (sec == null) return "—";
-      if (sec < 90) return `${Math.round(sec)} с`;
-      return `${Math.round(sec / 60)} мин`;
-    }
+    // Своей fmtDuration здесь больше нет — общая в app.js. Прежняя округляла
+    // всё свыше 90 секунд до минут, и шестичасовой разбор договора выглядел
+    // как «382 мин»: число верное, прочесть нельзя.
 
     async function loadHistory() {
       const list = document.getElementById("list");
       const errBox = document.getElementById("error");
       errBox.style.display = "none";
       try {
-        const r = await fetch("/api/history?limit=100");
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const rows = await r.json();
+        // Общий api: он переводит отказ на русский. Прежде здесь строилось
+        // «HTTP 500» и уходило прямо в красную плашку — строка, с которой
+        // человеку нечего делать.
+        const rows = await api("/api/history?limit=100");
         if (!rows.length) {
           list.innerHTML = '<p class="hint">История пуста — выполненные задачи появятся здесь.</p>';
           return;
@@ -86,8 +66,12 @@
         const body = rows.map((t) => `
           <tr>
             <td>${fmtWhen(t.created_at)}</td>
-            <td>${escapeHtml(KIND_LABELS[t.kind] || t.kind)}</td>
-            <td>${t.status === "done" ? "✅" : "❌"}</td>
+            <td>${taskLink(t.kind, t.task_id, KIND_LABELS[t.kind] || t.kind)}</td>
+            <td>${t.status === "done"
+              ? '<span class="chip ok">готово</span>'
+              : t.status === "cancelled"
+              ? '<span class="chip warn">отменено</span>'
+              : '<span class="chip bad">ошибка</span>'}</td>
             <td>${fmtDuration(t.duration_sec)}</td>
             <td>${escapeHtml(t.summary || t.error || "")}</td>
           </tr>`).join("");
@@ -97,121 +81,30 @@
             <tbody>${body}</tbody>
           </table>`;
       } catch (e) {
-        errBox.style.display = "block";
-        errBox.textContent = e.message || String(e);
-      }
-    }
-
-    // --- Защита данных ---
-
-    // Значения приходят из нашего же backend'а, но выводятся через escapeHtml
-    // по общему правилу проекта: в HTML не уходит ничего неэкранированного.
-    function chip(cls, text) {
-      return `<span class="chip ${cls}">${escapeHtml(text)}</span>`;
-    }
-
-    function encryptionRow(s) {
-      if (s.encryption === "dpapi") return chip("ok", "включено") + ` ${escapeHtml(s.encryption_reason)}`;
-      if (s.encryption_broken) {
-        return chip("bad", "не работает") +
-          ` ${escapeHtml(s.encryption_reason)} — документы не сохраняются, обработка будет отклонена`;
-      }
-      return chip("warn", "выключено") + ` ${escapeHtml(s.encryption_reason)}`;
-    }
-
-    function bitlockerRow(state) {
-      if (state === "on") return chip("ok", "включено");
-      if (state === "off") {
-        return chip("bad", "выключено") +
-          " — база истории и архив писем на диске лежат открытым текстом";
-      }
-      return chip("warn", "не удалось проверить") +
-        " — нужны права администратора. Проверить вручную: <code>manage-bde -status</code>";
-    }
-
-    function retentionRow(days) {
-      if (days > 0) return chip("ok", `${days} дн.`) + " — потом файлы удаляются сами";
-      return chip("warn", "бессрочно") + " — рабочие файлы накапливаются, пока их не удалить вручную";
-    }
-
-    function networkRow(s) {
-      if (s.network !== "loopback") {
-        return chip("bad", "разрешён") +
-          ` ${escapeHtml(s.network_reason)} — приложение может обращаться в интернет`;
-      }
-      const n = s.network_blocked_attempts || 0;
-      if (!n) return chip("ok", "запрещён") + " — за эту сессию наружу не обращалось";
-      // Список показываем: «пыталось выйти» без «куда» бесполезно.
-      const where = (s.network_blocked_targets || []).map(escapeHtml).join(", ");
-      return chip("warn", "запрещён") +
-        ` — отклонено попыток: ${n}${where ? ` (${where})` : ""}`;
-    }
-
-    function integrityRow(state) {
-      if (state === "ok") return chip("ok", "не изменён");
-      if (state === "changed") {
-        return chip("bad", "ИЗМЕНЁН") +
-          " — файлы программы отличаются от выпущенных. Восстановить: <code>git reset --hard origin/main</code>";
-      }
-      return chip("warn", "не проверить") + " — нет файла контрольных сумм integrity.json";
-    }
-
-    async function loadSecurity() {
-      const box = document.getElementById("security");
-      try {
-        const r = await fetch("/api/health");
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const s = (await r.json()).security;
-        if (!s) throw new Error("backend не сообщил состояние защиты");
-        box.innerHTML = `
-          <table>
-            <tbody>
-              <tr><td>Шифрование документов</td><td>${encryptionRow(s)}</td></tr>
-              <tr><td>Шифрование диска (BitLocker)</td><td>${bitlockerRow(s.bitlocker)}</td></tr>
-              <tr><td>Срок хранения рабочих файлов</td><td>${retentionRow(s.retention_days)}</td></tr>
-              <tr><td>Выход в интернет</td><td>${networkRow(s)}</td></tr>
-              <tr><td>Код программы</td><td>${integrityRow(s.code_integrity)}</td></tr>
-            </tbody>
-          </table>`;
-      } catch (e) {
-        box.innerHTML = "";
-        const p = document.createElement("p");
-        p.className = "hint";
-        p.textContent = `Не удалось получить состояние защиты: ${e.message || e}`;
-        box.appendChild(p);
+        showError(errBox, e);
       }
     }
 
     document.getElementById("refresh").addEventListener("click", loadHistory);
     document.getElementById("clear").addEventListener("click", async () => {
       if (!confirm("Удалить всю историю задач?")) return;
-      await fetch("/api/history", { method: "DELETE" });
-      loadHistory();
-    });
-
-    document.getElementById("purge").addEventListener("click", async () => {
-      const msg = "Удалить все загруженные и сгенерированные файлы из рабочей папки?\n\n" +
-        "Скачанные вами документы не тронутся. Ссылки «скачать» у прошлых задач перестанут работать.";
-      if (!confirm(msg)) return;
-      const btn = document.getElementById("purge");
-      const status = document.getElementById("purge-status");
+      const btn = document.getElementById("clear");
       btn.disabled = true;
-      status.textContent = "Удаляю…";
       try {
-        const r = await fetch("/api/data/purge", { method: "POST" });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const s = await r.json();
-        const mb = (s.freed_bytes / 1024 / 1024).toFixed(1);
-        status.textContent = `Удалено файлов: загруженных ${s.uploads}, готовых ${s.outputs}. Освобождено ${mb} МБ.`;
+        // Ответ раньше не проверялся вообще: при отказе список просто
+        // перезагружался и оставался прежним. Со стороны это «нажал —
+        // не сработало», и человек жмёт ещё раз, не зная, что мешает.
+        await api("/api/history", { method: "DELETE" });
       } catch (e) {
-        status.textContent = `Не удалось: ${e.message || e}`;
+        showError(document.getElementById("error"), e);
+        return;
       } finally {
         btn.disabled = false;
       }
+      loadHistory();
     });
 
     loadHistory();
-    loadSecurity();
   </script>
 </body>
 </html>
