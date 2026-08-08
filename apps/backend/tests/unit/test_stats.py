@@ -73,6 +73,10 @@ def seeded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         for sec in (2.0, 6.0, 100.0):
             _task(conn, "spellcheck", sec=sec, days=1)
         _task(conn, "spellcheck", status="error", sec=0.5, days=1, owner="petrov")
+        # Отменённая: человек нажал «Отменить». Это НЕ отказ, и считаться
+        # вместе с падениями она не должна — иначе сводка краснеет от
+        # обычного рабочего действия.
+        _task(conn, "spellcheck", status="cancelled", sec=1.0, days=1, owner="petrov")
         # Анализ договора: один удачный, с секретной сводкой в записи.
         _task(conn, "legal", sec=50.0, days=2, owner="petrov", summary=SECRET_SUMMARY)
         # Старое — за окном в 7 дней, но внутри 30.
@@ -126,11 +130,42 @@ def test_stats_require_login(anon_client: TestClient) -> None:
 def test_counts_by_kind(seeded: None) -> None:
     data = stats.collect(30)
     by_kind = {k["вид"]: k for k in data["по_видам"]}
-    assert by_kind["spellcheck"]["всего"] == 4
+    assert by_kind["spellcheck"]["всего"] == 5
     assert by_kind["spellcheck"]["удачных"] == 3
     assert by_kind["spellcheck"]["неудачных"] == 1
-    assert data["всего_задач"] == 6
+    assert by_kind["spellcheck"]["отменённых"] == 1
+    assert data["всего_задач"] == 7
     assert data["неудачных"] == 1
+    assert data["отменённых"] == 1
+
+
+def test_cancelled_is_not_a_failure(seeded: None) -> None:
+    """Отмену нажимает сам человек: ошибся файлом, передумал, освободил очередь
+    коллеге. Пока отменённые считались вместе с упавшими, сводка красилась в
+    тревожный цвет от обычного рабочего действия — а сигнал, срабатывающий на
+    норму, перестают читать вовсе.
+
+    Проверяется именно РАЗДЕЛЕНИЕ, а не число: сложить их обратно в одну
+    колонку — самый лёгкий способ незаметно вернуть прежнее поведение.
+    """
+    data = stats.collect(30)
+    отменённых = data["отменённых"]
+    неудачных = data["неудачных"]
+    assert отменённых == 1
+    assert неудачных == 1, "отменённая задача просочилась в счёт отказов"
+    by_kind = {k["вид"]: k for k in data["по_видам"]}
+    сп = by_kind["spellcheck"]
+    assert сп["всего"] == сп["удачных"] + сп["неудачных"] + сп["отменённых"], (
+        "запуски перестали сходиться: какая-то задача не попала ни в одну колонку"
+    )
+
+
+def test_cancelled_task_duration_excluded(seeded: None) -> None:
+    """Отменённая задача не ждала до конца, и её длительность не говорит
+    ничего о типичном ожидании. В расчёт идут только дошедшие."""
+    by_kind = {k["вид"]: k for k in stats.collect(30)["по_видам"]}
+    # Медиана по 2, 6, 100 — это 6. Попади туда отменённая с 1.0, стало бы 4.
+    assert by_kind["spellcheck"]["медиана_сек"] == 6
 
 
 def test_failed_task_duration_excluded(seeded: None) -> None:

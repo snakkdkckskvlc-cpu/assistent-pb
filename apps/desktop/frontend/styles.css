@@ -347,6 +347,13 @@ tr.skipped .fix-actions { opacity: 1; }
 .verdict-head { display: flex; gap: 14px; align-items: flex-start; }
 .verdict-headline { font-size: 15px; font-weight: 800; color: var(--red-text); }
 .verdict.go .verdict-headline { color: var(--green); }
+/* Плашка изначально сделана для разбора договора, где заголовок И ЕСТЬ вывод:
+   «три существенных риска» — красным по делу. На сводке «Что происходит» в
+   том же месте стоит объём работы: «26 задач за 30 дней». Это не приговор, и
+   красным оно кричало на ровном месте — тревожный цвет тратится на число,
+   которое ничего плохого не сообщает. Здесь заголовок нейтральный, а сигнал
+   остаётся у строк под ним. */
+.verdict.count .verdict-headline { color: var(--text); }
 .verdict-counts { display: flex; gap: 8px; margin-left: auto; flex-shrink: 0; }
 .verdict-counts div { background: var(--surface); border-radius: 7px; padding: 5px 11px; text-align: center; min-width: 46px; }
 .verdict-counts b { display: block; font-size: 17px; font-weight: 800; line-height: 1.1; }

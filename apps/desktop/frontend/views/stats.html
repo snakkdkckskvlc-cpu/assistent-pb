@@ -18,9 +18,9 @@
       <p class="hint">Чем пользуются, сколько ждут и где чаще недовольны. Содержание документов сюда не попадает — только счётчики.</p>
 
       <div class="actions">
-        <button class="btn secondary period-btn" data-days="7">7 дней</button>
-        <button class="btn secondary period-btn" data-days="30">30 дней</button>
-        <button class="btn secondary period-btn" data-days="90">90 дней</button>
+        <button class="btn secondary tab period-btn" data-days="7">7 дней</button>
+        <button class="btn secondary tab period-btn" data-days="30">30 дней</button>
+        <button class="btn secondary tab period-btn" data-days="90">90 дней</button>
       </div>
 
       <div id="error" class="error-box" style="display:none"></div>
@@ -34,11 +34,26 @@
 
     let days = 30;
 
+    // Часы отдельно: без них долгий разбор договора показывался как
+    // «381 мин 36 с». Это верное число, но прочесть его нельзя — в голове
+    // приходится делить на шестьдесят. И секунды при таком сроке не значат
+    // ничего, поэтому от часа и выше они отбрасываются.
     function secs(v) {
       if (v === null || v === undefined) return "—";
-      if (v < 60) return Math.round(v) + " с";
-      const m = Math.floor(v / 60), s = Math.round(v % 60);
-      return s ? `${m} мин ${s} с` : `${m} мин`;
+      const всего = Math.round(v);
+      if (всего < 60) return `${всего} с`;
+      const ч = Math.floor(всего / 3600);
+      const м = Math.floor((всего % 3600) / 60);
+      const с = всего % 60;
+      if (ч) return м ? `${ч} ч ${м} мин` : `${ч} ч`;
+      return с ? `${м} мин ${с} с` : `${м} мин`;
+    }
+
+    // «07.08.2026» → «07.08». В подписи оси год лишний: период и так не длиннее
+    // девяноста дней, и повторять его тридцать раз значит забить строку.
+    function деньМесяц(iso) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+      return m ? `${m[3]}.${m[2]}` : "";
     }
 
     // Полоска активности рисуется инлайновым SVG. Библиотеку графиков не
@@ -54,7 +69,24 @@
         return `<rect x="${i * (w + gap)}" y="${h - bh}" width="${w}" height="${bh}" rx="1" fill="var(--graphite)"><title>${escapeHtml(d["дата"])}: ${d["всего"]}</title></rect>`;
       }).join("");
       const width = daysList.length * (w + gap);
-      return `<svg viewBox="0 0 ${width} ${h}" width="100%" height="${h}" preserveAspectRatio="none" role="img" aria-label="Задач по дням">${bars}</svg>`;
+      const svg = `<svg viewBox="0 0 ${width} ${h}" width="100%" height="${h}" preserveAspectRatio="none" role="img" aria-label="Задач по дням">${bars}</svg>`;
+
+      // Столбики без подписей — украшение, а не график: по ним нельзя сказать,
+      // какой это день и сколько там задач. Подсказка при наведении была, но
+      // мышью водят по графику только те, кто уже подозревает, что там что-то
+      // есть. Поэтому границы периода и самый нагруженный день пишутся текстом.
+      const первый = деньМесяц(daysList[0]["дата"]);
+      const последний = деньМесяц(daysList[daysList.length - 1]["дата"]);
+      const пик = daysList.reduce((a, b) => (b["всего"] > a["всего"] ? b : a), daysList[0]);
+      const подпись = пик["всего"]
+        ? `Больше всего — ${деньМесяц(пик["дата"])}: ${пик["всего"]}`
+        : "Задач за период не было";
+      return `${svg}
+        <div class="hint" style="display:flex;justify-content:space-between;gap:12px;margin-top:4px">
+          <span>${escapeHtml(первый)}</span>
+          <span>${escapeHtml(подпись)}</span>
+          <span>${escapeHtml(последний)}</span>
+        </div>`;
     }
 
     function render(data) {
@@ -67,12 +99,23 @@
         return;
       }
 
+      // Отменённые считаются отдельно от упавших: отмену нажал сам человек,
+      // это обычное рабочее действие, а не отказ программы. Пока они шли
+      // вместе, сводка краснела от нажатия кнопки «Отменить».
       const failed = data["неудачных"];
-      p.push(`<div class="verdict ${failed ? "" : "go"}">
+      const cancelled = data["отменённых"] || 0;
+      const строки = [];
+      if (failed) строки.push(`<div style="margin-top:4px">Сорвалось с ошибкой: ${failed}</div>`);
+      if (cancelled) строки.push(`<div class="hint" style="margin-top:4px">Отменено вручную: ${cancelled} — это не сбой</div>`);
+      if (!failed && !cancelled) строки.push(`<div style="margin-top:4px">Все дошли до конца</div>`);
+      // Число задач — не приговор, а объём работы, и красным ему быть незачем:
+      // красный в интерфейсе означает проблему. Тревожный вид плашки остаётся
+      // только за настоящими отказами.
+      p.push(`<div class="verdict count ${failed ? "" : "go"}">
         <div class="verdict-head">
           <div>
             <div class="verdict-headline">${total} ${total % 10 === 1 && total % 100 !== 11 ? "задача" : "задач"} за ${data["период_дней"]} дней</div>
-            ${failed ? `<div style="margin-top:4px">Не довелось до конца: ${failed}</div>` : `<div style="margin-top:4px">Все дошли до конца</div>`}
+            ${строки.join("")}
           </div>
         </div>
       </div>`);
@@ -82,13 +125,14 @@
 
       p.push(`<h3>Чем пользуются</h3>`);
       p.push(`<table><thead><tr>
-        <th>Функция</th><th>Запусков</th><th>Не дошло</th><th>Обычно ждут</th><th>Долгий случай</th>
+        <th>Функция</th><th>Запусков</th><th>С ошибкой</th><th>Отменено</th><th>Обычно ждут</th><th>Долгий случай</th>
       </tr></thead><tbody>`);
       for (const k of data["по_видам"]) {
         p.push(`<tr>
           <td>${escapeHtml(k["название"])}</td>
           <td>${k["всего"]}</td>
           <td>${k["неудачных"] ? `<span class="chip bad">${k["неудачных"]}</span>` : "—"}</td>
+          <td>${k["отменённых"] ? `<span class="hint">${k["отменённых"]}</span>` : "—"}</td>
           <td>${secs(k["медиана_сек"])}</td>
           <td>${secs(k["девяностый_сек"])}</td>
         </tr>`);

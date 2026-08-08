@@ -65,7 +65,15 @@ def _by_kind(conn, days: int) -> list[dict]:
     buckets: dict[str, dict] = {}
     for r in rows:
         b = buckets.setdefault(
-            r["kind"], {"вид": r["kind"], "всего": 0, "удачных": 0, "неудачных": 0, "_сек": []}
+            r["kind"],
+            {
+                "вид": r["kind"],
+                "всего": 0,
+                "удачных": 0,
+                "неудачных": 0,
+                "отменённых": 0,
+                "_сек": [],
+            },
         )
         b["всего"] += 1
         if r["status"] == "done":
@@ -75,6 +83,13 @@ def _by_kind(conn, days: int) -> list[dict]:
             # в это время не ждал, а получал ошибку.
             if r["duration_sec"] is not None:
                 b["_сек"].append(float(r["duration_sec"]))
+        elif r["status"] == "cancelled":
+            # Отменённая задача — НЕ отказ. Её снял сам человек, нажав кнопку:
+            # ошибся файлом, передумал, освободил очередь коллеге. Пока она
+            # считалась вместе с падениями, сводка красилась в тревожный цвет
+            # от обычного рабочего действия, а сигнал, который срабатывает на
+            # норму, перестают читать.
+            b["отменённых"] += 1
         else:
             b["неудачных"] += 1
 
@@ -169,6 +184,7 @@ def collect(days: int = 30, *, with_people: bool = False) -> dict:
             "период_дней": days,
             "всего_задач": sum(k["всего"] for k in kinds),
             "неудачных": sum(k["неудачных"] for k in kinds),
+            "отменённых": sum(k["отменённых"] for k in kinds),
             "по_видам": kinds,
             "по_дням": _by_day(conn, days),
             "оценки": _ratings(conn, days),
