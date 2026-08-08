@@ -68,13 +68,15 @@
           return;
         }
         list.innerHTML = "Добавленные: " + custom.map(a =>
-          `<span style="margin-right:10px">${escapeHtml(a.name)} ` +
-          `<a href="#" data-id="${a.id}" class="delete-addressee" title="Удалить">✕</a></span>`
-        ).join("");
+          `<span class="tag">${escapeHtml(a.name)}` +
+          `<button type="button" data-id="${a.id}" class="delete-addressee" ` +
+          `title="Убрать «${escapeHtml(a.name)}» из справочника" ` +
+          `aria-label="Убрать ${escapeHtml(a.name)}">✕</button></span>`
+        ).join(" ");
         list.querySelectorAll(".delete-addressee").forEach(link => {
           link.addEventListener("click", async (ev) => {
             ev.preventDefault();
-            const id = ev.target.getAttribute("data-id");
+            const id = ev.currentTarget.getAttribute("data-id");
             try {
               const r = await fetch(`/api/addressees/${id}`, { method: "DELETE" });
               if (!r.ok && r.status !== 204) throw new Error("HTTP " + r.status);
@@ -85,7 +87,10 @@
           });
         });
       } catch (e) {
-        list.textContent = "";
+        // Раньше список просто очищался. Со стороны это неотличимо от «я
+        // ничего сюда не сохранял»: человек заводит тот же тип адресата
+        // второй раз и получает «такой уже есть» — из ниоткуда.
+        list.textContent = "Справочник адресатов не загрузился. Свои типы временно не видны; писать письмо это не мешает.";
       }
     }
 

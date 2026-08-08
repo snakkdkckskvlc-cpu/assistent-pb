@@ -273,6 +273,21 @@ td { padding: 8px 8px 8px 0; border-bottom: 1px solid var(--line-soft); vertical
 .chip.bad, .chip.orph { background: var(--red-soft); color: var(--red-text); }
 .chip.style { background: #eaf1fb; color: #1b5aa8; }
 
+/* --- метка со снятием (свои типы адресатов в письме) --- */
+/* Раньше это была строка текста и крестик ссылкой: синий, подчёркнутый, как
+   переход на другую страницу. Но это действие, а не переход, и ссылка с
+   href="#" при промахе мимо крестика перематывает страницу вверх. */
+.tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 20px;
+  padding: 2px 4px 2px 10px; font-size: 11.5px; color: var(--text);
+}
+.tag button {
+  border: 0; background: none; cursor: pointer; color: var(--muted);
+  font: inherit; line-height: 1; padding: 2px 5px; border-radius: 50%;
+}
+.tag button:hover { background: var(--red-soft); color: var(--red-text); }
+
 /* --- строка-форма внутри таблицы (возврат машины из рейса) ---
    Пришла на смену двум системным prompt() подряд: в них не видно, о какой
    машине речь, нельзя вернуться к первому значению и нельзя набрать запятую. */

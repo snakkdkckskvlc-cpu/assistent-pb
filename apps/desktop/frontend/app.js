@@ -112,7 +112,11 @@ function renderShell() {
     if (block.group) html += `<div class="group">${block.group}</div>`;
     for (const [href, text, ic] of block.items) {
       const current = href === here ? ' aria-current="page"' : "";
-      html += `<a href="${href}"${current}>${icon(ic)}<span class="nav-text">${text}</span></a>`;
+      // title обязателен: на узком окне подписи прячутся и остаются одни
+      // иконки, а пунктов тринадцать. Догадаться, чем «Сверка таблиц»
+      // отличается от «Проверки реквизитов», по двум прямоугольникам нельзя —
+      // подсказка при наведении единственное, что остаётся.
+      html += `<a href="${href}" title="${text}"${current}>${icon(ic)}<span class="nav-text">${text}</span></a>`;
     }
   }
   // Внизу — то, что открывают редко и по поводу: журнал задач и состояние
@@ -124,7 +128,7 @@ function renderShell() {
     ["/security.html", "Защита данных", "shield"],
   ];
   html += '<div class="bottom">' + bottom.map(([href, text, ic]) =>
-    `<a href="${href}"${href === here ? ' aria-current="page"' : ""}>${icon(ic)}<span class="nav-text">${text}</span></a>`
+    `<a href="${href}" title="${text}"${href === here ? ' aria-current="page"' : ""}>${icon(ic)}<span class="nav-text">${text}</span></a>`
   ).join("") + "</div>";
   aside.innerHTML = html;
   topbar.insertAdjacentElement("afterend", aside);
