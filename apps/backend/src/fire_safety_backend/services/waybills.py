@@ -27,6 +27,7 @@ from ..models.waybill import (
     WaybillCreate,
     WaybillUpdate,
 )
+from . import requisites
 from .units import (
     bool_to_int,
     km_to_m,
@@ -82,7 +83,40 @@ def list_organizations() -> list[Organization]:
     return [_row_to_org(r) for r in rows]
 
 
+def _проверить_реквизиты_организации(payload: OrganizationCreate) -> None:
+    """ОКПО и ОГРН печатаются в шапке путевого листа.
+
+    Опечатка в цифре не выглядит опечаткой: номер той же длины из тех же цифр.
+    Замечают её при сдаче документов, когда лист уже подписан и сдан, а
+    контрольная сумма ловит её на вводе. Пустое поле ошибкой не считается —
+    ОКПО в бланках компании не заполнен, и подставить его неоткуда.
+    """
+    for проверка, значение, что in (
+        (requisites.проверить_окпо, payload.okpo, "ОКПО"),
+        (requisites.проверить_огрн, payload.ogrn, "ОГРН"),
+    ):
+        ответ = проверка(значение)
+        if not ответ:
+            # Причина уже начинается с названия реквизита («ОКПО — восемь
+            # цифр…»), поэтому префикс добавляется только когда его там нет.
+            текст = ответ.причина
+            raise ValueError(текст if текст.startswith(что) else f"{что}: {текст}")
+
+
+def _проверить_реквизиты_водителя(payload: DriverCreate | DriverUpdate) -> None:
+    """СНИЛС — обязательный реквизит путевого листа.
+
+    Одиннадцать цифр глазами не сверяет никто, а лист с неверным СНИЛС
+    дефектен. Здесь это ловится один раз, при заведении водителя, а не на
+    каждом листе.
+    """
+    ответ = requisites.проверить_снилс(getattr(payload, "snils", ""))
+    if not ответ:
+        raise ValueError(ответ.причина)
+
+
 def create_organization(payload: OrganizationCreate) -> Organization:
+    _проверить_реквизиты_организации(payload)
     with connect() as conn:
         try:
             cur = conn.execute(
@@ -107,6 +141,7 @@ def create_organization(payload: OrganizationCreate) -> Organization:
 
 
 def update_organization(org_id: int, payload: OrganizationCreate) -> Organization:
+    _проверить_реквизиты_организации(payload)
     with connect() as conn:
         cur = conn.execute(
             "UPDATE organization SET name = ?, address = ?, phone = ?, okpo = ?, ogrn = ?, "
@@ -158,6 +193,7 @@ def list_drivers(*, include_inactive: bool = False) -> list[Driver]:
 
 
 def create_driver(payload: DriverCreate) -> Driver:
+    _проверить_реквизиты_водителя(payload)
     with connect() as conn:
         try:
             cur = conn.execute(
@@ -199,6 +235,10 @@ def update_driver(driver_id: int, payload: DriverUpdate) -> Driver:
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         return get_driver(driver_id)
+    # Только если СНИЛС действительно правят: DriverUpdate частичный, и
+    # проверять непереданное поле значило бы падать на правке одной фамилии.
+    if "snils" in changes:
+        _проверить_реквизиты_водителя(payload)
     sets, values = [], []
     for field, value in changes.items():
         if field not in _DRIVER_COLUMNS:

@@ -259,8 +259,52 @@ async function api(url, options) {
   const r = await fetch(url, options);
   if (r.status === 204) return null;
   const data = await r.json().catch(() => null);
-  if (!r.ok) throw new Error((data && data.detail) || `HTTP ${r.status}`);
+  if (!r.ok) throw new Error(_текстОшибки(data, r.status));
   return data;
+}
+
+// Замечания pydantic приходят по-английски, а тексты интерфейса в проекте
+// русские. Переводятся ровно те виды, которые дают НАШИ модели: длина строки,
+// пропущенное поле, не-число. Остальные оставляются как есть — выдуманный
+// перевод чужого текста хуже честного английского, а список видов растёт
+// вместе с pydantic, и полный словарь разошёлся бы молча.
+function _поРусски(e) {
+  const тип = e.type || "";
+  const ctx = e.ctx || {};
+  if (тип === "string_too_short") {
+    return ctx.min_length === 1 ? "заполните поле" : `не короче ${ctx.min_length} символов`;
+  }
+  if (тип === "string_too_long") return `не длиннее ${ctx.max_length} символов`;
+  if (тип === "missing") return "поле обязательно";
+  if (тип.startsWith("int_") || тип.startsWith("float_")) return "нужно число";
+  if (тип === "bool_parsing") return "нужно «да» или «нет»";
+  return e.msg || "неверное значение";
+}
+
+// Ошибка от backend'а словами. Сервисы кидают ValueError с человеческим
+// текстом, и роутер отдаёт его строкой в `detail` — это показываем как есть.
+//
+// Но pydantic на 422 кладёт в `detail` СПИСОК объектов, и прежний код
+// подставлял его в строку: на экране появлялось «[object Object]». Секретарь
+// видел это на любой опечатке в форме и не мог понять, что от него хотят.
+function _текстОшибки(data, status) {
+  const detail = data && data.detail;
+  if (typeof detail === "string" && detail) return detail;
+  if (Array.isArray(detail) && detail.length) {
+    // Имя поля в ответе техническое и английское («full_name»), показывать его
+    // секретарю незачем. Когда замечание одно, и так понятно, о чём речь —
+    // ошибка появляется рядом с только что отправленной формой. Когда их
+    // несколько, без различения не обойтись, и техническое имя
+    // оказывается меньшим злом, чем «две ошибки, догадайтесь какие».
+    if (detail.length === 1) return _поРусски(detail[0]);
+    return detail
+      .map((e) => {
+        const поле = Array.isArray(e.loc) ? e.loc[e.loc.length - 1] : "";
+        return `${поле ? поле + ": " : ""}${_поРусски(e)}`;
+      })
+      .join("; ");
+  }
+  return `Не получилось (код ${status})`;
 }
 
 function showError(e) {
