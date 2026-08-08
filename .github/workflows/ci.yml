@@ -33,10 +33,27 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Mypy
+        # Ошибки ТИПОВ не блокируют — типы добавляются постепенно. А вот
+        # неспособность mypy проверить код блокирует, и вот почему: раньше шаг
+        # стоял с голым `|| true`, и под ним пряталось то, что mypy вообще НЕ
+        # РАБОТАЛ. Он падал на стабах numpy (цель 3.11 против `type`-синтаксиса
+        # 3.12) с «errors prevented further checking», шаг оставался зелёным, и
+        # проверка типов не выполнялась месяцами.
+        #
+        # Поэтому два исхода разведены: «нашёл ошибки в нашем коде» — терпим,
+        # «не смог дойти до нашего кода» — падаем.
+        env:
+          PYTHONPATH: apps/backend/src:packages/rag/src
         run: |
-          PYTHONPATH="apps/backend/src:packages/rag/src" \
-          uv run mypy apps/backend/src packages/rag/src || true
-        # mypy warnings пока не блокирующие — постепенно добавляем типы
+          uv run mypy apps/backend/src packages/rag/src 2>&1 | tee mypy.log || true
+          if grep -qE "errors prevented further checking|INTERNAL ERROR|Cannot find implementation" mypy.log; then
+            echo "::error::mypy не смог проверить код — это поломка инструмента, а не ошибки типов"
+            exit 1
+          fi
+          if ! grep -qE "^(Success|Found [0-9]+ error)" mypy.log; then
+            echo "::error::mypy не выдал ни отчёта об успехе, ни списка ошибок — проверка не состоялась"
+            exit 1
+          fi
 
       - name: Целостность · манифест ↔ дерево
         # Приложение сверяется с integrity.json при запуске и ОТКАЗЫВАЕТСЯ

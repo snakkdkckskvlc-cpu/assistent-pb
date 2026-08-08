@@ -333,6 +333,12 @@ class HybridRetriever:
         tokens = _tokenize_query(query)
         if not tokens:
             return None
+        # _ensure_bm25 выше гарантирует, что индекс построен, но связать эти
+        # два факта проверяльщик типов не может — он видит только поле,
+        # объявленное как None в __init__. Проверка явная, чтобы отказ был
+        # понятной ошибкой, а не AttributeError где-то в недрах поиска.
+        if self._bm25 is None:  # pragma: no cover — недостижимо после _ensure_bm25
+            return None
         return self._bm25.get_scores(tokens)
 
     def _lexical_candidates(self, scores, where: dict | None, limit: int) -> list[dict]:

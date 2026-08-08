@@ -189,8 +189,11 @@ def install() -> None:
     _orig_connect = socket.socket.connect
     _orig_connect_ex = socket.socket.connect_ex
     _orig_getaddrinfo = socket.getaddrinfo
-    socket.socket.connect = _guarded_connect  # type: ignore[method-assign]
-    socket.socket.connect_ex = _guarded_connect_ex  # type: ignore[method-assign]
+    # Оба кода нужны: method-assign — про саму подмену метода, assignment —
+    # про несовпадение сигнатур (наши обёртки принимают адрес как Any, а стаб
+    # объявляет его строго). Без второго кода mypy ругался поверх ignore.
+    socket.socket.connect = _guarded_connect  # type: ignore[method-assign, assignment]
+    socket.socket.connect_ex = _guarded_connect_ex  # type: ignore[method-assign, assignment]
     socket.getaddrinfo = _guarded_getaddrinfo  # type: ignore[assignment]
     _installed = True
     log.info("Выход в интернет запрещён: разрешён только localhost")
