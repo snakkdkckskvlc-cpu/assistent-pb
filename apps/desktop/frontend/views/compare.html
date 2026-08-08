@@ -173,7 +173,21 @@
             btn.replaceWith(Object.assign(document.createElement("span"),
               { className: "hint", textContent: "Запомнено — в следующий раз сойдётся само" }));
           } catch (e) {
+            // Раньше здесь кнопка просто оживала обратно. Со стороны это
+            // выглядит как «не нажалось»: человек жмёт ещё раз, снова ничего,
+            // и уходит в уверенности, что пара запомнена. В следующей сверке
+            // она не сходится, и виноватой выглядит сверка.
+            // Соседняя ветка (ответ не 200) уже говорит об отказе — обрыв
+            // связи ничем не лучше и молчать о нём нет причины.
             btn.disabled = false;
+            // Кнопку нажмут ещё раз, и подсказка не должна размножаться:
+            // старая заменяется, а не дописывается рядом.
+            if (btn.nextElementSibling?.classList.contains("alias-fail")) {
+              btn.nextElementSibling.remove();
+            }
+            btn.after(Object.assign(document.createElement("span"),
+              { className: "hint alias-fail",
+                textContent: " Не удалось запомнить — связь прервалась, попробуйте ещё раз" }));
           }
         });
       });
