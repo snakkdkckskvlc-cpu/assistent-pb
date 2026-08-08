@@ -2,12 +2,20 @@
 
 ## Установка окружения (dev)
 
+Версия Python зависит от машины: на боевом сервере 3.12, на сборке 3.11, на
+ноутбуке разработчика 3.13. Пакеты допускают `>=3.11,<3.14` — годится любая из
+трёх. Разбор, почему их три, — в `CLAUDE.md` §3.
+
 ```bash
-# Требуется Python 3.11–3.13 и uv
+# Так собирается на GitHub. Требуется uv.
 uv sync --all-packages --dev
 ```
 
-Или без uv — через venv + pip:
+**На ноутбуке автора `uv` не установлен** — там второй способ, и все команды
+зовутся как `./venv/bin/python …`. Это не спор двух инструкций: первый способ
+для сборки, второй для машины, где идёт работа.
+
+Через venv + pip:
 
 ```bash
 python3.13 -m venv venv
@@ -37,7 +45,9 @@ tests/samples/      Демо-документы для ручного тести
 | Запустить backend локально | `PYTHONPATH=apps/backend/src:packages/rag/src uvicorn fire_safety_backend.main:app --reload` |
 | Запустить desktop | `PYTHONPATH=apps/backend/src:packages/rag/src:apps/desktop/src python -m fire_safety_desktop.main` |
 | Проиндексировать корпус | `PYTHONPATH=packages/rag/src python -m fire_safety_rag.indexer` |
-| Тесты | `PYTHONPATH=apps/backend/src:packages/rag/src pytest -q` |
+| Тесты — **полный прогон только на сборке и сервере** | `PYTHONPATH=apps/backend/src:packages/rag/src pytest -q` |
+| Тесты на ноутбуке автора — точечно, по тронутым файлам | `./venv/bin/python -m pytest apps/backend/tests/unit/test_<модуль>.py -q` |
+| Все шесть шагов сборки разом, на чистой копии, до отправки | `./venv/bin/python .claude/hooks/preflight.py` |
 | Lint | `ruff check .` |
 | Format | `ruff format .` |
 | Types | `mypy apps/backend/src packages/rag/src` |
@@ -56,6 +66,9 @@ tests/samples/      Демо-документы для ручного тести
 ## Pull Request
 
 - Тесты и линтеры должны быть зелёными (`pytest`, `ruff check`, `ruff format --check`).
+  Гоняет их сборка на GitHub — ноутбук автора полный прогон не тянет, это его
+  прямое указание. Перед отправкой запускать `.claude/hooks/preflight.py`: он
+  делает ровно те же шаги на чистой копии.
 - В `CHANGELOG.md` добавьте пункт в раздел `## [Unreleased]`.
 - Если меняется публичный API — обновите `docs/03-architecture/`.
 

@@ -1,6 +1,6 @@
 [project]
 name = "fire-safety-rag"
-version = "0.2.0"
+version = "0.10.0"
 description = "RAG-модуль по нормативной базе РФ (ChromaDB + multilingual-e5-large)"
 requires-python = ">=3.11,<3.14"
 dependencies = [

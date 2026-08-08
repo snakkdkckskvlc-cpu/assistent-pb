@@ -1,6 +1,6 @@
 [project]
 name = "fire-safety-backend"
-version = "0.2.0"
+version = "0.10.0"
 description = "FastAPI-приложение ассистента ПБ (MVC: models/views/controllers/services)"
 requires-python = ">=3.11,<3.14"
 dependencies = [

@@ -19,7 +19,9 @@
 документу (ответ только из файла, со ссылками на места в нём). Плюс история задач,
 кнопки 👍/👎, справочник адресатов.
 
-**Стек:** Python 3.12, FastAPI, Ollama (`qwen2.5:7b-instruct`), ChromaDB +
+**Стек:** Python 3.12 **на боевом сервере** (на сборке 3.11, на ноутбуке
+разработчика 3.13 — разбор в `CLAUDE.md` §3), FastAPI, Ollama
+(`qwen2.5:7b-instruct`), ChromaDB +
 `intfloat/multilingual-e5-large`, LanguageTool, SQLite. Десктопная оболочка на
 pywebview осталась, но основной режим теперь серверный.
 
