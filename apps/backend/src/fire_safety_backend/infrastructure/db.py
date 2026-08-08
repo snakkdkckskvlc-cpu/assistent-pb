@@ -63,6 +63,32 @@ CREATE TABLE IF NOT EXISTS addressees (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Подтверждённые человеком соответствия позиций для сверки таблиц.
+-- «Кабель ВВГнг 3х1,5» в смете и «Кабель ВВГ нг 3*1.5» в накладной — одна
+-- позиция, но нормализация их не склеивает: она намеренно не умеет догадок
+-- (services/table_compare.py::normalize). Человек подтверждает пару один раз,
+-- дальше движок сопоставляет молча.
+--
+-- Память ОБЩАЯ на компанию, а не личная: номенклатура одна на всех, и
+-- заставлять каждого подтверждать «кабель» заново значит не сделать ничего.
+-- Автор записан — по нему разбираются, если пара окажется ошибочной.
+--
+-- Ошибочное подтверждение молча склеивает две РАЗНЫЕ позиции навсегда, и
+-- отчёт скажет «всё сошлось» там, где не сошлось. Поэтому пары обязаны быть
+-- видимыми и отзываемыми, а цепочки (A→B, B→C) запрещены: иначе смысл пары
+-- зависит от порядка применения.
+CREATE TABLE IF NOT EXISTS compare_synonym (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Нормализованные ключи, как их считает table_compare.normalize.
+    key_from TEXT NOT NULL UNIQUE,
+    key_to TEXT NOT NULL,
+    -- Исходные написания — чтобы человек понимал, что именно он подтвердил.
+    name_from TEXT NOT NULL DEFAULT '',
+    name_to TEXT NOT NULL DEFAULT '',
+    confirmed_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS feedback (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
