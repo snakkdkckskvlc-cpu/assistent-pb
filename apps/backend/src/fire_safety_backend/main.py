@@ -24,6 +24,7 @@ from .services import transport as transport_service
 from .services import waybills as waybill_service
 from .views import (
     addressees,
+    arithmetic,
     ask,
     auth,
     batch,
@@ -163,6 +164,7 @@ def create_app() -> FastAPI:
         history,
         data,
         compare,
+        arithmetic,
         doc_flow,
         stats,
         transport,

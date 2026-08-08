@@ -98,6 +98,12 @@ class Разбор:
     колонки: dict[str, int] = field(default_factory=dict)  # роль → номер колонки, с 1
     заголовки: list[str] = field(default_factory=list)
     пропущено_итогов: int = 0
+    # Итоговые строки файла: («ИТОГО», сумма в копейках). Позициями они не
+    # считаются, но проверке арифметики нужны — с ними сверяется сумма строк.
+    итоги: list[tuple[str, int | None]] = field(default_factory=list)
+    # Весь текст листа одной строкой. Нужен, чтобы найти сумму прописью:
+    # она пишется свободным текстом где угодно, а не в колонке таблицы.
+    текст: str = ""
 
     @property
     def шапка_найдена(self) -> bool:
@@ -210,6 +216,9 @@ def read_table(path: Path, *, sheet: str | None = None) -> Разбор:
         колонки = _guess_columns(rows)
 
     разбор = Разбор(лист=лист, строка_шапки=строка_шапки, колонки=колонки)
+    разбор.текст = "\n".join(
+        " ".join(str(c) for c in row if c is not None and str(c).strip()) for row in rows
+    )
     if строка_шапки is not None:
         разбор.заголовки = [str(c or "").strip() for c in rows[строка_шапки]]
     if "название" not in колонки:
@@ -225,8 +234,10 @@ def read_table(path: Path, *, sheet: str | None = None) -> Разбор:
             continue
         if _NOT_A_POSITION.match(название):
             # Итоговая строка. Считать её позицией — значит удвоить сумму: она
-            # и так равна сумме строк выше.
+            # и так равна сумме строк выше. Но саму цифру запоминаем: с ней
+            # сверяется сумма строк в проверке арифметики.
             разбор.пропущено_итогов += 1
+            разбор.итоги.append((название, parse_number(_cell(row, колонки, "сумма"), scale=100)))
             continue
 
         разбор.строки.append(
@@ -235,6 +246,7 @@ def read_table(path: Path, *, sheet: str | None = None) -> Разбор:
                 название=название,
                 количество=parse_number(_cell(row, колонки, "количество"), scale=1000),
                 сумма=parse_number(_cell(row, колонки, "сумма"), scale=100),
+                цена=parse_number(_cell(row, колонки, "цена"), scale=100),
             )
         )
     return разбор
