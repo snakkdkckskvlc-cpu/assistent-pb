@@ -49,12 +49,42 @@
       ["/batch.html", "stack", "Пакетная проверка", "Несколько договоров разом, в конце сводный отчёт."],
     ];
 
-    document.getElementById("launch").innerHTML = LAUNCH.map(([href, ic, title, text]) => `
-      <a class="card" href="${href}">
-        <span class="card-icon">${icon(ic)}</span>
-        <h2>${escapeHtml(title)}</h2>
-        <p>${escapeHtml(text)}</p>
-      </a>`).join("");
+    // С чего начинается день у каждой роли. Экран «Сегодня» остаётся общим —
+    // он отвечает на вопрос «что происходит», одинаково нужный всем. Роль
+    // меняет только порядок плиток: секретарь не должен искать письма среди
+    // путевых листов, а механик — наоборот.
+    //
+    // Бухгалтеру пока даётся транспорт: таблицы для него (backlog §4.2) ещё не
+    // сделаны, и ставить в начало несуществующее нельзя.
+    const ROLE_FIRST = {
+      "секретарь": ["/letter.html", "/spellcheck.html"],
+      "инженер": ["/spellcheck.html", "/ask.html"],
+      "руководитель": ["/legal.html", "/batch.html"],
+      "бухгалтер": ["/transport.html", "/spellcheck.html"],
+    };
+
+    function renderLaunch(role) {
+      const first = ROLE_FIRST[role] || [];
+      const ordered = [...LAUNCH].sort((a, b) => {
+        const ia = first.indexOf(a[0]), ib = first.indexOf(b[0]);
+        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+      });
+      document.getElementById("launch").innerHTML = ordered.map(([href, ic, title, text], i) => `
+        <a class="card${i === 0 && first.length ? " primary" : ""}" href="${href}">
+          <span class="card-icon">${icon(ic)}</span>
+          <h2>${escapeHtml(title)}${i === 0 && first.length ? '<span class="card-mark">ваша работа</span>' : ""}</h2>
+          <p>${escapeHtml(text)}</p>
+        </a>`).join("");
+    }
+
+    renderLaunch("");
+    // Роль приходит вместе с учётной записью. Пока не пришла — плитки уже
+    // нарисованы в обычном порядке: экран не должен мигать пустотой из-за
+    // одного запроса.
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((d) => { if (d && d.role) renderLaunch(d.role); })
+      .catch(() => {});
 
     function fmtTime(iso) {
       const d = new Date(iso);

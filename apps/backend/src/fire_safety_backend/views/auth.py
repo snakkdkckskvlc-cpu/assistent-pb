@@ -99,7 +99,7 @@ async def api_login(payload: LoginRequest, response: Response) -> dict:
     # Запоминаем логин на этом устройстве: в следующий раз он подставится сам,
     # и сотруднику останется нажать «Вход».
     _remember_login(response, user.login)
-    return {"login": user.login, "is_admin": user.is_admin}
+    return {"login": user.login, "is_admin": user.is_admin, "role": user.role}
 
 
 @router.post("/logout")
@@ -143,6 +143,10 @@ async def api_me(request: Request) -> dict:
     return {
         "login": user.login if user else None,
         "is_admin": bool(user and user.is_admin),
+        # Кем работает — от этого зависит порядок плиток на «Сегодня». Не право
+        # доступа: роль ничего не открывает и не закрывает, только ставит
+        # нужную функцию первой.
+        "role": user.role if user else "",
         # Cookie хранится в процентном кодировании (кириллица в заголовок
         # HTTP иначе не помещается) — раскодируем перед отдачей на страницу.
         "remembered": unquote(request.cookies.get(LAST_LOGIN_COOKIE, "")),

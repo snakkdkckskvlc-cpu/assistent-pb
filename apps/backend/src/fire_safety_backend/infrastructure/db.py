@@ -97,6 +97,11 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash BLOB NOT NULL,
     salt BLOB NOT NULL,
     is_admin INTEGER NOT NULL DEFAULT 0,
+    -- Кем человек работает: секретарь, инженер, руководитель, бухгалтер.
+    -- Не права доступа, а подсказка интерфейсу, с чего начинать день. Пусто —
+    -- начальный экран как у всех; полноценная ролевая модель появится, только
+    -- если появится третья организация (docs/02-product/backlog-plan.md §3.2).
+    role TEXT NOT NULL DEFAULT '',
     disabled INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -500,6 +505,13 @@ CREATE INDEX IF NOT EXISTS idx_downtime_waybill ON downtime(waybill_id);
 # существующую таблицу НЕ трогает, поэтому у пользователей с рабочей базой
 # новые поля появятся только через ALTER TABLE.
 _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    (
+        # Учётные записи заведены задолго до ролей — столбец доезжает ALTER'ом,
+        # у всех прежних сотрудников роль пустая, и экран у них прежний.
+        "users",
+        "role",
+        "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT ''",
+    ),
     (
         # База с путевыми листами могла быть создана до появления пометок
         # автоподстановки. Старые листы получат пустое значение — это честно:

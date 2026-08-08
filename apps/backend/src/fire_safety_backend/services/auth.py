@@ -49,12 +49,14 @@ class User:
     id: int
     login: str
     is_admin: bool
+    # Кем работает — подсказка интерфейсу, а не право доступа.
+    role: str = ""
 
 
 # --- Пользователи ---
 
 
-def create_user(login: str, *, is_admin: bool = False) -> int:
+def create_user(login: str, *, is_admin: bool = False, role: str = "") -> int:
     """Заводит учётную запись. Пароля нет — см. модульный docstring."""
     login = login.strip()
     if not login:
@@ -64,10 +66,25 @@ def create_user(login: str, *, is_admin: bool = False) -> int:
             # Колонки password_hash/salt остались от прежней схемы: SQLite не
             # умеет удалять столбцы без пересоздания таблицы, а пустое значение
             # никому не мешает. Проверка пароля из кода убрана полностью.
-            "INSERT INTO users (login, password_hash, salt, is_admin) VALUES (?, ?, ?, ?)",
-            (login, b"", b"", int(is_admin)),
+            "INSERT INTO users (login, password_hash, salt, is_admin, role) VALUES (?, ?, ?, ?, ?)",
+            (login, b"", b"", int(is_admin), role),
         )
         return int(cur.lastrowid)
+
+
+# Роли, известные интерфейсу. Список закрытый: значение приходит из командной
+# строки администратора и решает, с чего начинается день у сотрудника, — опечатка
+# «инжнер» тихо вернула бы обычный экран, и разбираться пришлось бы долго.
+ROLES: tuple[str, ...] = ("секретарь", "инженер", "руководитель", "бухгалтер")
+
+
+def set_role(login: str, role: str) -> bool:
+    """Меняет роль. Пустая строка — снять роль, экран станет как у всех."""
+    if role and role not in ROLES:
+        raise ValueError(f"Неизвестная роль: {role}. Возможные: {', '.join(ROLES)}")
+    with connect() as conn:
+        cur = conn.execute("UPDATE users SET role = ? WHERE login = ?", (role, login.strip()))
+        return cur.rowcount > 0
 
 
 def set_disabled(login: str, disabled: bool) -> bool:
@@ -90,7 +107,7 @@ def set_disabled(login: str, disabled: bool) -> bool:
 def list_users() -> list[dict]:
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, login, is_admin, disabled, created_at FROM users ORDER BY login"
+            "SELECT id, login, is_admin, role, disabled, created_at FROM users ORDER BY login"
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -115,12 +132,12 @@ def authenticate(login: str) -> User | None:
         return None
     with connect() as conn:
         row = conn.execute(
-            "SELECT id, login, is_admin, disabled FROM users WHERE login = ?", (login,)
+            "SELECT id, login, is_admin, role, disabled FROM users WHERE login = ?", (login,)
         ).fetchone()
     if row is None or row["disabled"]:
         log.info("Отказ во входе: %s", login)
         return None
-    return User(id=row["id"], login=row["login"], is_admin=bool(row["is_admin"]))
+    return User(id=row["id"], login=row["login"], is_admin=bool(row["is_admin"]), role=row["role"] or "")
 
 
 def open_session(user_id: int) -> str:
@@ -142,7 +159,7 @@ def user_for_session(token: str) -> User | None:
         return None
     with connect() as conn:
         row = conn.execute(
-            "SELECT s.token, s.last_seen, u.id, u.login, u.is_admin, u.disabled "
+            "SELECT s.token, s.last_seen, u.id, u.login, u.is_admin, u.role, u.disabled "
             "FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?",
             (token,),
         ).fetchone()
@@ -158,7 +175,7 @@ def user_for_session(token: str) -> User | None:
             "UPDATE sessions SET last_seen = ? WHERE token = ?",
             (datetime.now(UTC).isoformat(), token),
         )
-    return User(id=row["id"], login=row["login"], is_admin=bool(row["is_admin"]))
+    return User(id=row["id"], login=row["login"], is_admin=bool(row["is_admin"]), role=row["role"] or "")
 
 
 def _parse_ts(raw: str) -> datetime:
